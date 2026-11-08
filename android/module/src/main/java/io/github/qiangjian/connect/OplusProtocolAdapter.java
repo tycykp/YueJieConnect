@@ -32,9 +32,15 @@ final class OplusProtocolAdapter {
     private final List<Discovery> discoveries = new ArrayList<>();
     private final Map<Long, Pending> pending = new HashMap<>();
     private final OplusPeerRegistry registry = new OplusPeerRegistry();
+    private final NativeLogicalClient logical;
+    private volatile NativeLogicalClient.Lease connected;
+    private volatile Object connectionInfo;
+    private boolean checkingChannel;
+    private final Map<Object,WeakReference<Object>> stateListeners=new java.util.WeakHashMap<>();
     private volatile boolean closed;
     private volatile Published published;
-    private Method found, lost, failure, idGetter, tempIdGetter, roleGetter, resultCode;
+    private Method found, lost, failure, success, stateChanged, optionConnection, optionChannel, idGetter, tempIdGetter, roleGetter, resultCode;
+    private Constructor<?> connectionConstructor;
     private Method optionRoles, optionDuration;
     private Constructor<?> deviceConstructor;
     private Class<?> deviceType;
@@ -43,7 +49,7 @@ final class OplusProtocolAdapter {
     private OplusRuntimeProbe probe;
 
     private record Published(String id, String session, String fingerprint, Object device) {}
-    private record Pending(OplusPeerRegistry.Ticket ticket, Object device, Object receiver, Runnable timeout) {}
+    private record Pending(OplusPeerRegistry.Ticket ticket, Object device, Object receiver, Runnable timeout,NativeLogicalClient.Lease lease) {}
     private static final class Discovery {
         final WeakReference<Object> owner, receiver;
         final Set<?> roles;
@@ -62,6 +68,7 @@ final class OplusProtocolAdapter {
         this.client = client;
         this.loader = loader;
         this.allowed = allowed;
+        this.logical=new NativeLogicalClient(client);
     }
 
     void install() throws ReflectiveOperationException {
@@ -69,12 +76,14 @@ final class OplusProtocolAdapter {
             resolve();
             installDiscovery();
             installConnections();
+            installLogicalRouteSelection();
             deviceKit = new OplusDeviceKitAdapter(module, client, loader, allowed, () -> currentProjection);
             deviceKit.install();
             probe = new OplusRuntimeProbe(module, loader, allowed, () -> currentProjection);
             probe.install();
             client.onProjection(value -> main.post(() -> update(value)));
             main.post(() -> update(client.projection()));
+            main.post(channelMonitor);
             log("oplus_adapter_installed");
         } catch (ReflectiveOperationException | RuntimeException error) {
             close();
@@ -93,6 +102,11 @@ final class OplusProtocolAdapter {
         found = discovery.getMethod("onDeviceFound", deviceType);
         lost = discovery.getMethod("onDeviceLost", deviceType);
         failure = type(BASE + "GlobalDeviceConnectionCallback").getMethod("onConnectionFailure", deviceType, Throwable.class);
+        success=type(BASE+"GlobalDeviceConnectionCallback").getMethod("onConnectionSuccess",deviceType,type(BASE+"GlobalDeviceConnectionInfo"));
+        stateChanged=type(BASE+"DisplayDeviceChangedCallback").getMethod("onChanged",deviceType,deviceType);
+        optionConnection=type(BASE+"GlobalDeviceConnectOptions").getMethod("getConnectionType");
+        optionChannel=type(BASE+"GlobalDeviceConnectOptions").getMethod("getChannelType");
+        connectionConstructor=type(BASE+"GlobalDeviceConnectionInfo").getConstructor(type("com.oplus.pantaconnect.sdk.connection.ConnectionType"),type(BASE+"ChannelType"),String.class,String.class,String.class,type("com.oplus.pantaconnect.sdk.connection.VLinkType"));
         resultCode = type("com.oplus.pantaconnect.sdk.SealedResult").getMethod("getResultCodeValue");
         Class<?> options = type(BASE + "DeviceDiscoveryOptions");
         optionRoles = options.getMethod("getDeviceTypes");
@@ -149,8 +163,10 @@ final class OplusProtocolAdapter {
                     String target = id(device);
                     if (!registry.owns(target)) return chain.proceed();
                     Object receiver = chain.getArg(2);
+                    String connection=((Enum<?>)optionConnection.invoke(chain.getArg(1))).name(),channel=((Enum<?>)optionChannel.invoke(chain.getArg(1))).name();
                     main.post(() -> {
                         if (!matchesSession(device)) fail(receiver, device, "stale_session");
+                        else if(!"WLAN".equals(connection)||!"CHANNEL_TYPE_LOGICAL".equals(channel))fail(receiver,device,"unsupported_transport_type");
                         else request(target, device, receiver);
                     });
                     return null;
@@ -164,12 +180,7 @@ final class OplusProtocolAdapter {
                     if (!registry.owns(target)) return chain.proceed();
                     if (!matchesSession(device)) return CompletableFuture.failedFuture(new IllegalStateException("QJ:stale_session"));
                     CompletableFuture<Boolean> result = new CompletableFuture<>();
-                    main.post(() -> {
-                        boolean existed = pending.values().stream().anyMatch(item -> item.ticket().id().equals(target));
-                        cancel(target, "cancelled"); result.complete(existed);
-                    });
-                    // No native connection is opened by this profile-only version. This acknowledges
-                    // cancellation of this adapter's pending local request, not remote business.
+                    main.post(() -> closeRemote(target,"cancelled",result));
                     return result;
                 }));
         handles.add(module.hook(service.getMethod("closeConnection", deviceType, options))
@@ -178,8 +189,8 @@ final class OplusProtocolAdapter {
                     String target = id(device);
                     if (!registry.owns(target)) return chain.proceed();
                     if (!matchesSession(device)) return CompletableFuture.failedFuture(new IllegalStateException("QJ:stale_session"));
-                    main.post(() -> cancel(target, "connection_closed"));
-                    return CompletableFuture.completedFuture(false); // No native connection exists.
+                    CompletableFuture<Boolean> result=new CompletableFuture<>();
+                    main.post(()->closeRemote(target,"connection_closed",result));return result;
                 }));
         handles.add(module.hook(clients.getMethod("confirmConnection", deviceType, type(BASE + "PairAction"), type(BASE + "ConfirmType")))
                 .setId("qj.oplus.connection.confirm").intercept(chain -> {
@@ -187,30 +198,111 @@ final class OplusProtocolAdapter {
                     if (!registry.owns(target)) return chain.proceed();
                     if (!matchesSession(chain.getArg(0))) { log("oplus_stale_confirmation_ignored"); return null; }
                     String action = ((Enum<?>) chain.getArg(1)).name();
-                    main.post(() -> cancel(target, "REJECT".equals(action) ? "permission_denied" : "native_auth_unavailable"));
+                    if("REJECT".equals(action))main.post(()->closeRemote(target,"permission_denied",new CompletableFuture<>()));
                     return null;
                 }));
+        handles.add(module.hook(service.getMethod("getConnectionList",String.class,type("com.oplus.pantaconnect.sdk.connection.ConnectionType")))
+            .setId("qj.oplus.connection.list").intercept(chain->{
+                if(!registry.owns((String)chain.getArg(0)))return chain.proceed();
+                Object filter=chain.getArg(1);Object info=connectionInfo;
+                boolean wlan=filter==null||"WLAN".equals(((Enum<?>)filter).name());
+                return CompletableFuture.completedFuture(wlan&&currentChannel()&&info!=null?List.of(info):Collections.emptyList());
+            }));
+        handles.add(module.hook(service.getMethod("registerDisplayDeviceStateListener",type(BASE+"DisplayDeviceChangedCallback")))
+            .setId("qj.oplus.connection.listen").intercept(chain->{Object result=chain.proceed();Object owner=chain.getThisObject(),listener=chain.getArg(0);main.post(()->stateListeners.put(owner,new WeakReference<>(listener)));return result;}));
+        handles.add(module.hook(service.getMethod("unregisterDisplayDeviceStateListener"))
+            .setId("qj.oplus.connection.unlisten").intercept(chain->{Object result=chain.proceed();Object owner=chain.getThisObject();main.post(()->stateListeners.remove(owner));return result;}));
     }
 
     private void request(String target, Object device, Object receiver) {
         if (closed || !allowed.getAsBoolean() || !registry.owns(target)) {
             fail(receiver, device, "peer_offline"); return;
         }
+        if(currentChannel()){
+            NativeLogicalClient.Lease live=connected;
+            logical.state(live).whenComplete((open,error)->{
+                // A late state result belongs to its old channel, never the replacement lease.
+                if(connected!=live){fail(receiver,device,"native_channel_unavailable");return;}
+                if(error==null&&Boolean.TRUE.equals(open)&&matchesSession(device))notify(receiver,success,device,connectionInfo);
+                else{clearConnection();fail(receiver,device,"native_channel_unavailable");}
+            });
+            return;
+        }
+        if(!pending.isEmpty()){fail(receiver,device,"busy");return;}
         final OplusPeerRegistry.Ticket ticket;
         try { ticket = registry.begin(target); }
         catch (IllegalStateException error) { fail(receiver, device, error.getMessage()); return; }
-        Runnable timeout = () -> complete(ticket, "timeout");
-        pending.put(ticket.number(), new Pending(ticket, device, receiver, timeout));
+        final NativeLogicalClient.Lease lease;
+        try{lease=logical.allocate(target,currentProjection.getString("session_id"));}catch(JSONException|RuntimeException unavailable){registry.finish(ticket);fail(receiver,device,"stale_session");return;}
+        Runnable timeout = () -> {logical.close(lease);complete(ticket, "timeout");};
+        pending.put(ticket.number(), new Pending(ticket, device, receiver, timeout,lease));
         main.postDelayed(timeout, 10_000);
-        client.queryRealPeer(target, response -> {
-            String error = response == null ? "peer_offline" : response.optString("code", "remote_error");
-            if (response != null && "ok".equals(response.optString("status"))) {
-                log("oplus_remote_profile_verified_native_business_unavailable");
-                error = "native_business_unavailable";
-            }
-            complete(ticket, error);
+        logical.open(lease).whenComplete((open,error) -> {
+            if(error!=null||!Boolean.TRUE.equals(open)){logical.close(lease);complete(ticket,error==null?"native_channel_unavailable":safeError(error));return;}
+            Pending item=pending.remove(ticket.number());
+            if(item==null||!registry.finish(ticket)||!matchesSession(device)){logical.close(lease);return;}
+            main.removeCallbacks(item.timeout());
+            try{
+                String address=lease.transportAddress();int split=address.lastIndexOf(':');String ip=split>0?address.substring(0,split):"";
+                if(!ip.matches("[0-9.]+"))throw new IllegalStateException("transport_address_unavailable");
+                Object info=connectionConstructor.newInstance(enumeration("com.oplus.pantaconnect.sdk.connection.ConnectionType","WLAN"),enumeration(BASE+"ChannelType","CHANNEL_TYPE_LOGICAL"),"",ip,"",enumeration("com.oplus.pantaconnect.sdk.connection.VLinkType","WLAN"));
+                connected=lease;connectionInfo=info;
+                if(!currentChannel())throw new IllegalStateException("native_channel_unavailable");
+                refreshConnectionState();
+                if(!notify(receiver,success,published.device(),info)){clearConnection();logical.close(lease);}
+                else log("oplus_logical_channel_open_remote_ack");
+            }catch(ReflectiveOperationException|RuntimeException failure){logical.close(lease);clearConnection();fail(receiver,device,"native_channel_setup_failed");}
         });
     }
+
+    /** The sampled UI hardcodes PAD to Bluetooth. For our exact LAN-bound peer, select the
+     * implemented WLAN logical path while retaining PAD/PHONE, account state and OEM flags. */
+    private void installLogicalRouteSelection() throws ReflectiveOperationException {
+        Class<?> options=type(BASE+"GlobalDeviceConnectOptions");
+        Method copy=options.getMethod("copy",type("com.oplus.pantaconnect.sdk.connection.ConnectionType"),type(BASE+"ChannelType"),type(BASE+"OptionExtensionArgs"),type(BASE+"DirectDecision"));
+        Method extra=options.getMethod("getExtra"),direct=options.getMethod("getDirectDecision");
+        Class<?> utility=type("com.oplus.linker.synergy.wiseconnect.senseless.SenselessConnectionUtil");
+        handles.add(module.hook(utility.getDeclaredMethod("deviceConnectOptions",Boolean.class,deviceType)).setId("qj.oplus.logical.route").intercept(chain->{
+            Object original=chain.proceed(),device=chain.getArg(1);
+            if(!registry.owns(id(device))||!matchesSession(device)||!supports(client.projection(),"logical_open"))return original;
+            return copy.invoke(original,enumeration("com.oplus.pantaconnect.sdk.connection.ConnectionType","WLAN"),enumeration(BASE+"ChannelType","CHANNEL_TYPE_LOGICAL"),extra.invoke(original),direct.invoke(original));
+        }));
+        Class<?> page=type("com.oplus.linker.synergy.ui.fragment.DeviceConnectPreferenceFragment");
+        java.lang.reflect.Field selected=page.getDeclaredField("mONetDevice");selected.setAccessible(true);
+        handles.add(module.hook(page.getDeclaredMethod("isLanDevice",deviceType)).setId("qj.oplus.logical.ui.route").intercept(chain->{
+            Object device=chain.getArg(0);if(registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
+            return chain.proceed();
+        }));
+        handles.add(module.hook(page.getDeclaredMethod("isWlanType",type("com.oplus.pantaconnect.sdk.DeviceType"))).setId("qj.oplus.logical.ui.type").intercept(chain->{
+            Object device=selected.get(chain.getThisObject());if(registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
+            return chain.proceed();
+        }));
+    }
+
+    private static String safeError(Throwable failure){String message=failure.getMessage();return message!=null&&message.matches("[a-z_]{1,64}")?message:"remote_error";}
+    private static boolean supports(JSONObject projection,String operation){if(projection==null)return false;var ops=projection.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)if(operation.equals(ops.optString(i)))return true;return false;}
+    private boolean currentChannel(){return !closed&&allowed.getAsBoolean()&&logical.current(connected);}
+    private void refreshConnectionState(){
+        Published old=published;if(old==null||currentProjection==null)return;
+        try{Published next=new Published(old.id(),old.session(),old.fingerprint(),build(currentProjection));published=next;for(WeakReference<Object> listener:stateListeners.values()){Object callback=listener.get();if(callback!=null)notify(callback,stateChanged,old.device(),next.device());}}
+        catch(ReflectiveOperationException|JSONException failure){log("oplus_connection_state_failed");}
+    }
+    private void clearConnection(){boolean existed=connected!=null;connected=null;connectionInfo=null;if(existed)refreshConnectionState();}
+    private void closeRemote(String target,String reason,CompletableFuture<Boolean> result){
+        ArrayList<NativeLogicalClient.Lease> leases=new ArrayList<>();
+        for(Pending item:new ArrayList<>(pending.values()))if(item.ticket().id().equals(target)){leases.add(item.lease());complete(item.ticket(),reason);}
+        if(connected!=null&&target.equals(connected.peer()))leases.add(connected);
+        clearConnection();registry.cancel(target);
+        if(leases.isEmpty()){result.complete(true);return;} // This adapter has created no remote channel.
+        CompletableFuture<?>[] closing=leases.stream().map(logical::close).toArray(CompletableFuture[]::new);
+        CompletableFuture.allOf(closing).whenComplete((ignored,error)->{if(error==null)result.complete(true);else result.completeExceptionally(error);});
+    }
+    private final Runnable channelMonitor=new Runnable(){public void run(){
+        if(closed)return;
+        if(currentChannel()&&!checkingChannel){checkingChannel=true;NativeLogicalClient.Lease lease=connected;logical.state(lease).whenComplete((open,error)->{checkingChannel=false;if(connected==lease&&(error!=null||!Boolean.TRUE.equals(open)))clearConnection();});}
+        else if(connected!=null&&!currentChannel())clearConnection();
+        main.postDelayed(this,2000);
+    }};
 
     private void complete(OplusPeerRegistry.Ticket ticket, String error) {
         Pending item = pending.remove(ticket.number());
@@ -222,9 +314,10 @@ final class OplusProtocolAdapter {
 
     private void cancel(String target, String reason) {
         for (Pending item : new ArrayList<>(pending.values())) {
-            if (item.ticket().id().equals(target)) complete(item.ticket(), reason);
+            if (item.ticket().id().equals(target)){logical.close(item.lease());complete(item.ticket(), reason);}
         }
         registry.cancel(target);
+        if(connected!=null&&target.equals(connected.peer())){logical.close(connected);clearConnection();}
     }
 
     private void register(Object owner, Object receiver, Set<?> roles, long duration) {
@@ -302,8 +395,8 @@ final class OplusProtocolAdapter {
         if (projection.getInt("sdk_device_type") != (kind.equals("tablet") ? 10 : 8)) throw new JSONException("invalid role");
         String target = projection.getString("id");
         return deviceConstructor.newInstance(target, "qj-session:" + projection.getString("session_id"), enumeration("com.oplus.pantaconnect.sdk.DeviceType", kind.equals("tablet") ? "PAD" : "PHONE"),
-                real.getString("name"), enumeration(BASE + "DeviceState", "DISCOVERED"), enumeration(BASE + "AccountState", "NO_ACCOUNT"),
-                false, 0, Collections.emptyList(), 0, real.getString("model"), enumeration("com.oplus.pantaconnect.sdk.discovery.DiscoveryStrategy", "LAN"),
+                real.getString("name"), enumeration(BASE + "DeviceState", currentChannel()?"CONNECTED":"DISCOVERED"), enumeration(BASE + "AccountState", "NO_ACCOUNT"),
+                false, 0, currentChannel()?List.of(enumeration("com.oplus.pantaconnect.sdk.connection.ConnectionType","WLAN")):Collections.emptyList(), 0, real.getString("model"), enumeration("com.oplus.pantaconnect.sdk.discovery.DiscoveryStrategy", "LAN"),
                 "", enumeration("com.oplus.pantaconnect.sdk.connection.VLinkType", "WLAN"), "");
     }
 

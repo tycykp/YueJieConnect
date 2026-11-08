@@ -23,6 +23,9 @@ final class OplusClipboardAdapter {
     interface Transport {
         boolean ready(JSONObject projection);
         CompletableFuture<Receipt> write(String id, String session, String request, String text);
+        default CompletableFuture<Boolean> cancel(String id, String session, String request) {
+            return CompletableFuture.completedFuture(false);
+        }
     }
     record Receipt(String id, String session, String request, int utf8Bytes) {}
     private static final String CONSUMER = "com.oplus.linker.synergy.wisetransfer.clipboard.icdf.consumer.";
@@ -35,9 +38,11 @@ final class OplusClipboardAdapter {
     private final List<HookHandle> hooks = new ArrayList<>();
     private final Map<Object, Binding> consumers = new WeakHashMap<>();
     private final AtomicLong serial = new AtomicLong();
+    private final String requestPrefix = "oplus-clip-" + java.util.UUID.randomUUID().toString().replace("-", "") + "-";
     private OplusClipboardEndpoint endpoint;
     private Method initSuccess;
     private OplusClipboardNativeResult nativeResult;
+    private OplusClipboardPhoneSource phoneSource;
     private volatile boolean closed;
     private volatile CompletableFuture<Receipt> lastTransfer;
 
@@ -104,7 +109,7 @@ final class OplusClipboardAdapter {
                         byte[] source = (byte[]) chain.getArg(0);
                         byte[] copy = source == null || source.length > OplusClipboardCodec.MAX_BYTES ? null : source.clone();
                         main.post(() -> {
-                            if (binding.transfer != null && !binding.transfer.isDone()) log("clipboard_busy");
+                            if (binding.transfer != null && !binding.transfer.isDone()) notifyFailure(binding, "clipboard_busy");
                             else if (copy == null) reject(binding, "invalid_payload");
                             else send(binding, copy);
                         });
@@ -125,6 +130,9 @@ final class OplusClipboardAdapter {
                         main.post(() -> abandon(binding, "consumer_closed"));
                         return null;
                     }));
+            phoneSource = new OplusClipboardPhoneSource(module, loader, allowed, projection, transport,
+                    transfer -> lastTransfer = transfer);
+            phoneSource.install();
         } catch (ReflectiveOperationException | RuntimeException error) { close(); throw error; }
     }
 
@@ -137,14 +145,14 @@ final class OplusClipboardAdapter {
 
     private void send(Binding binding, byte[] bytes) {
         if (!binding.initialized || !current(binding)) { reject(binding, "clipboard_peer_unavailable"); return; }
-        if (binding.transfer != null && !binding.transfer.isDone()) { log("clipboard_busy"); return; }
+        if (binding.transfer != null && !binding.transfer.isDone()) { notifyFailure(binding, "clipboard_busy"); return; }
         try {
             String text = bytes == null ? endpoint.readText() : OplusClipboardCodec.decode(0, 0, bytes);
             int count = OplusClipboardCodec.encode(text).length;
             Object consumer = binding.consumer.get();
             if (consumer == null) { reject(binding, "consumer_closed"); return; }
             Object nativeObserver = nativeResult.observer(consumer);
-            String request = "oplus-clip-" + serial.incrementAndGet();
+            String request = requestPrefix + serial.incrementAndGet();
             CompletableFuture<Receipt> completion = new CompletableFuture<>();
             lastTransfer = completion;
             binding.transfer = completion;
@@ -152,12 +160,16 @@ final class OplusClipboardAdapter {
             main.postDelayed(timeout, 12_000);
             completion.whenComplete((ignored, error) -> {
                 main.removeCallbacks(timeout);
+                if (error != null) {
+                    try { transport.cancel(binding.id, binding.session, request); }
+                    catch (RuntimeException ignoredCancel) { log("clipboard_cancel_unavailable"); }
+                }
                 main.post(() -> {
                     try { nativeResult.deliver(nativeObserver, error); }
                     catch (ReflectiveOperationException | RuntimeException callbackFailure) { log("clipboard_native_result_failed"); }
                 });
             });
-            transport.write(binding.id, binding.session, request, text).whenComplete((receipt, error) -> main.post(() -> {
+            try { transport.write(binding.id, binding.session, request, text).whenComplete((receipt, error) -> main.post(() -> {
                 if (completion.isDone()) return;
                 if (!current(binding)) completion.completeExceptionally(new IllegalStateException("stale_session"));
                 else if (error != null) completion.completeExceptionally(error);
@@ -166,17 +178,29 @@ final class OplusClipboardAdapter {
                     completion.completeExceptionally(new IllegalStateException("invalid_remote_receipt"));
                 else completion.complete(receipt);
                 log(completion.isCompletedExceptionally() ? "clipboard_remote_write_failed" : "clipboard_remote_write_verified");
-            }));
+            })); } catch (RuntimeException failure) {
+                completion.completeExceptionally(new IllegalStateException("clipboard_transport_failed"));
+            }
         } catch (ReflectiveOperationException | RuntimeException error) {
             reject(binding, error instanceof SecurityException ? "permission_denied" : "clipboard_payload_unavailable");
         }
     }
 
     private void reject(Binding binding, String error) {
-        if (binding.transfer != null && !binding.transfer.isDone())
-            binding.transfer.completeExceptionally(new IllegalStateException(error));
-        binding.transfer = CompletableFuture.failedFuture(new IllegalStateException(error));
-        lastTransfer = binding.transfer;
+        // A second rejected invocation must not complete or replace the first request.
+        notifyFailure(binding, error);
+        if (binding.transfer == null || binding.transfer.isDone()) {
+            binding.transfer = CompletableFuture.failedFuture(new IllegalStateException(error));
+            lastTransfer = binding.transfer;
+        }
+    }
+
+    private void notifyFailure(Binding binding, String error) {
+        Object consumer = binding.consumer.get();
+        if (consumer != null && nativeResult != null) {
+            try { nativeResult.deliver(nativeResult.observer(consumer), new IllegalStateException(error)); }
+            catch (ReflectiveOperationException | RuntimeException failure) { log("clipboard_native_result_failed"); }
+        }
         log(error);
     }
 
@@ -196,7 +220,9 @@ final class OplusClipboardAdapter {
     }
 
     CompletableFuture<Receipt> lastTransfer() { return lastTransfer; }
+    void updateSource(Context context, boolean authorized) { if (phoneSource != null) phoneSource.update(context, authorized); }
     void sessionChanged() {
+        if (phoneSource != null) phoneSource.sessionChanged();
         main.post(() -> {
             synchronized (consumers) {
                 for (Binding binding : consumers.values()) if (!current(binding)) abandon(binding, "stale_session");
@@ -206,6 +232,7 @@ final class OplusClipboardAdapter {
     }
     void close() {
         closed = true;
+        if (phoneSource != null) phoneSource.close();
         for (HookHandle hook : hooks) hook.unhook();
         hooks.clear();
         main.post(() -> {

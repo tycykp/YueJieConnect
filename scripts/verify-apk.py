@@ -2,6 +2,7 @@
 import hashlib
 import json
 import struct
+import re
 import zipfile
 from pathlib import Path
 
@@ -13,7 +14,7 @@ with zipfile.ZipFile(apk) as z:
     prop = dict(line.split('=', 1) for line in z.read('META-INF/xposed/module.prop').decode().splitlines() if '=' in line)
     assert prop['minApiVersion'] == prop['targetApiVersion'] == '102'
     assert prop['autoHotReload'] == 'false'
-    assert set(z.read('META-INF/xposed/scope.list').decode().splitlines()) == {'com.milink.service', 'com.oplus.linker'}
+    assert set(z.read('META-INF/xposed/scope.list').decode().splitlines()) == {'com.milink.service', 'com.oplus.linker', 'com.xiaomi.mirror', 'com.coloros.findmyphone', 'com.oplus.cast'}
     libs = [n for n in z.namelist() if n.endswith('.so')]
     assert libs == ['lib/arm64-v8a/libqj_jni.so'], libs
     info = z.getinfo(libs[0])
@@ -38,9 +39,23 @@ with zipfile.ZipFile(apk) as z:
     lib_offset = info.header_offset + 30 + name_len + extra_len
     assert lib_offset % 16384 == 0
     assert 'assets/xposed_init' not in z.namelist()
+    runtime_digest = hashlib.sha256()
+    runtime_files = [p for directory in ['android/module/src/main','core/src','native/src','transport/src']
+                     for p in (root / directory).rglob('*') if p.is_file()]
+    runtime_files += [root / name for name in ['android/module/build.gradle.kts','Cargo.lock',
+                      'core/Cargo.toml','native/Cargo.toml','transport/Cargo.toml']]
+    for path in sorted(runtime_files, key=lambda p: p.relative_to(root).as_posix()):
+        runtime_digest.update(path.relative_to(root).as_posix().encode())
+        runtime_digest.update(b'\0')
+        runtime_digest.update(path.read_bytes())
+        runtime_digest.update(b'\0')
+    runtime_sha = runtime_digest.hexdigest()
+    generated = (root / 'android/module/build/generated/source/buildConfig/debug/io/github/qiangjian/connect/BuildConfig.java').read_text()
+    assert re.search(r'RUNTIME_INPUT_SHA = "([a-f0-9]{64})"', generated).group(1) == runtime_sha, 'Production inputs changed after Gradle configuration'
+    assert any(runtime_sha.encode() in z.read(name) for name in z.namelist() if name.endswith('.dex')), 'Runtime revision absent from APK DEX'
 result = dict(apk=str(apk.relative_to(root)), bytes=apk.stat().st_size,
               sha256=hashlib.sha256(apk.read_bytes()).hexdigest(),
               lib_sha256=hashlib.sha256(elf).hexdigest(), lib_zip_offset=lib_offset,
-              elf_load_alignments=aligns, api=102, abi='arm64-v8a')
+              elf_load_alignments=aligns, api=102, abi='arm64-v8a', runtime_input_sha=runtime_sha)
 (root / 'build/apk-verification.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
 print(json.dumps(result, indent=2))

@@ -19,28 +19,67 @@ public final class DiscoveryModule extends XposedModule {
     private boolean installed;
     private String processName;
     private ProjectionHooks projectionHooks;
+    private ClipboardBridge clipboardBridge;
+    private FileTransferBridge fileBridge;
+    private ClipboardUriBridge clipboardUris;
+    private DeviceFinderBinding finderBinding;
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
         client=new BridgeClient();
         processName=param.getProcessName();
-        log(Log.INFO,TAG,"module_loaded api="+getApiVersion()+" process="+param.getProcessName());
+        log(Log.INFO,TAG,"module_loaded api="+getApiVersion()+" process="+param.getProcessName()+" runtime="+BridgeClient.runtimeRevision());
     }
     @Override public void onPackageReady(PackageReadyParam param) {
         String pkg=param.getPackageName();
+        boolean mirror=CallerPolicy.MIRROR.equals(pkg);
+        boolean finder=CallerPolicy.OPLUS_FINDER.equals(pkg),cast=CallerPolicy.OPLUS_CAST.equals(pkg);
+        if((finder||cast)&&!pkg.equals(processName))return;
+        if(mirror&&!CallerPolicy.MIRROR.equals(processName))return;
         if(CallerPolicy.XIAOMI.equals(pkg)&&!"com.milink.service:core".equals(processName)&&!"com.milink.service:ui".equals(processName))return;
         if(installed || getApiVersion()<102 || !param.isFirstPackage()
-                || !(CallerPolicy.XIAOMI.equals(pkg)||CallerPolicy.OPLUS.equals(pkg))) return;
+                || !(CallerPolicy.XIAOMI.equals(pkg)||CallerPolicy.OPLUS.equals(pkg)||mirror||finder||cast)) return;
         installed=true;
         try {
-            int expected=CallerPolicy.XIAOMI.equals(pkg)?1:2;
+            int expected=CallerPolicy.XIAOMI.equals(pkg)||mirror?1:2;
             ClassLoader cl=param.getClassLoader();
             handles.add(hook(Application.class.getDeclaredMethod("attach",Context.class))
                 .setId("qj.context").intercept(chain->{
                     Object result=chain.proceed();
                     Context context=(Context)chain.getArg(0);
                     if(pkg.equals(context.getPackageName())) {
-                        allowed=CallerVerifier.verify(context.getPackageManager(),Process.myUid())==expected;
+                        allowed=mirror?CallerVerifier.mirrorUid(context.getPackageManager())==Process.myUid():CallerVerifier.verify(context.getPackageManager(),Process.myUid())==expected;
                         if(allowed) {
                             client.attach(context);
+                            if(finder||(expected==1&&"com.milink.service:core".equals(processName))){
+                                Application app=(Application)chain.getThisObject();
+                                handles.add(hook(app.getClass().getMethod("onCreate")).setId("qj.finder.lifecycle").intercept(create->{
+                                    Object created=create.proceed();
+                                    if(allowed&&finderBinding==null)try{
+                                        client.attach(app);
+                                        finderBinding=new DeviceFinderBinding(client,cl,expected,this);
+                                        log(Log.INFO,TAG,"finder_binding_installed source="+expected);
+                                    }catch(Exception failure){log(Log.WARN,TAG,"finder_binding_unavailable "+failure.getClass().getSimpleName());}
+                                    return created;
+                                }));
+                            }
+                            if(mirror||(expected==2&&"com.oplus.linker:app".equals(processName)))try {
+                                clipboardBridge=new ClipboardBridge(this,client,cl,()->allowed,expected);
+                                clipboardBridge.install(context);
+                                log(Log.INFO,TAG,"clipboard_bridge_installed source="+expected);
+                            }catch(ReflectiveOperationException|RuntimeException clipboardFailure){
+                                if(clipboardBridge!=null)clipboardBridge.close();
+                                log(Log.WARN,TAG,"clipboard_bridge_unavailable "+clipboardFailure.getClass().getSimpleName());
+                            }
+                            // ClipboardProvider has no manifest process override. URI/File hooks
+                            // must live in Linker's default process; plain/HTML stays in :app.
+                            if(mirror||(expected==2&&CallerPolicy.OPLUS.equals(processName)))try{
+                                fileBridge=new FileTransferBridge(context,client,()->allowed);
+                                clipboardUris=new ClipboardUriBridge(this,context,cl,client,()->allowed,expected,fileBridge);
+                                log(Log.INFO,TAG,"file_uri_bridges_installed source="+expected);
+                            }catch(java.io.IOException|ReflectiveOperationException|RuntimeException fileFailure){
+                                if(clipboardUris!=null)clipboardUris.close();
+                                if(fileBridge!=null)fileBridge.close();
+                                log(Log.WARN,TAG,"file_uri_bridges_unavailable "+fileFailure.getClass().getSimpleName());
+                            }
                             if(expected==1&&"com.milink.service:core".equals(processName))try {
                                 // This class is absent from release builds. It only triggers the native read-only API.
                                 Class.forName("io.github.qiangjian.connect.XiaomiNativeProfileProbe",false,getClass().getClassLoader())
@@ -54,6 +93,17 @@ public final class DiscoveryModule extends XposedModule {
                     }
                     return result;
                 }));
+            if(mirror){
+                android.os.IBinder proof=VendorProcessProof.endpoint(client::context,()->allowed);
+                handles.add(hook(Class.forName(VendorProcessProof.SERVICE,false,cl).getDeclaredMethod("onBind",android.content.Intent.class))
+                    .setId("qj.mirror.process.proof").intercept(chain->{
+                        android.content.Intent intent=(android.content.Intent)chain.getArg(0);
+                        if(intent!=null&&VendorProcessProof.ACTION.equals(intent.getAction()))return allowed?proof:null;
+                        return chain.proceed();
+                    }));
+                return;
+            }
+            if(finder||cast)return; // Each package has its own business classes, not linker discovery.
             if(expected==1&&"com.milink.service:ui".equals(processName)){
                 projectionHooks=new ProjectionHooks(this,client,expected,cl,()->allowed);projectionHooks.install();
                 return;

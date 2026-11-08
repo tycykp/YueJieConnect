@@ -4,6 +4,13 @@ use sha2::{Digest, Sha256};
 
 pub mod battery;
 pub mod bridge;
+pub mod executor;
+pub mod file_session;
+pub mod file_transfer;
+pub mod media_channel;
+pub mod media_control;
+pub mod notification;
+pub mod relay;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

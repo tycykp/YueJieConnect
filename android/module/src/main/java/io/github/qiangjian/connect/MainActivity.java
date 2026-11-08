@@ -56,14 +56,33 @@ public final class MainActivity extends Activity {
             networkCommand(new JSONObject().put("op","bridge_connect").put("address",remote).toString());}catch(org.json.JSONException ignored){}});
         confirm=button(layout,R.string.confirm_pair,()->{
             final String selectedSession=session,selectedCode=code;
+            LinearLayout consent=new LinearLayout(this);consent.setOrientation(LinearLayout.VERTICAL);consent.setPadding(pad,pad,pad,pad);
+            TextView prompt=new TextView(this);prompt.setText("请在两台设备上核对：\n\n"+selectedCode+"\n\n两端必须完全一致。确认后共享设备资料，并允许勾选的本次会话功能。断开即撤销。");consent.addView(prompt);
+            android.widget.CheckBox batteryConsent=new android.widget.CheckBox(this);batteryConsent.setText("电量与充电方式查询");batteryConsent.setChecked(true);consent.addView(batteryConsent);
+            android.widget.CheckBox clipboardConsent=new android.widget.CheckBox(this);clipboardConsent.setText("纯文本剪贴板同步（最多4096字节）");clipboardConsent.setChecked(true);consent.addView(clipboardConsent);
+            android.widget.CheckBox richClipboardConsent=new android.widget.CheckBox(this);richClipboardConsent.setText("富文本剪贴板同步（文本与HTML共4096字节）");consent.addView(richClipboardConsent);
+            android.widget.CheckBox finderConsent=new android.widget.CheckBox(this);finderConsent.setText("响铃查找设备（最长30秒）");consent.addView(finderConsent);
+            android.widget.CheckBox notificationConsent=new android.widget.CheckBox(this);notificationConsent.setText("同步所选应用的系统通知与撤回");consent.addView(notificationConsent);
+            android.widget.CheckBox notificationActionConsent=new android.widget.CheckBox(this);notificationActionConsent.setText("允许操作所同步的通知（打开、回复、关闭）");consent.addView(notificationActionConsent);
+            android.widget.CheckBox fileConsent=new android.widget.CheckBox(this);fileConsent.setText("文件传输（每次收件仍需原生操作确认）");consent.addView(fileConsent);
+            android.widget.CheckBox uriConsent=new android.widget.CheckBox(this);uriConsent.setText("文件剪贴板（在对端粘贴时传输）");consent.addView(uriConsent);
+            android.widget.CheckBox relayConsent=new android.widget.CheckBox(this);relayConsent.setText("应用接力");consent.addView(relayConsent);
+            android.widget.CheckBox screenConsent=new android.widget.CheckBox(this);screenConsent.setText("投屏（每次仍需原厂录屏许可）");consent.addView(screenConsent);
+            android.widget.CheckBox mediaConsent=new android.widget.CheckBox(this);mediaConsent.setText("投屏期间的媒体与音量控制");consent.addView(mediaConsent);
+            android.widget.CheckBox cameraConsent=new android.widget.CheckBox(this);cameraConsent.setText("相机共享（每次单独确认）");consent.addView(cameraConsent);
+            ScrollView consentScroll=new ScrollView(this);consentScroll.addView(consent);
             new AlertDialog.Builder(this).setTitle(R.string.compare_title)
-                .setMessage("请在两台设备上核对：\n\n"+selectedCode+"\n\n两端必须完全一致。分别确认后允许共享设备资料，以及本会话内的电量和充电方式查询。")
+                .setView(consentScroll)
                 .setNegativeButton(android.R.string.cancel,null)
-                .setPositiveButton(R.string.confirm_yes,(d,w)->{try{request(new JSONObject().put("op","bridge_confirm").put("session",selectedSession).toString(),false);}catch(org.json.JSONException ignored){}}).show();
+                .setPositiveButton(R.string.confirm_yes,(d,w)->{try{org.json.JSONArray operations=new org.json.JSONArray().put("device_profile");if(batteryConsent.isChecked())operations.put("battery_status");if(clipboardConsent.isChecked())operations.put("clipboard_write");if(richClipboardConsent.isChecked())operations.put("clipboard_rich_write");if(finderConsent.isChecked())operations.put("device_finder");if(notificationConsent.isChecked())operations.put("notification_post").put("notification_remove");if(notificationActionConsent.isChecked())operations.put("notification_action");if(fileConsent.isChecked()||uriConsent.isChecked())operations.put("file_transfer");if(uriConsent.isChecked())operations.put("clipboard_uri_write");if(relayConsent.isChecked())operations.put("app_relay");if(screenConsent.isChecked())operations.put("screen_video");if(mediaConsent.isChecked())operations.put("media_control");if(cameraConsent.isChecked())operations.put("camera_video");request(new JSONObject().put("op","bridge_confirm").put("session",selectedSession).put("operations",operations).toString(),false);}catch(org.json.JSONException ignored){}}).show();
         });confirm.setEnabled(false);
         query=button(layout,R.string.query_peer,()->request("{\"op\":\"bridge_query_peer\"}",false));query.setEnabled(false);
         button(layout,R.string.disconnect,()->request("{\"op\":\"bridge_stop\"}",false));
         button(layout,R.string.status,()->request("{\"op\":\"bridge_status\"}",true));
+        Button notificationApps=new Button(this);notificationApps.setText("选择同步通知的应用");notificationApps.setOnClickListener(v->chooseNotificationApps());layout.addView(notificationApps);
+        Button notificationAccess=new Button(this);notificationAccess.setText("授予通知访问权限");notificationAccess.setOnClickListener(v->startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,new ComponentName(this,NotificationSyncListener.class).flattenToString())));layout.addView(notificationAccess);
+        Button notificationPosting=new Button(this);notificationPosting.setText("允许显示同步通知");notificationPosting.setOnClickListener(v->requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},2));layout.addView(notificationPosting);
         output=new TextView(this);output.setTextIsSelectable(true);output.setText(R.string.connecting);layout.addView(output);
         operationResult=new TextView(this);operationResult.setTextIsSelectable(true);layout.addView(operationResult);
         ScrollView scroll=new ScrollView(this);scroll.addView(layout);setContentView(scroll);
@@ -71,6 +90,33 @@ public final class MainActivity extends Activity {
         bound=bindService(new Intent(this,BridgeService.class),connection,Context.BIND_AUTO_CREATE);
     }
     private Button button(LinearLayout layout,int label,Runnable action){Button b=new Button(this);b.setText(label);b.setFilterTouchesWhenObscured(true);b.setOnClickListener(v->action.run());layout.addView(b);return b;}
+    private void chooseNotificationApps(){
+        worker.execute(()->{
+            try{
+                IBridge current=bridge;if(current==null)throw new IllegalStateException();
+                JSONObject policy=new JSONObject(current.transactJson("{\"op\":\"notification_settings\"}"));
+                if(!"ok".equals(policy.optString("status")))throw new IllegalStateException();
+                java.util.Set<String> selected=new java.util.HashSet<>();org.json.JSONArray configured=policy.getJSONArray("packages");
+                for(int i=0;i<configured.length();i++)selected.add(configured.getString(i));
+                java.util.Map<String,String> apps=new java.util.TreeMap<>();
+                for(var item:getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0)){
+                    String pkg=item.activityInfo.packageName;apps.put(pkg,item.loadLabel(getPackageManager()).toString());
+                }
+                // Retain explicitly chosen applications without a launcher, e.g. after an app update.
+                for(String pkg:selected)if(!apps.containsKey(pkg))try{apps.put(pkg,getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg,0)).toString());}catch(PackageManager.NameNotFoundException removed){}
+                var ids=new java.util.ArrayList<>(apps.keySet());ids.sort(java.util.Comparator.comparing(apps::get));
+                String[] labels=new String[ids.size()];boolean[] choices=new boolean[ids.size()];
+                for(int i=0;i<ids.size();i++){labels[i]=apps.get(ids.get(i))+"\n"+ids.get(i);choices[i]=selected.contains(ids.get(i));}
+                main.post(()->{if(isDestroyed())return;new AlertDialog.Builder(this).setTitle("选择允许同步通知的应用")
+                        .setMultiChoiceItems(labels,choices,(dialog,index,checked)->choices[index]=checked)
+                        .setNegativeButton(android.R.string.cancel,null).setPositiveButton(android.R.string.ok,(dialog,which)->{
+                            try{org.json.JSONArray packages=new org.json.JSONArray();for(int i=0;i<ids.size();i++)if(choices[i])packages.put(ids.get(i));
+                                request(new JSONObject().put("op","notification_packages").put("packages",packages).toString(),false);
+                            }catch(org.json.JSONException ignored){}
+                        }).show();});
+            }catch(Exception failure){main.post(()->{if(!isDestroyed())operationResult.setText("通知设置暂不可用");});}
+        });
+    }
     private void networkCommand(String command){
         if(checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK")!=PackageManager.PERMISSION_GRANTED){
             requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK","android.permission.POST_NOTIFICATIONS"},1);

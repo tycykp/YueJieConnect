@@ -1,0 +1,32 @@
+$ErrorActionPreference='Stop'
+$root=Split-Path $PSScriptRoot -Parent
+$output=Join-Path $root 'build\calls-sms-validation\usable\phone-anchor'
+New-Item -ItemType Directory -Force $output|Out-Null
+$source=Join-Path $root 'native\src\telephony_binder.rs'
+$manifest=Join-Path $output 'Cargo.toml';$portable=$source.Replace([char]92,[char]47)
+$content=@"
+[package]
+name = "qj-telephony-phone-anchor-validation"
+version = "0.0.0"
+edition = "2021"
+[workspace]
+[lib]
+path = "$portable"
+[dependencies]
+jni = "=0.21.1"
+"@
+[IO.File]::WriteAllText($manifest,$content,[Text.UTF8Encoding]::new($false))
+$lockPath=Join-Path $root 'build\coordination-locks\build.lock';$lock=$null
+try{$lock=[IO.File]::Open($lockPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)}
+catch [IO.IOException]{Write-Output 'Build lock busy; no phone-anchor compilation started.';exit 2}
+try{
+    $owner=[Text.Encoding]::UTF8.GetBytes('calls-sms / 01a1bbe4-ec32-7d01-a5de-8fc711849d20 / '+[DateTime]::UtcNow.ToString('o'));$lock.Write($owner,0,$owner.Length);$lock.Flush()
+    foreach($step in @('host','android')){
+        $cargoArgs=@('clippy','--offline','--manifest-path',$manifest,'--target-dir',(Join-Path $output 'target'))
+        if($step -eq 'android'){$cargoArgs+=@('--target','aarch64-linux-android')}
+        $cargoArgs+=@('--','-D','warnings')
+        $ErrorActionPreference='Continue'; & cargo @cargoArgs 2>&1 | Tee-Object -FilePath (Join-Path $output "$step.txt")
+        $code=$LASTEXITCODE;$ErrorActionPreference='Stop';if($code -ne 0){throw "Phone anchor $step compile failed: $code"}
+    }
+    [ordered]@{thread='01a1bbe4-ec32-7d01-a5de-8fc711849d20';utc=[DateTime]::UtcNow.ToString('o');command='powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-telephony-phone-anchor.ps1';scope='Host and actual aarch64-linux-android JNI helper Clippy/compile only. No OS service lookup, transaction, APK or device execution.';sources=@(@($source,$manifest,$PSCommandPath,(Join-Path $output 'Cargo.lock'))|ForEach-Object{@{path=$_;sha256=(Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()}})}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $output 'validation.json') -Encoding UTF8
+}finally{if($null -ne $lock){$lock.Dispose();Remove-Item -LiteralPath $lockPath}}

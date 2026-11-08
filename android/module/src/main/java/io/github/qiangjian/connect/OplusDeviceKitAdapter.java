@@ -141,7 +141,7 @@ final class OplusDeviceKitAdapter {
         queries.put(query.request, query);
         query.timeout = () -> finish(query, original, onlyProxy, null, "request_timeout");
         main.postDelayed(query.timeout, 10_000);
-        client.request(query.id, "battery_status", query.request, new JSONObject(), response -> {
+        client.request(query.id, query.session, "battery_status", query.request, new JSONObject(), response -> {
             Object device = null;
             String error = "remote_error";
             try {

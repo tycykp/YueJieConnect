@@ -76,7 +76,8 @@ final class OplusClipboardReceiver {
         catch (SecurityException denied) { error = "permission_denied"; }
         catch (ReflectiveOperationException failure) { error = "native_clipboard_failed"; }
         catch (RuntimeException failure) { error = "clipboard_write_unverified"; }
-        tasks.complete(permit, error);
+        if (!current(expected)) error = "stale_session";
+        if (!tasks.complete(permit, error)) error = "stale_session";
         reply.complete(new Result(expected, request, error == null ? bytes : 0, error));
     }
 
@@ -104,7 +105,8 @@ final class OplusClipboardReceiver {
 
     private boolean current(String expectedSession) {
         JSONObject p = projection.get();
-        return !closed && allowed.getAsBoolean() && p != null && expectedSession != null && expectedSession.equals(p.optString("session_id"));
+        return !closed && allowed.getAsBoolean() && p != null && expectedSession != null
+                && expectedSession.matches("[a-f0-9]{64}") && expectedSession.equals(p.optString("session_id"));
     }
     private static String digest(byte[] bytes) {
         try {

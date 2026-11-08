@@ -34,9 +34,11 @@ final class XiaomiProtocolAdapter {
     private long generation;
     private Object currentDevice;
     private Method found,lost;
+    private final XiaomiFinderAdapter finder;
     private Field context;
     XiaomiProtocolAdapter(XposedModule module,BridgeClient client,ClassLoader loader,BooleanSupplier allowed){
         this.module=module;this.client=client;this.loader=loader;this.allowed=allowed;
+        this.finder=new XiaomiFinderAdapter(client::requestBlocking);
     }
     private Class<?> type(String name)throws ClassNotFoundException{return Class.forName(name,false,loader);}
     void install()throws ReflectiveOperationException{
@@ -50,14 +52,15 @@ final class XiaomiProtocolAdapter {
                 Object result=chain.proceed();Object receiver=chain.getThisObject();main.post(()->add(receiver));return result;
             }));
             handles.add(module.hook(owner.getDeclaredMethod("onRelease")).setId("qj.xiaomi.release").intercept(chain->{
-                Object receiver=chain.getThisObject();invalidate(receiver);main.post(()->remove(receiver));return chain.proceed();
+                Object receiver=chain.getThisObject();invalidate(receiver);finder.release(receiver);main.post(()->remove(receiver));return chain.proceed();
             }));
             handles.add(module.hook(owner.getDeclaredMethod("removeCaller",String.class)).setId("qj.xiaomi.removeCaller").intercept(chain->{
-                if("deviceprofile".equals(chain.getArg(0)))invalidate(chain.getThisObject());return chain.proceed();
+                if("deviceprofile".equals(chain.getArg(0)))invalidate(chain.getThisObject());if("ringfind".equals(chain.getArg(0)))finder.release(chain.getThisObject());return chain.proceed();
             }));
             for(Class<?>[] signature:new Class<?>[][]{{String.class,String.class},{String.class,String.class,int.class}}){
                 handles.add(module.hook(owner.getDeclaredMethod("shareChannel",signature)).setId("qj.xiaomi.connect."+signature.length).intercept(chain->{
                     String id=(String)chain.getArg(1);if(!owns(id))return chain.proceed();
+                    if(finder.owns((String)chain.getArg(0),id))return finder.connect(chain.getThisObject(),id);
                     if(!"deviceprofile".equals(chain.getArg(0)))return -12;
                     return connect(chain.getThisObject(),id);
                 }));
@@ -68,10 +71,17 @@ final class XiaomiProtocolAdapter {
             }));
             handles.add(module.hook(owner.getDeclaredMethod("send",String.class,String.class,byte[].class)).setId("qj.xiaomi.send").intercept(chain->{
                 String id=(String)chain.getArg(1);if(!owns(id))return chain.proceed();
+                if(finder.owns((String)chain.getArg(0),id))return finder.send(chain.getThisObject(),(Context)context.get(chain.getThisObject()),id,(byte[])chain.getArg(2));
                 if(!"deviceprofile".equals(chain.getArg(0)))return -12;
                 return send(chain.getThisObject(),id,(byte[])chain.getArg(2));
             }));
             client.onProjection(this::update);
+            Class<?> ringClient=type("com.miui.circulate.ringfind.sc.ui2client.SCClient");
+            handles.add(module.hook(ringClient.getDeclaredMethod("isSupportGetStatus",String.class)).setId("qj.xiaomi.finder.support").intercept(chain->{
+                String id=(String)chain.getArg(0);JSONObject selected=current;
+                if(owns(id)&&supports(selected,"device_finder"))return true;
+                return chain.proceed();
+            }));
         }catch(ReflectiveOperationException|RuntimeException failure){close();throw failure;}
     }
     private boolean owns(String id){
@@ -88,7 +98,7 @@ final class XiaomiProtocolAdapter {
         JSONObject p=current;if(p==null||!supports(p,"battery_status"))return -12;
         String session=p.optString("session_id");long ticket;
         synchronized(this){ticket=generation;}
-        JSONObject reply=client.requestBlocking(id,"device_profile","xiaomi-connect-"+requests.incrementAndGet(),new JSONObject());
+        JSONObject reply=client.requestBlocking(id,session,"device_profile","xiaomi-connect-"+requests.incrementAndGet(),new JSONObject());
         synchronized(this){
             if(ticket!=generation||!matches(id,session,reply))return -11;
             connections.put(receiver,session);
@@ -105,7 +115,7 @@ final class XiaomiProtocolAdapter {
         final byte[] copied=request.clone();String session;long ticket;
         synchronized(this){session=connections.get(receiver);ticket=generation;}
         if(session==null)return -12;
-        JSONObject reply=client.requestBlocking(id,"battery_status","xiaomi-battery-"+requests.incrementAndGet(),new JSONObject());
+        JSONObject reply=client.requestBlocking(id,session,"battery_status","xiaomi-battery-"+requests.incrementAndGet(),new JSONObject());
         try{
             synchronized(this){if(ticket!=generation||!matches(id,session,reply)||!session.equals(connections.get(receiver)))return -11;}
             JSONObject result=reply.getJSONObject("result");
@@ -150,6 +160,7 @@ final class XiaomiProtocolAdapter {
         synchronized(this){generation++;connections.clear();current=null;}
         for(var w:receivers){Object r=w.get();if(r!=null&&currentDevice!=null)notify(r,lost,currentDevice);}
         current=projection;currentDevice=next;
+        finder.update(projection);
         for(var w:receivers){Object r=w.get();if(r!=null&&next!=null)notify(r,found,next);}
         receivers.removeIf(w->w.get()==null);
     }
@@ -159,7 +170,7 @@ final class XiaomiProtocolAdapter {
     }
     private void log(String text){module.log(Log.INFO,"QiangJian",text+" source=1");}
     void close(){
-        closed=true;client.onProjection(null);
+        closed=true;client.onProjection(null);finder.close();
         synchronized(this){generation++;connections.clear();current=null;}
         main.post(()->{for(var w:receivers){Object r=w.get();if(r!=null&&currentDevice!=null)notify(r,lost,currentDevice);}receivers.clear();currentDevice=null;});
         for(HookHandle handle:handles)handle.unhook();handles.clear();

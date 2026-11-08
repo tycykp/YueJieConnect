@@ -350,11 +350,13 @@ dependencies = [
 name = "qj-jni"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "jni",
  "qj-core",
  "qj-transport",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

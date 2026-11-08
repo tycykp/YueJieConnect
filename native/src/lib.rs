@@ -6,22 +6,88 @@ use jni::{
 };
 use qj_core::gateway::{Operation, RealDevice};
 use qj_core::{Caller, Engine, Source};
-use qj_transport::bridge::{BatteryReader, Bridge, Identity};
+use qj_transport::bridge::{BatteryReader, Bridge, Identity, OperationResult};
+use qj_transport::executor::{execution_error, ExecutorOwner};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
+    collections::{BTreeMap, BTreeSet},
     panic::{catch_unwind, AssertUnwindSafe},
     ptr,
+    sync::mpsc::{Receiver, TryRecvError},
     sync::{Arc, Mutex, OnceLock},
 };
+mod file_requests;
 
 static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
 static BRIDGE: OnceLock<Arc<Bridge>> = OnceLock::new();
+type AsyncKey = (u32, u32, String, String);
+struct AsyncRequest {
+    wire_id: u64,
+    operation: Operation,
+    payload_hash: [u8; 32],
+    read_only: bool,
+    receive: Receiver<Result<OperationResult, &'static str>>,
+    result: Option<Result<OperationResult, &'static str>>,
+}
+static REQUESTS: OnceLock<Mutex<BTreeMap<AsyncKey, AsyncRequest>>> = OnceLock::new();
+static FILE_REQUESTS: OnceLock<Mutex<file_requests::FileRequests>> = OnceLock::new();
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[allow(clippy::enum_variant_names)] // Mirrors the versioned IPC namespace, not vendor APIs.
 enum BridgeCommand {
+    BridgeFileAllocate {
+        token: String,
+        sequence: u64,
+        session_id: String,
+    },
+    BridgeFileRelease {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        transfer: String,
+        direction: String,
+    },
+    BridgeRegisterExecutor {
+        token: String,
+        sequence: u64,
+        operations: BTreeSet<Operation>,
+    },
+    BridgePollExecutor {
+        token: String,
+        sequence: u64,
+    },
+    BridgeCompleteExecutor {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        request_id: String,
+        result: Option<OperationResult>,
+        error: Option<String>,
+    },
+    BridgeSubmit {
+        token: String,
+        sequence: u64,
+        projection_id: String,
+        session_id: String,
+        request_id: String,
+        operation: Operation,
+        payload: Value,
+    },
+    BridgeResult {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        request_id: String,
+    },
+    BridgeCancel {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        request_id: String,
+    },
     BridgeListen {
         port: u16,
     },
@@ -30,6 +96,8 @@ enum BridgeCommand {
     },
     BridgeConfirm {
         session: String,
+        #[serde(default)]
+        operations: Option<BTreeSet<Operation>>,
     },
     BridgeStop,
     BridgeStatus,
@@ -54,6 +122,81 @@ enum BridgeCommand {
     },
 }
 
+fn authorize(
+    caller: Caller,
+    now: u64,
+    token: &str,
+    sequence: u64,
+) -> Result<ExecutorOwner, &'static str> {
+    ENGINE
+        .get_or_init(|| Mutex::new(Engine::default()))
+        .lock()
+        .map_err(|_| "core_unavailable")?
+        .authorize(caller, now, token, sequence)?;
+    Ok(ExecutorOwner {
+        uid: caller.uid,
+        pid: caller.pid,
+        token: token.to_owned(),
+    })
+}
+fn valid_request(request: &str) -> bool {
+    !request.is_empty()
+        && request.len() <= 128
+        && request
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
+}
+fn request_response(
+    result: Option<&Result<OperationResult, &'static str>>,
+    request: &str,
+    session: &str,
+) -> Value {
+    match result {
+        None => json!({"status":"pending","request_id":request,"session_id":session}),
+        Some(Ok(value)) => {
+            json!({"status":"ok","request_id":request,"session_id":session,"result":value})
+        }
+        Some(Err(code)) => {
+            json!({"status":"error","request_id":request,"session_id":session,"code":code})
+        }
+    }
+}
+
+fn file_result(
+    bridge: &Bridge,
+    caller: Caller,
+    session: &str,
+    request: &str,
+    cancelling: bool,
+) -> Result<Value, &'static str> {
+    let mut files = FILE_REQUESTS
+        .get_or_init(|| Mutex::new(file_requests::FileRequests::default()))
+        .lock()
+        .map_err(|_| "core_unavailable")?;
+    files.session(session);
+    let slot = files.request(caller.uid, request)?;
+    let entry = slot.entry.as_mut().ok_or("request_not_found")?;
+    if entry.result.is_none() {
+        entry.result = match entry.receive.try_recv() {
+            Ok(value) => Some(value),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err("peer_offline")),
+        };
+        if cancelling && entry.result.is_none() {
+            bridge.cancel_operation(session, entry.wire_id)?;
+        }
+    }
+    if let Err(code) = file_requests::FileRequests::observe_result(slot) {
+        slot.entry.as_mut().unwrap().result = Some(Err(code));
+        file_requests::FileRequests::observe_result(slot)?;
+    }
+    Ok(request_response(
+        slot.entry.as_ref().unwrap().result.as_ref(),
+        request,
+        session,
+    ))
+}
+
 fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
     if text.len() > qj_core::MAX_INPUT {
         return Err("payload_too_large");
@@ -68,7 +211,281 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
     }
     let command: BridgeCommand = serde_json::from_value(value).map_err(|_| "invalid_request")?;
     let bridge = BRIDGE.get().ok_or("bridge_not_initialized")?;
+    let cancelling = matches!(&command, BridgeCommand::BridgeCancel { .. });
     match command {
+        BridgeCommand::BridgeFileAllocate {
+            token,
+            sequence,
+            session_id,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            let snapshot = bridge.snapshot();
+            if snapshot.phase != "active" || snapshot.session != session_id {
+                return Err("stale_session");
+            }
+            if caller.source != Some(snapshot.local.platform)
+                || !snapshot
+                    .granted_operations
+                    .contains(&Operation::FilePrepare)
+            {
+                return Err("permission_denied");
+            }
+            let mut files = FILE_REQUESTS
+                .get_or_init(|| Mutex::new(file_requests::FileRequests::default()))
+                .lock()
+                .map_err(|_| "core_unavailable")?;
+            files.session(&session_id);
+            let transfer = files.allocate(caller.uid)?;
+            if let Err(code) = bridge.allocate_file(caller.uid, &session_id, &transfer) {
+                files.discard_unpublished(caller.uid, &transfer);
+                return Err(code);
+            }
+            Ok(json!({"status":"ok","session_id":session_id,"transfer":transfer}))
+        }
+        BridgeCommand::BridgeFileRelease {
+            token,
+            sequence,
+            session_id,
+            transfer,
+            direction,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            let snapshot = bridge.snapshot();
+            if snapshot.phase != "active" || snapshot.session != session_id {
+                return Err("stale_session");
+            }
+            if caller.source != Some(snapshot.local.platform)
+                || !qj_transport::executor::valid_channel(&transfer)
+            {
+                return Err("forbidden");
+            }
+            if direction == "outgoing" {
+                let mut files = FILE_REQUESTS
+                    .get_or_init(|| Mutex::new(file_requests::FileRequests::default()))
+                    .lock()
+                    .map_err(|_| "core_unavailable")?;
+                files.session(&session_id);
+                files.release(caller.uid, &transfer)?;
+            }
+            bridge.release_file(caller.uid, &session_id, &transfer, &direction)?;
+            Ok(json!({"status":"ok","session_id":session_id,"transfer":transfer,"released":true}))
+        }
+        BridgeCommand::BridgeRegisterExecutor {
+            token,
+            sequence,
+            operations,
+        } => {
+            let owner = authorize(caller, now, &token, sequence)?;
+            if caller.source != Some(bridge.snapshot().local.platform) {
+                return Err("forbidden");
+            }
+            bridge.register_executor(owner, operations)?;
+            Ok(json!({"status":"ok"}))
+        }
+        BridgeCommand::BridgePollExecutor { token, sequence } => {
+            let owner = authorize(caller, now, &token, sequence)?;
+            let (task, cancelled) = bridge.poll_executor(&owner);
+            Ok(json!({"status":"ok","task":task,"cancelled":cancelled}))
+        }
+        BridgeCommand::BridgeCompleteExecutor {
+            token,
+            sequence,
+            session_id,
+            request_id,
+            result,
+            error,
+        } => {
+            let owner = authorize(caller, now, &token, sequence)?;
+            let outcome = match (result, error) {
+                (Some(value), None) => Ok(value),
+                (None, Some(code)) => Err(execution_error(&code)),
+                _ => return Err("invalid_result"),
+            };
+            bridge.complete_executor(&owner, &session_id, &request_id, outcome)?;
+            Ok(json!({"status":"ok"}))
+        }
+        BridgeCommand::BridgeSubmit {
+            token,
+            sequence,
+            projection_id,
+            session_id,
+            request_id,
+            operation,
+            payload,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            if !valid_request(&request_id) {
+                return Err("invalid_request_id");
+            }
+            let snapshot = bridge.snapshot();
+            let current = snapshot.session;
+            if snapshot.phase != "active" || session_id != current {
+                return Ok(request_response(
+                    Some(&Err("stale_session")),
+                    &request_id,
+                    &session_id,
+                ));
+            }
+            if !snapshot
+                .projection
+                .as_ref()
+                .is_some_and(|p| p.id == projection_id && Some(p.target_sdk) == caller.source)
+            {
+                return Err("forbidden");
+            }
+            let payload_hash: [u8; 32] = Sha256::digest(payload.to_string()).into();
+            if qj_transport::executor::file_operation(operation).is_some() {
+                let mut files = FILE_REQUESTS
+                    .get_or_init(|| Mutex::new(file_requests::FileRequests::default()))
+                    .lock()
+                    .map_err(|_| "core_unavailable")?;
+                files.session(&session_id);
+                if files.check(caller.uid, &request_id, operation, &payload, payload_hash)? {
+                    let slot = files.request(caller.uid, &request_id)?;
+                    return Ok(request_response(
+                        slot.entry.as_ref().unwrap().result.as_ref(),
+                        &request_id,
+                        &session_id,
+                    ));
+                }
+                let (wire_id, receive) = bridge.submit_operation(
+                    caller.source.ok_or("forbidden")?,
+                    &projection_id,
+                    &session_id,
+                    operation,
+                    payload.clone(),
+                )?;
+                files.insert(
+                    caller.uid,
+                    request_id.clone(),
+                    &payload,
+                    AsyncRequest {
+                        wire_id,
+                        operation,
+                        payload_hash,
+                        read_only: false,
+                        receive,
+                        result: None,
+                    },
+                )?;
+                return Ok(request_response(None, &request_id, &session_id));
+            }
+            if request_id.starts_with("file:") {
+                return Err("invalid_request_id");
+            }
+            let mut requests = REQUESTS
+                .get_or_init(|| Mutex::new(BTreeMap::new()))
+                .lock()
+                .map_err(|_| "core_unavailable")?;
+            requests.retain(|key, _| key.2 == current);
+            let key = (
+                caller.uid,
+                caller.pid,
+                session_id.clone(),
+                request_id.clone(),
+            );
+            if let Some(existing) = requests.get(&key) {
+                if existing.operation != operation || existing.payload_hash != payload_hash {
+                    return Err("request_conflict");
+                }
+                return Ok(request_response(
+                    existing.result.as_ref(),
+                    &request_id,
+                    &session_id,
+                ));
+            }
+            if requests.len() >= 256 {
+                return Err("request_limit");
+            }
+            let (wire_id, receive) = match bridge.submit_operation(
+                caller.source.ok_or("forbidden")?,
+                &projection_id,
+                &session_id,
+                operation,
+                payload.clone(),
+            ) {
+                Ok(value) => value,
+                Err(code) => {
+                    return Ok(request_response(Some(&Err(code)), &request_id, &session_id))
+                }
+            };
+            requests.insert(
+                key,
+                AsyncRequest {
+                    wire_id,
+                    operation,
+                    payload_hash,
+                    read_only: matches!(
+                        operation,
+                        Operation::DeviceProfile
+                            | Operation::BatteryStatus
+                            | Operation::LogicalState
+                    ) || (operation == Operation::DeviceFinder
+                        && payload["action"] == "state")
+                        || (operation == Operation::MediaControl
+                            && matches!(
+                                payload["control"]["action"].as_str(),
+                                Some("QUERY" | "VOLUME_QUERY")
+                            ))
+                        || (operation == Operation::AppRelay && payload["action"] == "status"),
+                    receive,
+                    result: None,
+                },
+            );
+            Ok(request_response(None, &request_id, &session_id))
+        }
+        BridgeCommand::BridgeResult {
+            token,
+            sequence,
+            session_id,
+            request_id,
+        }
+        | BridgeCommand::BridgeCancel {
+            token,
+            sequence,
+            session_id,
+            request_id,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            let snapshot = bridge.snapshot();
+            if snapshot.phase != "active" || snapshot.session != session_id {
+                return Ok(request_response(
+                    Some(&Err("stale_session")),
+                    &request_id,
+                    &session_id,
+                ));
+            }
+            if request_id.starts_with("file:") {
+                return file_result(bridge, caller, &session_id, &request_id, cancelling);
+            }
+            let mut requests = REQUESTS
+                .get_or_init(|| Mutex::new(BTreeMap::new()))
+                .lock()
+                .map_err(|_| "core_unavailable")?;
+            let entry = requests
+                .get_mut(&(
+                    caller.uid,
+                    caller.pid,
+                    session_id.clone(),
+                    request_id.clone(),
+                ))
+                .ok_or("request_not_found")?;
+            if entry.result.is_none() {
+                entry.result = match entry.receive.try_recv() {
+                    Ok(value) => Some(value),
+                    Err(TryRecvError::Empty) => None,
+                    Err(TryRecvError::Disconnected) => Some(Err("peer_offline")),
+                };
+                if cancelling && entry.result.is_none() {
+                    bridge.cancel_operation(&session_id, entry.wire_id)?;
+                }
+            }
+            let response = request_response(entry.result.as_ref(), &request_id, &session_id);
+            if entry.result.is_some() && entry.read_only {
+                requests.remove(&(caller.uid, caller.pid, session_id, request_id));
+            }
+            Ok(response)
+        }
         BridgeCommand::BridgeOperation {
             token,
             sequence,
@@ -115,9 +532,19 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
                 .lock()
                 .map_err(|_| "core_unavailable")?
                 .authorize(caller, now, &token, sequence)?;
-            Ok(
-                json!({"status":"ok","projection":bridge.projection(caller.source.ok_or("forbidden")?)}),
-            )
+            let source = caller.source.ok_or("forbidden")?;
+            let snapshot = bridge.snapshot();
+            let mut projection = json!(snapshot
+                .projection
+                .filter(|p| snapshot.phase == "active" && p.target_sdk == source));
+            if let Some(value) = projection.as_object_mut() {
+                value.insert(
+                    "transport_address".into(),
+                    json!(snapshot.transport_address),
+                );
+                value.insert("local_grants".into(), json!(snapshot.granted_operations));
+            }
+            Ok(json!({"status":"ok","projection":projection}))
         }
         BridgeCommand::BridgeProfile {
             token,
@@ -138,8 +565,11 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
         }
         _ if !caller.owner => Err("forbidden"),
         BridgeCommand::BridgeStatus => Ok(json!({"status":"ok","bridge":bridge.snapshot()})),
-        BridgeCommand::BridgeConfirm { session } => {
-            bridge.confirm(&session)?;
+        BridgeCommand::BridgeConfirm {
+            session,
+            operations,
+        } => {
+            bridge.confirm_operations(&session, operations)?;
             Ok(json!({"status":"ok"}))
         }
         BridgeCommand::BridgeListen { port } => {

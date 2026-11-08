@@ -1,11 +1,13 @@
 //! QiangJian's own authenticated bridge, not an emulation of Lyra/SCP wire protocol.
 //! Noise XX + human comparison of a 48-bit transcript code on BOTH devices.
 use crate::battery::BatteryStatus;
+use crate::executor::{validate_payload, ExecutorOwner, VendorMailbox, VendorTask};
 use qj_core::{
     gateway::{ConfirmedLink, Gateway, GatewayError, Operation, Projection, RealDevice},
     Source,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -22,7 +24,7 @@ use std::{
 };
 
 const PATTERN: &str = "Noise_XX_25519_ChaChaPoly_SHA256";
-const PROLOGUE: &[u8] = b"qiangjian-connect/bridge/v2";
+const PROLOGUE: &[u8] = b"qiangjian-connect/bridge/v7";
 const MAX_FRAME: usize = 16_384;
 const SESSION_MS: u64 = 900_000;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -74,6 +76,7 @@ pub struct Snapshot {
     pub comparison_code: String,
     pub local_confirmed: bool,
     pub remote_confirmed: bool,
+    pub granted_operations: BTreeSet<Operation>,
     pub local: RealDevice,
     pub remote: Option<RealDevice>,
     pub projection: Option<Projection>,
@@ -83,6 +86,7 @@ pub struct Snapshot {
     pub responses_received: u64,
     pub last_error: Option<&'static str>,
     pub socket_errno: Option<i32>,
+    pub transport_address: Option<String>,
 }
 struct State {
     epoch: u64,
@@ -97,15 +101,24 @@ pub struct Bridge {
     state: Mutex<State>,
     clock: Instant,
     battery_reader: Option<BatteryReader>,
+    mailbox: Mutex<VendorMailbox>,
 }
 enum Job {
-    Confirm(String),
+    Confirm(String, BTreeSet<Operation>),
     Request {
         id: u64,
         operation: Operation,
+        payload: Value,
         reply: SyncSender<Result<OperationResult>>,
     },
+    Cancel(u64),
 }
+type PendingResponse = (
+    Instant,
+    Operation,
+    Value,
+    SyncSender<Result<OperationResult>>,
+);
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -118,6 +131,10 @@ enum Wire {
         id: u64,
         target: [u8; 32],
         operation: Operation,
+        payload: Value,
+    },
+    Cancel {
+        id: u64,
     },
     Response {
         id: u64,
@@ -140,15 +157,111 @@ pub type BatteryReader = Arc<dyn Fn() -> Result<BatteryStatus> + Send + Sync>;
 pub enum OperationResult {
     DeviceProfile(RealDevice),
     BatteryStatus(BatteryStatus),
+    ClipboardWrite(ClipboardReceipt),
+    ClipboardRichWrite(RichClipboardReceipt),
+    ClipboardUriWrite(Value),
+    FilePrepare(Value),
+    FileOffer(Value),
+    FileChunk(Value),
+    FileCommit(Value),
+    FileCancel(Value),
+    MediaControl(crate::media_control::Receipt),
+    LogicalOpen(LogicalReceipt),
+    LogicalClose(LogicalReceipt),
+    LogicalState(LogicalReceipt),
+    DeviceFinder(FinderReceipt),
+    NotificationPost(crate::notification::Receipt),
+    NotificationRemove(crate::notification::Receipt),
+    NotificationAction(crate::notification::Receipt),
+    AppRelay(crate::relay::Receipt),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FinderReceipt {
+    pub ringing: bool,
+    pub remaining_ms: u64,
+    pub reason: String,
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LogicalReceipt {
+    pub channel_id: String,
+    pub state: String,
+    pub operations: BTreeSet<Operation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClipboardReceipt {
+    pub applied: bool,
+    pub utf8_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RichClipboardReceipt {
+    pub mime: String,
+    pub applied: bool,
+    pub utf8_bytes: usize,
 }
 
 impl OperationResult {
-    fn matches(&self, operation: Operation, peer: &[u8; 32]) -> bool {
+    pub(crate) fn matches(&self, operation: Operation, peer: &[u8; 32]) -> bool {
         match (operation, self) {
             (Operation::DeviceProfile, Self::DeviceProfile(p)) => {
                 &p.peer_key == peer && qj_core::gateway::validate(p).is_ok()
             }
             (Operation::BatteryStatus, Self::BatteryStatus(b)) => b.validate().is_ok(),
+            (Operation::AppRelay, Self::AppRelay(r)) => r.valid(),
+            (Operation::MediaControl, Self::MediaControl(r)) => serde_json::to_value(r)
+                .is_ok_and(|data| crate::media_control::receipt(&data).is_ok()),
+            (Operation::FilePrepare, Self::FilePrepare(r))
+            | (Operation::FileOffer, Self::FileOffer(r))
+            | (Operation::FileChunk, Self::FileChunk(r))
+            | (Operation::FileCommit, Self::FileCommit(r))
+            | (Operation::FileCancel, Self::FileCancel(r))
+            | (Operation::ClipboardUriWrite, Self::ClipboardUriWrite(r)) => r.is_object(),
+            (Operation::NotificationPost, Self::NotificationPost(r))
+            | (Operation::NotificationRemove, Self::NotificationRemove(r))
+            | (Operation::NotificationAction, Self::NotificationAction(r)) => r.valid(),
+            (Operation::DeviceFinder, Self::DeviceFinder(r)) => {
+                r.remaining_ms <= 30_000
+                    && (r.ringing || r.remaining_ms == 0)
+                    && matches!(
+                        r.reason.as_str(),
+                        "idle"
+                            | "started"
+                            | "stopped"
+                            | "timeout"
+                            | "native_stopped"
+                            | "cancelled"
+                            | "session_ended"
+                            | "start_failed"
+                            | "closed"
+                    )
+            }
+            (Operation::ClipboardWrite, Self::ClipboardWrite(r)) => {
+                r.applied && r.utf8_bytes <= 4096
+            }
+            (Operation::ClipboardRichWrite, Self::ClipboardRichWrite(r)) => {
+                r.applied && r.mime == "text/html" && r.utf8_bytes <= 4096
+            }
+            (Operation::LogicalOpen, Self::LogicalOpen(r))
+            | (Operation::LogicalClose, Self::LogicalClose(r))
+            | (Operation::LogicalState, Self::LogicalState(r)) => {
+                crate::executor::valid_channel(&r.channel_id)
+                    && match r.state.as_str() {
+                        "open" => {
+                            operation != Operation::LogicalClose
+                                && r.operations == BTreeSet::from([Operation::ClipboardWrite])
+                        }
+                        "closed" => operation != Operation::LogicalOpen && r.operations.is_empty(),
+                        _ => false,
+                    }
+            }
             _ => false,
         }
     }
@@ -176,6 +289,7 @@ impl Bridge {
             comparison_code: String::new(),
             local_confirmed: false,
             remote_confirmed: false,
+            granted_operations: BTreeSet::new(),
             local: profile.clone(),
             remote: None,
             projection: None,
@@ -185,6 +299,7 @@ impl Bridge {
             responses_received: 0,
             last_error: None,
             socket_errno: None,
+            transport_address: None,
         };
         Ok(Arc::new(Self {
             identity,
@@ -198,6 +313,7 @@ impl Bridge {
             }),
             clock: Instant::now(),
             battery_reader,
+            mailbox: Mutex::new(VendorMailbox::default()),
         }))
     }
     fn now(&self) -> u64 {
@@ -205,6 +321,7 @@ impl Bridge {
     }
     fn reset(&self, phase: &'static str) -> u64 {
         let mut state = self.state.lock().unwrap();
+        self.mailbox.lock().unwrap().invalidate();
         state.epoch = state.epoch.wrapping_add(1);
         state.jobs = None;
         state.gateway = Gateway::default();
@@ -214,6 +331,7 @@ impl Bridge {
         state.view.comparison_code.clear();
         state.view.local_confirmed = false;
         state.view.remote_confirmed = false;
+        state.view.granted_operations.clear();
         state.view.remote = None;
         state.view.projection = None;
         state.view.listening_port = 0;
@@ -222,13 +340,88 @@ impl Bridge {
         state.view.responses_received = 0;
         state.view.last_error = None;
         state.view.socket_errno = None;
+        state.view.transport_address = None;
         state.epoch
     }
     pub fn stop(&self) {
         self.reset("stopped");
     }
     pub fn snapshot(&self) -> Snapshot {
-        self.state.lock().unwrap().view.clone()
+        let mut view = self.state.lock().unwrap().view.clone();
+        view.local = self.local_profile();
+        view
+    }
+    fn local_profile(&self) -> RealDevice {
+        let mut profile = self.profile.clone();
+        profile
+            .operations
+            .extend(self.mailbox.lock().unwrap().operations(self.now()));
+        profile
+    }
+    fn advertised_profile(&self) -> RealDevice {
+        let mut profile = self.local_profile();
+        let granted = self.state.lock().unwrap().view.granted_operations.clone();
+        profile
+            .operations
+            .retain(|operation| granted.contains(operation));
+        profile
+    }
+    pub fn register_executor(
+        &self,
+        owner: ExecutorOwner,
+        operations: BTreeSet<Operation>,
+    ) -> Result<()> {
+        self.mailbox
+            .lock()
+            .unwrap()
+            .register(owner, operations, self.now())
+    }
+    pub fn poll_executor(
+        &self,
+        owner: &ExecutorOwner,
+    ) -> (Option<VendorTask>, Vec<(String, String)>) {
+        self.mailbox.lock().unwrap().poll(owner, self.now())
+    }
+    pub fn complete_executor(
+        &self,
+        owner: &ExecutorOwner,
+        session: &str,
+        request: &str,
+        outcome: Result<OperationResult>,
+    ) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        self.mailbox
+            .lock()
+            .unwrap()
+            .complete(owner, session, request, outcome, self.now())
+    }
+    fn enqueue_vendor_task(
+        &self,
+        epoch: u64,
+        task: VendorTask,
+    ) -> Result<Receiver<Result<OperationResult>>> {
+        let state = self.state.lock().unwrap();
+        if state.epoch != epoch
+            || state.view.phase != "active"
+            || state.view.session != task.session_id
+        {
+            return Err("session_expired");
+        }
+        if !state.view.granted_operations.contains(&task.operation) {
+            return Err("permission_denied");
+        }
+        if !state
+            .view
+            .projection
+            .as_ref()
+            .is_some_and(|p| p.operations.contains(&task.operation))
+        {
+            return Err("permission_denied");
+        }
+        self.mailbox.lock().unwrap().submit(task, self.now())
     }
     fn current(&self, epoch: u64) -> bool {
         self.state.lock().unwrap().epoch == epoch
@@ -285,6 +478,58 @@ impl Bridge {
         Ok(())
     }
     pub fn confirm(&self, session: &str) -> Result<()> {
+        self.confirm_operations(session, None)
+    }
+    pub fn confirm_operations(
+        &self,
+        session: &str,
+        requested: Option<BTreeSet<Operation>>,
+    ) -> Result<()> {
+        let mut granted = requested.unwrap_or_else(|| {
+            BTreeSet::from([
+                Operation::DeviceProfile,
+                Operation::BatteryStatus,
+                Operation::ClipboardWrite,
+            ])
+        });
+        if granted.iter().any(|op| {
+            !matches!(
+                op,
+                Operation::DeviceProfile
+                    | Operation::BatteryStatus
+                    | Operation::ClipboardWrite
+                    | Operation::ClipboardRichWrite
+                    | Operation::DeviceFinder
+                    | Operation::NotificationPost
+                    | Operation::NotificationRemove
+                    | Operation::NotificationAction
+                    | Operation::AppRelay
+                    | Operation::FileTransfer
+                    | Operation::ClipboardUriWrite
+                    | Operation::MediaControl
+                    | Operation::ScreenVideo
+                    | Operation::CameraVideo
+            )
+        }) {
+            return Err("unsupported_operation");
+        }
+        granted.insert(Operation::DeviceProfile);
+        if granted.contains(&Operation::FileTransfer) {
+            granted.extend([
+                Operation::FilePrepare,
+                Operation::FileOffer,
+                Operation::FileChunk,
+                Operation::FileCommit,
+                Operation::FileCancel,
+            ]);
+        }
+        if granted.contains(&Operation::ClipboardWrite) {
+            granted.extend([
+                Operation::LogicalOpen,
+                Operation::LogicalClose,
+                Operation::LogicalState,
+            ]);
+        }
         let s = self.state.lock().unwrap();
         if s.view.phase != "awaiting_confirmation" || session != s.view.session {
             return Err("stale_confirmation");
@@ -292,7 +537,7 @@ impl Bridge {
         s.jobs
             .as_ref()
             .ok_or("not_connected")?
-            .try_send(Job::Confirm(session.to_owned()))
+            .try_send(Job::Confirm(session.to_owned(), granted))
             .map_err(|_| "busy")
     }
     pub fn projection(&self, source: Source) -> Option<Projection> {
@@ -316,8 +561,33 @@ impl Bridge {
         session: &str,
         operation: Operation,
     ) -> Result<OperationResult> {
+        let (_, rx) =
+            self.submit_operation(source, id, session, operation, serde_json::json!({}))?;
+        let result = rx
+            .recv_timeout(Duration::from_millis(
+                crate::executor::timeout_ms(operation) + 1_000,
+            ))
+            .map_err(|e| match e {
+                mpsc::RecvTimeoutError::Timeout => "request_timeout",
+                mpsc::RecvTimeoutError::Disconnected => "peer_offline",
+            })?;
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        result
+    }
+    pub fn submit_operation(
+        &self,
+        source: Source,
+        id: &str,
+        session: &str,
+        operation: Operation,
+        payload: Value,
+    ) -> Result<(u64, Receiver<Result<OperationResult>>)> {
+        validate_payload(operation, &payload)?;
         let (tx, rx) = mpsc::sync_channel(1);
-        {
+        let request_id = {
             let mut s = self.state.lock().unwrap();
             if session.is_empty() || s.view.session != session {
                 return Err("stale_session");
@@ -342,33 +612,97 @@ impl Bridge {
                 .try_send(Job::Request {
                     id: request_id,
                     operation,
+                    payload,
                     reply: tx,
                 })
                 .map_err(|_| "busy")?;
+            request_id
+        };
+        Ok((request_id, rx))
+    }
+    pub fn cancel_operation(&self, session: &str, id: u64) -> Result<()> {
+        let s = self.state.lock().unwrap();
+        if s.view.session != session || s.view.phase != "active" {
+            return Err("stale_session");
         }
-        let result = rx
-            .recv_timeout(Duration::from_secs(6))
-            .map_err(|e| match e {
-                mpsc::RecvTimeoutError::Timeout => "request_timeout",
-                mpsc::RecvTimeoutError::Disconnected => "peer_offline",
-            })?;
+        s.jobs
+            .as_ref()
+            .ok_or("peer_offline")?
+            .try_send(Job::Cancel(id))
+            .map_err(|_| "busy")
+    }
+    pub fn allocate_file(&self, uid: u32, session: &str, transfer: &str) -> Result<()> {
         let state = self.state.lock().unwrap();
         if state.view.phase != "active" || state.view.session != session {
             return Err("stale_session");
         }
-        result
+        self.mailbox
+            .lock()
+            .unwrap()
+            .allocate_file(uid, session, transfer)
+    }
+    pub fn release_file(
+        &self,
+        uid: u32,
+        session: &str,
+        transfer: &str,
+        direction: &str,
+    ) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        self.mailbox
+            .lock()
+            .unwrap()
+            .release_file(uid, session, transfer, direction)
     }
     fn fail(&self, epoch: u64, reason: &'static str) {
         self.update(epoch, |s| {
+            self.mailbox.lock().unwrap().invalidate();
             s.view.phase = "disconnected";
             s.view.last_error = Some(reason);
             s.view.socket_errno = IO_ERROR.get();
             s.view.remote = None;
             s.view.projection = None;
+            s.view.transport_address = None;
             s.view.comparison_code.clear();
             s.jobs = None;
             s.gateway = Gateway::default();
         });
+    }
+    fn project(
+        &self,
+        epoch: u64,
+        device: RealDevice,
+        session_key: [u8; 32],
+        expires: u64,
+        implemented: &BTreeSet<Operation>,
+    ) -> Result<()> {
+        let mut result = Ok(());
+        self.update(epoch, |s| {
+            let projection = s.gateway.publish(
+                self.profile.platform,
+                device.clone(),
+                ConfirmedLink {
+                    peer_key: device.peer_key,
+                    session_id: session_key,
+                    expires_ms: expires,
+                    granted: s.view.granted_operations.clone(),
+                },
+                implemented,
+                self.now(),
+            );
+            match projection {
+                Ok(p) => {
+                    s.view.remote = Some(device);
+                    s.view.projection = Some(p);
+                    s.view.phase = "active";
+                }
+                Err(_) => result = Err("invalid_peer_profile"),
+            }
+        });
+        result
     }
     fn run(self: &Arc<Self>, epoch: u64, mut socket: TcpStream, initiator: bool) {
         self.update(epoch, |s| s.view.phase = "handshaking");
@@ -376,6 +710,8 @@ impl Bridge {
         self.fail(epoch, result.err().unwrap_or("peer_closed"));
     }
     fn session(&self, epoch: u64, socket: &mut TcpStream, initiator: bool) -> Result<()> {
+        let address = socket.peer_addr().map_err(|_| "socket_failed")?.to_string();
+        self.update(epoch, |s| s.view.transport_address = Some(address));
         socket.set_nodelay(true).map_err(|_| "socket_failed")?;
         socket
             .set_read_timeout(Some(Duration::from_millis(100)))
@@ -470,14 +806,14 @@ impl Bridge {
     ) -> Result<()> {
         let mut local_ok = false;
         let mut remote_ok = false;
-        let mut profile_sent = false;
+        let mut profile_sent: Option<RealDevice> = None;
         let mut active = false;
         let began = Instant::now();
         let mut last_rx = Instant::now();
         let mut last_ping = Instant::now();
         let mut last_request = 0;
-        let mut pending: BTreeMap<u64, (Instant, Operation, SyncSender<Result<OperationResult>>)> =
-            BTreeMap::new();
+        let mut pending: BTreeMap<u64, PendingResponse> = BTreeMap::new();
+        let mut incoming: BTreeMap<u64, Receiver<Result<OperationResult>>> = BTreeMap::new();
         while self.current(epoch) {
             if began.elapsed() > Duration::from_millis(SESSION_MS) {
                 return Err("session_expired");
@@ -490,14 +826,18 @@ impl Bridge {
             }
             while let Ok(job) = jobs.try_recv() {
                 match job {
-                    Job::Confirm(id) if id == session && !local_ok => {
+                    Job::Confirm(id, granted) if id == session && !local_ok => {
                         send(noise, socket, &Wire::Confirm)?;
                         local_ok = true;
-                        self.update(epoch, |s| s.view.local_confirmed = true);
+                        self.update(epoch, |s| {
+                            s.view.local_confirmed = true;
+                            s.view.granted_operations = granted;
+                        });
                     }
                     Job::Request {
                         id,
                         operation,
+                        payload,
                         reply,
                     } => {
                         if !active || pending.len() >= 32 {
@@ -511,26 +851,68 @@ impl Bridge {
                                 id,
                                 target: peer,
                                 operation,
+                                payload: payload.clone(),
                             },
                         )?;
                         pending.insert(
                             id,
-                            (Instant::now() + Duration::from_secs(5), operation, reply),
+                            (
+                                Instant::now()
+                                    + Duration::from_millis(crate::executor::timeout_ms(operation)),
+                                operation,
+                                payload,
+                                reply,
+                            ),
                         );
                         self.update(epoch, |s| s.view.requests_sent += 1);
+                    }
+                    Job::Cancel(id) if active && pending.contains_key(&id) => {
+                        send(noise, socket, &Wire::Cancel { id })?
                     }
                     _ => {}
                 }
             }
-            if local_ok && remote_ok && !profile_sent {
+            let local_profile = self.advertised_profile();
+            if local_ok && remote_ok && profile_sent.as_ref() != Some(&local_profile) {
                 send(
                     noise,
                     socket,
                     &Wire::Profile {
-                        device: self.profile.clone(),
+                        device: local_profile.clone(),
                     },
                 )?;
-                profile_sent = true;
+                profile_sent = Some(local_profile);
+                if active {
+                    if let Some(device) = self.snapshot().remote {
+                        let mut implemented = profile_sent.as_ref().unwrap().operations.clone();
+                        implemented.insert(Operation::BatteryStatus);
+                        self.project(
+                            epoch,
+                            device,
+                            session_key,
+                            self.now() + SESSION_MS - began.elapsed().as_millis() as u64,
+                            &implemented,
+                        )?;
+                    }
+                }
+            }
+            let ready = incoming
+                .iter()
+                .filter_map(|(id, rx)| match rx.try_recv() {
+                    Ok(result) => Some((*id, result)),
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        Some((*id, Err("executor_unavailable")))
+                    }
+                    Err(mpsc::TryRecvError::Empty) => None,
+                })
+                .collect::<Vec<_>>();
+            for (id, outcome) in ready {
+                incoming.remove(&id);
+                let (result, error) = match outcome {
+                    Ok(v) => (Some(v), None),
+                    Err(e) => (None, Some(e.to_owned())),
+                };
+                send(noise, socket, &Wire::Response { id, result, error })?;
             }
             if let Some(frame) = reader.poll(socket)? {
                 let mut plaintext = vec![0; MAX_FRAME];
@@ -545,56 +927,81 @@ impl Bridge {
                         remote_ok = true;
                         self.update(epoch, |s| s.view.remote_confirmed = true);
                     }
-                    Wire::Profile { device } if local_ok && remote_ok && !active => {
+                    Wire::Profile { device } if local_ok && remote_ok => {
                         if device.peer_key != peer {
                             return Err("profile_identity_mismatch");
                         }
-                        let mut result = Ok(());
-                        self.update(epoch, |s| {
-                            let projection = s.gateway.publish(
-                                self.profile.platform,
-                                device.clone(),
-                                ConfirmedLink {
-                                    peer_key: peer,
-                                    session_id: session_key,
-                                    expires_ms: self.now() + SESSION_MS
-                                        - began.elapsed().as_millis() as u64,
-                                    granted: BTreeSet::from([
-                                        Operation::DeviceProfile,
-                                        Operation::BatteryStatus,
-                                    ]),
-                                },
-                                &BTreeSet::from([
-                                    Operation::DeviceProfile,
-                                    Operation::BatteryStatus,
-                                ]),
-                                self.now(),
-                            );
-                            match projection {
-                                Ok(p) => {
-                                    s.view.remote = Some(device);
-                                    s.view.projection = Some(p);
-                                    s.view.phase = "active";
-                                }
-                                Err(_) => result = Err("invalid_peer_profile"),
-                            }
-                        });
-                        result?;
+                        let mut implemented = self.advertised_profile().operations;
+                        implemented.insert(Operation::BatteryStatus);
+                        self.project(
+                            epoch,
+                            device,
+                            session_key,
+                            self.now() + SESSION_MS - began.elapsed().as_millis() as u64,
+                            &implemented,
+                        )?;
                         active = true;
                     }
                     Wire::Request {
                         id,
                         target,
                         operation,
+                        payload,
                     } if active => {
                         if id == 0 || id <= last_request || target != self.identity.public {
                             return Err("invalid_request_identity");
                         }
                         last_request = id;
                         self.update(epoch, |s| s.view.requests_received += 1);
+                        if !self
+                            .state
+                            .lock()
+                            .unwrap()
+                            .view
+                            .granted_operations
+                            .contains(&operation)
+                        {
+                            send(
+                                noise,
+                                socket,
+                                &Wire::Response {
+                                    id,
+                                    result: None,
+                                    error: Some("permission_denied".into()),
+                                },
+                            )?;
+                            continue;
+                        }
+                        if crate::executor::supported(operation) {
+                            let projection = self.snapshot().projection.ok_or("peer_offline")?;
+                            let task = VendorTask {
+                                session_id: session.to_owned(),
+                                request_id: id.to_string(),
+                                projection_id: projection.id,
+                                operation,
+                                payload,
+                                remaining_ms: crate::executor::timeout_ms(operation),
+                            };
+                            match self.enqueue_vendor_task(epoch, task) {
+                                Ok(rx) => {
+                                    incoming.insert(id, rx);
+                                }
+                                Err(error) => send(
+                                    noise,
+                                    socket,
+                                    &Wire::Response {
+                                        id,
+                                        result: None,
+                                        error: Some(error.to_owned()),
+                                    },
+                                )?,
+                            }
+                            continue;
+                        }
+                        validate_payload(operation, &payload)?;
                         let outcome = match operation {
                             Operation::DeviceProfile => {
-                                Ok(OperationResult::DeviceProfile(self.profile.clone()))
+                                Ok(OperationResult::DeviceProfile(self.advertised_profile()))
                             }
                             Operation::BatteryStatus => self
                                 .battery_reader
@@ -613,16 +1020,25 @@ impl Bridge {
                         };
                         send(noise, socket, &Wire::Response { id, result, error })?;
                     }
+                    Wire::Cancel { id } if active => self
+                        .mailbox
+                        .lock()
+                        .unwrap()
+                        .cancel(session, &id.to_string()),
                     Wire::Response { id, result, error } if active => {
-                        if let Some((deadline, operation, reply)) = pending.remove(&id) {
+                        if let Some((deadline, operation, payload, reply)) = pending.remove(&id) {
                             let result = match (result, error) {
-                                (Some(value), None) if value.matches(operation, &peer) => Ok(value),
-                                (None, Some(error)) => Err(match error.as_str() {
-                                    "unsupported_operation" => "unsupported_operation",
-                                    "permission_denied" => "permission_denied",
-                                    "battery_unavailable" => "battery_unavailable",
-                                    _ => "remote_error",
-                                }),
+                                (Some(value), None)
+                                    if value.matches(operation, &peer)
+                                        && crate::executor::receipt_matches_payload(
+                                            &value, &payload,
+                                        ) =>
+                                {
+                                    Ok(value)
+                                }
+                                (None, Some(error)) => {
+                                    Err(crate::executor::execution_error(&error))
+                                }
                                 _ => return Err("invalid_response"),
                             };
                             let _ = reply.send(if Instant::now() >= deadline {
@@ -644,7 +1060,8 @@ impl Bridge {
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>();
             for id in expired {
-                if let Some((_, _, tx)) = pending.remove(&id) {
+                send(noise, socket, &Wire::Cancel { id })?;
+                if let Some((_, _, _, tx)) = pending.remove(&id) {
                     let _ = tx.send(Err("request_timeout"));
                 }
             }
@@ -765,6 +1182,366 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+    #[test]
+    fn confirmed_identity_does_not_grant_unselected_vendor_operations() {
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let owner = ExecutorOwner {
+            uid: 123,
+            pid: 456,
+            token: "consent-test".into(),
+        };
+        a.register_executor(owner.clone(), BTreeSet::from([Operation::ClipboardWrite]))
+            .unwrap();
+        b.register_executor(owner.clone(), BTreeSet::from([Operation::ClipboardWrite]))
+            .unwrap();
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap())
+            .unwrap();
+        wait(&a, "awaiting_confirmation");
+        wait(&b, "awaiting_confirmation");
+        a.confirm(&a.snapshot().session).unwrap();
+        b.confirm_operations(
+            &b.snapshot().session,
+            Some(BTreeSet::from([Operation::DeviceProfile])),
+        )
+        .unwrap();
+        wait(&a, "active");
+        wait(&b, "active");
+        for bridge in [&a, &b] {
+            let s = bridge.snapshot();
+            assert!(s.local.operations.contains(&Operation::ClipboardWrite));
+            assert!(!s
+                .projection
+                .unwrap()
+                .operations
+                .contains(&Operation::ClipboardWrite));
+            let epoch = bridge.state.lock().unwrap().epoch;
+            assert!(matches!(
+                bridge.enqueue_vendor_task(
+                    epoch,
+                    VendorTask {
+                        session_id: s.session,
+                        request_id: "1".into(),
+                        projection_id: "irrelevant".into(),
+                        operation: Operation::ClipboardWrite,
+                        payload: serde_json::json!({"mime":"text/plain","utf8_b64":"aGk="}),
+                        remaining_ms: 5000
+                    }
+                ),
+                Err("permission_denied")
+            ));
+            assert!(bridge.poll_executor(&owner).0.is_none());
+        }
+        a.stop();
+        b.stop();
+    }
+    #[test]
+    fn notification_fragments_require_separate_grants_and_a_bound_execution_receipt() {
+        use crate::notification::Receipt;
+        use serde_json::json;
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let owner = ExecutorOwner {
+            uid: 123,
+            pid: 456,
+            token: "notification-executor".into(),
+        };
+        let ready = BTreeSet::from([
+            Operation::NotificationPost,
+            Operation::NotificationRemove,
+            Operation::NotificationAction,
+        ]);
+        for bridge in [&a, &b] {
+            bridge
+                .register_executor(owner.clone(), ready.clone())
+                .unwrap();
+        }
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap())
+            .unwrap();
+        wait(&a, "awaiting_confirmation");
+        wait(&b, "awaiting_confirmation");
+        assert_eq!(a.snapshot().comparison_code, b.snapshot().comparison_code);
+        for bridge in [&a, &b] {
+            bridge
+                .confirm_operations(
+                    &bridge.snapshot().session,
+                    Some(BTreeSet::from([
+                        Operation::NotificationPost,
+                        Operation::NotificationRemove,
+                    ])),
+                )
+                .unwrap();
+        }
+        wait(&a, "active");
+        wait(&b, "active");
+        let p = a.snapshot().projection.unwrap();
+        let payload = json!({"transfer_id":"11111111-2222-3333-4444-555555555555","index":0,"count":1,"length":2,"sha256":"a".repeat(64),"data":"aGk="});
+        assert!(matches!(
+            a.submit_operation(
+                Source::HyperOs4,
+                &p.id,
+                &p.session_id,
+                Operation::NotificationAction,
+                payload.clone()
+            ),
+            Err("unsupported_operation")
+        ));
+        let (_, result) = a
+            .submit_operation(
+                Source::HyperOs4,
+                &p.id,
+                &p.session_id,
+                Operation::NotificationPost,
+                payload,
+            )
+            .unwrap();
+        let until = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let (Some(task), _) = b.poll_executor(&owner) {
+                let mut receipt = Receipt::Complete {
+                    transfer_id: "00000000-2222-3333-4444-555555555555".into(),
+                    index: 0,
+                    sha256: "a".repeat(64),
+                    data: "UUpOMQQAAAABawAAAAAAAAABAAAABnBvc3RlZA==".into(),
+                };
+                assert_eq!(
+                    b.complete_executor(
+                        &owner,
+                        &task.session_id,
+                        &task.request_id,
+                        Ok(OperationResult::NotificationPost(receipt.clone()))
+                    ),
+                    Err("invalid_result")
+                );
+                if let Receipt::Complete { transfer_id, .. } = &mut receipt {
+                    *transfer_id = "11111111-2222-3333-4444-555555555555".into();
+                }
+                b.complete_executor(
+                    &owner,
+                    &task.session_id,
+                    &task.request_id,
+                    Ok(OperationResult::NotificationPost(receipt.clone())),
+                )
+                .unwrap();
+                assert_eq!(
+                    result.recv_timeout(Duration::from_secs(2)).unwrap(),
+                    Ok(OperationResult::NotificationPost(receipt))
+                );
+                break;
+            }
+            assert!(Instant::now() < until);
+            thread::sleep(Duration::from_millis(5));
+        }
+        a.stop();
+        b.stop();
+    }
+    #[test]
+    fn finder_terminal_errors_cross_authenticated_wire_without_exposing_arbitrary_text() {
+        use serde_json::json;
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let owner = ExecutorOwner {
+            uid: 123,
+            pid: 456,
+            token: "finder-executor".into(),
+        };
+        for bridge in [&a, &b] {
+            bridge
+                .register_executor(owner.clone(), BTreeSet::from([Operation::DeviceFinder]))
+                .unwrap();
+        }
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap())
+            .unwrap();
+        wait(&a, "awaiting_confirmation");
+        wait(&b, "awaiting_confirmation");
+        assert_eq!(a.snapshot().comparison_code, b.snapshot().comparison_code);
+        for bridge in [&a, &b] {
+            bridge
+                .confirm_operations(
+                    &bridge.snapshot().session,
+                    Some(BTreeSet::from([Operation::DeviceFinder])),
+                )
+                .unwrap();
+        }
+        wait(&a, "active");
+        wait(&b, "active");
+        let p = a.snapshot().projection.unwrap();
+        assert!(p.operations.contains(&Operation::DeviceFinder));
+        for code in [
+            "alarm_not_audible",
+            "audio_busy",
+            "audio_focus_denied",
+            "cancelled",
+            "finder_busy",
+            "finder_execution_failed",
+            "finder_torch_busy",
+            "finder_torch_unavailable",
+            "invalid_action",
+            "invalid_duration",
+            "invalid_finder_payload",
+            "invalid_request_id",
+            "playback_unverified",
+            "request_capacity",
+            "request_conflict",
+            "request_timeout",
+            "session_expired",
+            "stale_session",
+            "vibration_permission_required",
+            "cleanup_pending",
+            "synthetic OEM exception with private fields",
+        ] {
+            for bridge in [&a, &b] {
+                bridge
+                    .register_executor(owner.clone(), BTreeSet::from([Operation::DeviceFinder]))
+                    .unwrap();
+            }
+            let (_, result) = a
+                .submit_operation(
+                    Source::HyperOs4,
+                    &p.id,
+                    &p.session_id,
+                    Operation::DeviceFinder,
+                    json!({"action":"state"}),
+                )
+                .unwrap();
+            let until = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let (Some(task), _) = b.poll_executor(&owner) {
+                    b.complete_executor(&owner, &task.session_id, &task.request_id, Err(code))
+                        .unwrap();
+                    break;
+                }
+                assert!(
+                    Instant::now() < until,
+                    "finder executor did not receive request"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(
+                result.recv_timeout(Duration::from_secs(2)).unwrap(),
+                Err(crate::executor::execution_error(code))
+            );
+        }
+        a.stop();
+        b.stop();
+    }
+    #[test]
+    fn simultaneous_vendor_requests_do_not_block_socket_polling_and_capability_withdraws() {
+        use serde_json::json;
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let owner = ExecutorOwner {
+            uid: 123,
+            pid: 456,
+            token: "test-executor".into(),
+        };
+        a.register_executor(owner.clone(), BTreeSet::from([Operation::ClipboardWrite]))
+            .unwrap();
+        b.register_executor(owner.clone(), BTreeSet::from([Operation::ClipboardWrite]))
+            .unwrap();
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap())
+            .unwrap();
+        wait(&a, "awaiting_confirmation");
+        wait(&b, "awaiting_confirmation");
+        assert_eq!(a.snapshot().comparison_code, b.snapshot().comparison_code);
+        a.confirm(&a.snapshot().session).unwrap();
+        b.confirm(&b.snapshot().session).unwrap();
+        wait(&a, "active");
+        wait(&b, "active");
+        let pa = a.snapshot().projection.unwrap();
+        let pb = b.snapshot().projection.unwrap();
+        assert!(pa.operations.contains(&Operation::ClipboardWrite));
+        assert!(pb.operations.contains(&Operation::ClipboardWrite));
+        let (_, ra) = a
+            .submit_operation(
+                Source::HyperOs4,
+                &pa.id,
+                &pa.session_id,
+                Operation::ClipboardWrite,
+                json!({"mime":"text/plain","utf8_b64":"aGk="}),
+            )
+            .unwrap();
+        let (_, rb) = b
+            .submit_operation(
+                Source::ColorOs17,
+                &pb.id,
+                &pb.session_id,
+                Operation::ClipboardWrite,
+                json!({"mime":"text/plain","utf8_b64":"aGk="}),
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut count = 0;
+        while count < 2 && Instant::now() < deadline {
+            for bridge in [&a, &b] {
+                if let (Some(task), _) = bridge.poll_executor(&owner) {
+                    assert_eq!(task.payload, json!({"mime":"text/plain","utf8_b64":"aGk="}));
+                    bridge
+                        .complete_executor(
+                            &owner,
+                            &task.session_id,
+                            &task.request_id,
+                            Ok(OperationResult::ClipboardWrite(ClipboardReceipt {
+                                applied: true,
+                                utf8_bytes: 2,
+                            })),
+                        )
+                        .unwrap();
+                    count += 1;
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(count, 2);
+        assert_eq!(
+            ra.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Ok(OperationResult::ClipboardWrite(ClipboardReceipt {
+                applied: true,
+                utf8_bytes: 2
+            }))
+        );
+        assert_eq!(
+            rb.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Ok(OperationResult::ClipboardWrite(ClipboardReceipt {
+                applied: true,
+                utf8_bytes: 2
+            }))
+        );
+        b.register_executor(owner.clone(), BTreeSet::new()).unwrap();
+        let until = Instant::now() + Duration::from_secs(2);
+        while a
+            .snapshot()
+            .projection
+            .unwrap()
+            .operations
+            .contains(&Operation::ClipboardWrite)
+        {
+            assert!(Instant::now() < until);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!b
+            .snapshot()
+            .projection
+            .unwrap()
+            .operations
+            .contains(&Operation::ClipboardWrite));
+        assert!(matches!(
+            a.submit_operation(
+                Source::HyperOs4,
+                &pa.id,
+                &pa.session_id,
+                Operation::ClipboardWrite,
+                json!({"mime":"text/plain","utf8_b64":"aGk="})
+            ),
+            Err("unsupported_operation")
+        ));
+        a.stop();
+        b.stop();
     }
     #[test]
     fn two_peers_require_both_confirmations_then_exchange_real_profiles_and_rpc() {

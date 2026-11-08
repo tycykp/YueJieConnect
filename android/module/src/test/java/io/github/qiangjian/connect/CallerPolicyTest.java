@@ -16,4 +16,35 @@ public class CallerPolicyTest {
         assertEquals(0,CallerPolicy.source("com.oplus.linker",170070030L,"17.7.31",op,1));
         assertEquals(0,CallerPolicy.source("com.oplus.linker",170070030L,"17.7.30",cert,1));
     }
+    @Test public void mirrorPackagePinDoesNotGrantSharedUidAnIpcLease() {
+        org.junit.Assert.assertTrue(CallerPolicy.mirrorPackage(180201L,"18.02.01-26.09.10",cert));
+        org.junit.Assert.assertFalse(CallerPolicy.mirrorPackage(180202L,"18.02.01-26.09.10",cert));
+        org.junit.Assert.assertFalse(CallerPolicy.mirrorPackage(180201L,"18.02.01-26.09.10","fake"));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.MIRROR,180201L,"18.02.01-26.09.10",cert,50));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.MIRROR,180201L,"18.02.01-26.09.10",cert,1));
+    }
+    @Test public void finderAndCastRequireTheirExactSinglePackageIdentity() {
+        String finder="159e6f37c336f2f41272542dbc1dc85721dd567ed4ac68ac13f2e43003ce0dce";
+        String platform="e49802409584ce53152a9000820a51e4fa8a723b7bcc263e335240acf100bf9e";
+        assertEquals(2,CallerPolicy.source(CallerPolicy.OPLUS_FINDER,100008,"10.0.8",finder,1));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_FINDER,100008,"10.0.8",platform,1));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_FINDER,100008,"10.0.8",finder,2));
+        assertEquals(2,CallerPolicy.source(CallerPolicy.OPLUS_CAST,170017,"17.0.017",platform,1));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_CAST,170018,"17.0.017",platform,1));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_CAST,170017,"17.0.017",platform,2));
+    }
+    @Test public void authenticatedPackagesCannotRegisterOtherBusinessExecutors(){
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.MIRROR,"clipboard_write"));
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.OPLUS,"logical_open"));
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.OPLUS_FINDER,"device_finder"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.OPLUS_FINDER,"clipboard_write"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.OPLUS_CAST,"device_finder"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.MIRROR,"unknown"));
+        org.junit.Assert.assertTrue(CallerPolicy.moduleExecutorAllowed("notification_post"));
+        org.junit.Assert.assertTrue(CallerPolicy.moduleExecutorAllowed("notification_remove"));
+        org.junit.Assert.assertTrue(CallerPolicy.moduleExecutorAllowed("notification_action"));
+        org.junit.Assert.assertFalse(CallerPolicy.moduleExecutorAllowed("clipboard_write"));
+        org.junit.Assert.assertFalse(CallerPolicy.moduleExecutorAllowed("logical_open"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.OPLUS_FINDER,"notification_action"));
+    }
 }

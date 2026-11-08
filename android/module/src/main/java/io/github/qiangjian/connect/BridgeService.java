@@ -20,22 +20,30 @@ import org.json.JSONObject;
 /** JNI and all persistent state live only in this process, never in Hook callbacks. */
 public final class BridgeService extends Service {
     private WifiRoute wifiRoute;
+    private VendorProcessProof mirrorProof;
+    private SystemNotificationBridge notifications;
+    private int hostSource;
+    private final NativeRuntimeRegistry runtimes=new NativeRuntimeRegistry();
+    private final NativeScreenProofs screenProofs=new NativeScreenProofs();
     private String initialization="{\"status\":\"error\",\"code\":\"profile_unavailable\"}";
     private final android.os.Handler monitor=new android.os.Handler(android.os.Looper.getMainLooper());
     private String lastState="";
     private final Runnable monitorTask=new Runnable(){public void run(){
         try{JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}"));
-            JSONObject state=result.optJSONObject("bridge");if(state!=null){String marker="phase="+state.optString("phase")+" error="+state.optString("last_error")+" errno="+state.optString("socket_errno")+" rpc="+state.optLong("requests_sent")+"/"+state.optLong("requests_received")+"/"+state.optLong("responses_received");
+            JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);if(state!=null){String marker="phase="+state.optString("phase")+" error="+state.optString("last_error")+" errno="+state.optString("socket_errno")+" rpc="+state.optLong("requests_sent")+"/"+state.optLong("requests_received")+"/"+state.optLong("responses_received");
                 if(!marker.equals(lastState)){lastState=marker;android.util.Log.i("QiangJianBridge",marker);}}
         }catch(org.json.JSONException|RuntimeException ignored){}monitor.postDelayed(this,1000);
     }};
     @Override public void onCreate() {
         super.onCreate();
         wifiRoute=new WifiRoute(getSystemService(android.net.ConnectivityManager.class));
+        mirrorProof=new VendorProcessProof(this);
+        mirrorProof.start();
         try {
             int xiaomi=sourceFor(CallerPolicy.XIAOMI),oplus=sourceFor(CallerPolicy.OPLUS);
             int source=xiaomi!=0 && oplus==0?xiaomi:oplus!=0 && xiaomi==0?oplus:0;
             if(source==0){initialization="{\"status\":\"error\",\"code\":\"unsupported_host_package\"}";return;}
+            hostSource=source;
             String name=null;
             try{name=Settings.Global.getString(getContentResolver(),"device_name");}
             catch(SecurityException restricted){android.util.Log.i("QiangJianBridge","device_name_restricted_using_model");}
@@ -47,6 +55,8 @@ public final class BridgeService extends Service {
                 .put("os_build",Build.VERSION.INCREMENTAL).put("operations",new JSONArray());
             NativeCore.setBatteryReader(()->LocalDeviceOperations.battery(getApplicationContext()));
             initialization=NativeCore.initialize(new java.io.File(getFilesDir(),"bridge-identity.key").getAbsolutePath(),profile.toString());
+            if("ok".equals(new JSONObject(initialization).optString("status")))try{notifications=new SystemNotificationBridge(this);}
+            catch(RuntimeException unavailable){android.util.Log.w("QiangJianBridge","notification_endpoint_unavailable");}
         } catch(org.json.JSONException | RuntimeException error) {
             initialization="{\"status\":\"error\",\"code\":\"profile_setup_failed\",\"detail\":\""+error.getClass().getSimpleName()+"\"}";
         } finally {android.util.Log.i("QiangJianBridge","initialization="+initialization);monitor.post(monitorTask);}
@@ -64,6 +74,45 @@ public final class BridgeService extends Service {
             .setContentIntent(open).setOngoing(true).build();
         startForeground(1,note,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
     }
+    private void refreshScreenScope(JSONObject state){
+        JSONObject projection=state==null?null:state.optJSONObject("projection"),remote=state==null?null:state.optJSONObject("remote");
+        boolean permitted=false;JSONArray grants=state==null?null:state.optJSONArray("granted_operations");
+        if(grants!=null)for(int i=0;i<grants.length();i++)if("screen_video".equals(grants.optString(i)))permitted=true;
+        boolean active=state!=null&&"active".equals(state.optString("phase"))&&hostSource==2&&remote!=null&&"tablet".equals(remote.optString("kind"))&&projection!=null;
+        screenProofs.scope(active?state.optString("session"):"",active?projection.optString("id"):"",active&&permitted);
+    }
+    private String screenRequest(CallerVerifier.Verified verified,int uid,int pid,JSONObject command)throws org.json.JSONException{
+        if(verified==null)return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+        JSONObject status=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}"));
+        refreshScreenScope(status.optJSONObject("bridge"));
+        NativeScreenProofs.Caller caller=new NativeScreenProofs.Caller(uid,pid);String op=command.getString("op");
+        try{
+            if("screen_request_issue".equals(op)&&command.length()==6&&CallerPolicy.OPLUS.equals(verified.packageName())){
+                String proof=screenProofs.issue(caller,command.getString("session_id"),command.getString("projection_id"),command.getString("native_uid"),command.getString("device_type"),exactLong(command,"stream_id"));
+                return new JSONObject().put("status","ok").put("proof",proof).toString();
+            }
+            if("screen_request_claim".equals(op)&&command.length()==6&&CallerPolicy.OPLUS_CAST.equals(verified.packageName())){
+                String proof=command.getString("proof");if(!proof.matches("[0-9a-f]{64}"))throw new IllegalArgumentException();
+                var origin=new NativeScreenProofs.Caller(Math.toIntExact(exactLong(command,"original_caller_uid")),Math.toIntExact(exactLong(command,"original_caller_pid")));
+                var claim=screenProofs.claim(caller,origin,proof,command.getString("native_uid"),command.getString("device_type"));
+                return new JSONObject().put("status","ok").put("session_id",claim.session()).put("projection_id",claim.projection()).put("stream_id",claim.stream()).toString();
+            }
+            if("screen_request_allowed".equals(op)&&command.length()==3&&CallerPolicy.OPLUS_CAST.equals(verified.packageName())){
+                screenProofs.nativeAllowed(caller,command.getString("session_id"),exactLong(command,"stream_id"));
+                return "{\"status\":\"ok\"}";
+            }
+            if("screen_request_renew".equals(op)&&command.length()==3&&CallerPolicy.OPLUS_CAST.equals(verified.packageName())){
+                screenProofs.renew(caller,command.getString("session_id"),exactLong(command,"stream_id"));return "{\"status\":\"ok\"}";
+            }
+            if("screen_request_revoke".equals(op)&&command.length()==3&&(CallerPolicy.OPLUS.equals(verified.packageName())||CallerPolicy.OPLUS_CAST.equals(verified.packageName()))){
+                screenProofs.revoke(caller,command.getString("session_id"),exactLong(command,"stream_id"));return "{\"status\":\"ok\"}";
+            }
+        }catch(IllegalArgumentException|IllegalStateException|ArithmeticException rejected){return "{\"status\":\"error\",\"code\":\"screen_request_unproved\"}";}
+        return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+    }
+    private static long exactLong(JSONObject value,String key)throws org.json.JSONException{
+        Object number=value.get(key);if(!(number instanceof Integer)&&!(number instanceof Long))throw new IllegalArgumentException();return ((Number)number).longValue();
+    }
     private final IBridge.Stub binder = new IBridge.Stub() {
         @Override public String transactJson(String command) {
             int uid = Binder.getCallingUid(), pid = Binder.getCallingPid();
@@ -73,10 +122,51 @@ public final class BridgeService extends Service {
             // explicitly pass the ORIGINAL UID/PID into Rust's session check.
             long identity=Binder.clearCallingIdentity();
             try {
-            int source = owner ? 0 : CallerVerifier.verify(getPackageManager(), uid);
+            CallerVerifier.Verified verified=owner?null:CallerVerifier.resolve(getPackageManager(),uid);
+            if(!owner&&verified==null&&mirrorProof.verifies(uid,pid))verified=new CallerVerifier.Verified(1,CallerPolicy.MIRROR);
+            int source=owner?hostSource:verified==null?0:verified.source();
+            if(!owner&&source==0&&uid==CallerVerifier.mirrorUid(getPackageManager()))mirrorProof.requestVerification();
             if (!owner && source == 0) return "{\"status\":\"error\",\"code\":\"caller_rejected\"}";
             try {
-                String op=new JSONObject(command).optString("op");
+                JSONObject parsed=new JSONObject(command);String op=parsed.optString("op");
+                if(owner&&"bridge_runtime_status".equals(op))return runtimes.snapshot(BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime()).toString();
+                if(!owner){
+                    // Bind revision agreement to Rust's actual kernel-caller IPC lease. Content
+                    // requests keep their existing JSON budget and still undergo Rust replay checks.
+                    boolean opening="open".equals(op),direct=op.startsWith("screen_request_")||"file_cleanup_state".equals(op);
+                    boolean current=opening||direct
+                        ?runtimes.observe(uid,pid,verified.packageName(),parsed.optString("runtime_revision",""),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime())
+                        :runtimes.accepts(uid,pid,parsed.optString("token",""),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime());
+                    if(!current)return "{\"status\":\"error\",\"code\":\"runtime_mismatch\"}";
+                    parsed.remove("runtime_revision");command=parsed.toString();
+                }
+                if(op.startsWith("screen_request_"))return screenRequest(verified,uid,pid,parsed);
+                if("file_cleanup_state".equals(op)){
+                    if(owner||parsed.length()!=2||!CallerPolicy.executorAllowed(verified.packageName(),"file_offer"))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    JSONObject state=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}")).optJSONObject("bridge");
+                    if(state==null)return "{\"status\":\"error\",\"code\":\"service_unavailable\"}";
+                    return "active".equals(state.optString("phase"))&&parsed.getString("session_id").equals(state.optString("session"))
+                        ?"{\"status\":\"ok\",\"active\":true}":"{\"status\":\"error\",\"code\":\"stale_session\"}";
+                }
+                if(("bridge_file_allocate".equals(op)||"bridge_file_release".equals(op))
+                        &&(owner||!CallerPolicy.executorAllowed(verified.packageName(),"file_offer")))
+                    return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                if(owner&&"notification_fixture".equals(op)){
+                    try{return ((JSONObject)Class.forName("io.github.qiangjian.connect.NotificationSyncFixture").getMethod("execute",android.content.Context.class,JSONObject.class).invoke(null,BridgeService.this,parsed)).toString();}
+                    catch(ReflectiveOperationException|RuntimeException unavailable){return "{\"status\":\"error\",\"code\":\"debug_fixture_unavailable\"}";}
+                }
+                if(op.equals("bridge_register_executor")){
+                    JSONArray operations=parsed.optJSONArray("operations");
+                    if(operations==null||operations.length()>32)return "{\"status\":\"error\",\"code\":\"invalid_request\"}";
+                    for(int i=0;i<operations.length();i++)if(!(owner?CallerPolicy.moduleExecutorAllowed(operations.getString(i)):CallerPolicy.executorAllowed(verified.packageName(),operations.getString(i))))
+                        return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                }
+                if(owner&&op.equals("notification_settings"))return notifications==null?"{\"status\":\"error\",\"code\":\"notification_unavailable\"}":notifications.settings().toString();
+                if(owner&&op.equals("notification_packages")){
+                    if(notifications==null)return "{\"status\":\"error\",\"code\":\"notification_unavailable\"}";
+                    try{return notifications.configure(parsed.optJSONArray("packages")).toString();}
+                    catch(IllegalArgumentException invalid){return "{\"status\":\"error\",\"code\":\"invalid_notification_packages\"}";}
+                }
                 if(owner && (op.equals("bridge_listen") || op.equals("bridge_connect"))) {
                     if(!"ok".equals(new JSONObject(initialization).optString("status"))) return initialization;
                     if(checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK")!=PackageManager.PERMISSION_GRANTED)
@@ -87,6 +177,10 @@ public final class BridgeService extends Service {
                     foreground();
                 }
                 String result=NativeCore.dispatch(uid,pid,owner,source,SystemClock.elapsedRealtime(),command);
+                if(!owner&&"open".equals(op)){
+                    JSONObject opened=new JSONObject(result);
+                    if("ok".equals(opened.optString("status")))runtimes.opened(uid,pid,opened.optString("token",""),SystemClock.elapsedRealtime());
+                }
                 if(owner && op.equals("bridge_stop")) {wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
                 return result;
             } catch(org.json.JSONException e) {return "{\"status\":\"error\",\"code\":\"invalid_request\"}";}
@@ -96,6 +190,9 @@ public final class BridgeService extends Service {
     @Override public IBinder onBind(Intent intent) { return binder; }
     @Override public void onDestroy() {
         monitor.removeCallbacks(monitorTask);
+        if(notifications!=null)notifications.close();
+        screenProofs.scope("","",false);
+        mirrorProof.close();
         wifiRoute.release();
         NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_stop\"}");
         super.onDestroy();
