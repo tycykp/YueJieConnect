@@ -1,0 +1,35 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+local.properties
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+
+# Local IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Generated build output and caches
+.gradle/
+build/
+out/
+dist/
+target/
+node_modules/
+__pycache__/
+.venv/
+.pytest_cache/
+coverage/
+
+# Local diagnostics and device captures
+*.log
+*.tmp
+captures/
