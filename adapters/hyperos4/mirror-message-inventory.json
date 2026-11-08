@@ -1,0 +1,501 @@
+{
+  "sample": "com.xiaomi.mirror 18.02.01-26.09.10",
+  "scope": "All explicit getClassType models in sampled message package; not exhaustive native-library or other-package protocols",
+  "message_models": [
+    {
+      "class": "CapabilitiesMessage",
+      "class_type": 80,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/CapabilitiesMessage.java",
+      "source_sha256": "3921529497fcea4c7570b3f7db7a7c6391b13eb244c15e341f99cd5fd70f9879",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ClipboardMessage",
+      "class_type": 29,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ClipboardMessage.java",
+      "source_sha256": "fb3d79f129041f6a6c00497880081790d1cc349c632398eb9b5d35784678b7cd",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "CrossFileShareMessage",
+      "class_type": 87,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/CrossFileShareMessage.java",
+      "source_sha256": "5b3fdab6091676dd0e7666538649e133a215aeccd5514f8efb54d156bf2e806a",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "DeviceHistoryMessage",
+      "class_type": 51,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/DeviceHistoryMessage.java",
+      "source_sha256": "8e9e7451259a3f6bb5aff295b5314188efee29852d9233f84e5af901671311d4",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "DeviceInfoMessage",
+      "class_type": 32,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/DeviceInfoMessage.java",
+      "source_sha256": "7741cfc445324f3b28afe79c6a38f411a8a3030df801ccbe242bf0ca8c6565e3",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "DragMessage",
+      "class_type": 24,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/DragMessage.java",
+      "source_sha256": "c5c3d13876c66a247ff2ee6a32d0bc9919ffd0216865828886d75911db5ab62b",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "EditMessage",
+      "class_type": 30,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/EditMessage.java",
+      "source_sha256": "3655d7e248611cc211b73b8ee0294327cbc2f70c00bf4b19acc3e05d26e67a9f",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "FingerMessage",
+      "class_type": 50,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/FingerMessage.java",
+      "source_sha256": "8e8dd7371fe73bad8d6a6fcb2dce989edc15a027159184b2519906618f33b70a",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "GetOpenListMessage",
+      "class_type": 44,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/GetOpenListMessage.java",
+      "source_sha256": "7fd38174d528ac5a9a4d2223cf305d6cb6afb6866eba59a262cb8a3452c355fc",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "HandshakeMessage",
+      "class_type": 17,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/HandshakeMessage.java",
+      "source_sha256": "cc2f887a1c2a7819b286717d1184651c4163c91b7041f08c7f621cd54587af5c",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "HeartbeatMessage",
+      "class_type": 16,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/HeartbeatMessage.java",
+      "source_sha256": "213a07670ab83d1b54da99492048e865d7bd40aebfda46dabef7c614b86b3ebe",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "HidMessage",
+      "class_type": 52,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/HidMessage.java",
+      "source_sha256": "480bb4075639afb101c09f66dcfd4d8c4c85b5ffb191cdc82846565bb1a12b3a",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "InputStateMessage",
+      "class_type": 22,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/InputStateMessage.java",
+      "source_sha256": "489aec892955d5bf387e00a005eb88f148e74e97057074423804c8a2d9080855",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "KeyMessage",
+      "class_type": 20,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/KeyMessage.java",
+      "source_sha256": "eb4b42f06b7b9763c9c2167ea56dbad8cdc81bfa79312ef76eb7882225a87b8f",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "LowBatteryStatusMessage",
+      "class_type": 55,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/LowBatteryStatusMessage.java",
+      "source_sha256": "0f38ea8ba0c6b50cfb707d8bfddec93ce15396a68dab2543883ed70d1fc71aee",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "MiDropMessage",
+      "class_type": 33,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/MiDropMessage.java",
+      "source_sha256": "a96812939290a75d45937f7a49337d347cdc6ef2e9165f91b761b7f13cf8cda6",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "MirrorSettingStatusMessage",
+      "class_type": 85,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/MirrorSettingStatusMessage.java",
+      "source_sha256": "f463ac622c0e10f44f5aa186a15c992d2d0d8c95ea5e71655eb213705dcc19f3",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "MouseMessage",
+      "class_type": 19,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/MouseMessage.java",
+      "source_sha256": "3a41ad89b84cd14495a9c2b88c68b90608d8d4d6f506c176cb6d3ee5574646a1",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "NoteMessage",
+      "class_type": 42,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/NoteMessage.java",
+      "source_sha256": "f5260e6cfc314b1fc022f13571e5fffb29ce7b886e0c16111bbcecd3bea76b5b",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "NotificationInteractionMessage",
+      "class_type": 27,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/NotificationInteractionMessage.java",
+      "source_sha256": "c0d34ace357275e2adbc9ccedaeb5490a75622965907226645363bc845bc5d4f",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "NotificationPostMessage",
+      "class_type": 26,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/NotificationPostMessage.java",
+      "source_sha256": "123523f550b15299569fbc1e540f52a4a29dc760059ac2d59a822332dd568080",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "OpenListResponseMessage",
+      "class_type": 45,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/OpenListResponseMessage.java",
+      "source_sha256": "88427bc0db1701113e5b86e75f6871dd4096f8471be9bdb6a8d3732dca492322",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "PackageInfoMessage",
+      "class_type": 58,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/PackageInfoMessage.java",
+      "source_sha256": "927d79e221361281d209f5166487782ad85363dfcc84dd1a01d171a0932c7de9",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "PointerIconMessage",
+      "class_type": 41,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/PointerIconMessage.java",
+      "source_sha256": "f38b7ead024edc73e1c9669ec564b8f94458e0a4546eb298586ad73e4de61f8d",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RecentAppsMessage",
+      "class_type": 88,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RecentAppsMessage.java",
+      "source_sha256": "72af1a49af0d85d1455ed78af6e74c8b5a82efa880006119b27b026e70ccd025",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RecentMessage",
+      "class_type": 43,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RecentMessage.java",
+      "source_sha256": "4d510412349064a96694b91030b4c46e46710c2aece76db00becff1a7d1e4fec",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RelayAppIntentMessage",
+      "class_type": 46,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RelayAppIntentMessage.java",
+      "source_sha256": "fc7cb9d07237d586a96447198e1b488c84a59d201519aaa2f3490d518e2280fb",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RelayAppMessage",
+      "class_type": 38,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RelayAppMessage.java",
+      "source_sha256": "3025d84dc62556a65023893967c99d22410f46be617fb49b41874e33f5302e9a",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RelayBrowserMessage",
+      "class_type": 48,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RelayBrowserMessage.java",
+      "source_sha256": "2089dcbc48dc702f3a6c4b818a435151a541220748cdc892fdaa4a0865073f43",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RelayOfficeMessage",
+      "class_type": 39,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RelayOfficeMessage.java",
+      "source_sha256": "e6f39524827bcdf997f5b30ae87a123894e37495b74f00a701d3fefd0c55112a",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RemoteBroadcastMessage",
+      "class_type": 54,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RemoteBroadcastMessage.java",
+      "source_sha256": "392fa782cda5d4bc845dd64948ec5db8b00dc66b550aefc983ff16b0f344db92",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RemoteSyncDataMessage",
+      "class_type": 61,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RemoteSyncDataMessage.java",
+      "source_sha256": "8f6665746ec8b6594133ff10c8fd9a790fbf9d8c5907a65a95918a01e08c8e7d",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ReportTimeResponseMessage",
+      "class_type": 64,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ReportTimeResponseMessage.java",
+      "source_sha256": "d7c7d02b1c17e166d3e3a62933a8df8b3a2b98a3573f9de543822323e6a9b6d9",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "RequestAppScreenMessage",
+      "class_type": 78,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/RequestAppScreenMessage.java",
+      "source_sha256": "a0d8d36400a046416d644b0245ba284d50f5877983da3c8b60fe8aeff6a193d0",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SaveMessage",
+      "class_type": 40,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SaveMessage.java",
+      "source_sha256": "aa51b8c81a35038f79d66642b409e3b618ecd61ad8e2f1c6240d70ab372cfe5b",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ScreenActionMessage",
+      "class_type": 28,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ScreenActionMessage.java",
+      "source_sha256": "4933fa7250a39be9fe63c8ed434d51f3f7acbf31a709151af8e952a37adad021",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ScreenCastPCMessage",
+      "class_type": 53,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ScreenCastPCMessage.java",
+      "source_sha256": "083f6abe8633be6bb1ee88454c41b3c047832e8bb1ebc8b5ad6a429fa2b92593",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ScreenConfigurationChangedMessage",
+      "class_type": 21,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ScreenConfigurationChangedMessage.java",
+      "source_sha256": "249dfb504cd9ec63893f12186fed2cb5f7bf58e9e5d02211bd9e63a85e81a49b",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ScreenPermissionMessage",
+      "class_type": 72,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ScreenPermissionMessage.java",
+      "source_sha256": "179ffedfaf729e8b5c72486e265fd2b25abb186684181054199e1ffd3c9eebb3",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SearchAppMessage",
+      "class_type": 35,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SearchAppMessage.java",
+      "source_sha256": "466f6a7f2fdd318b1c34297a616e22e8e2ebbd778427f827642387a608883755",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SearchAppResponseMessage",
+      "class_type": 36,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SearchAppResponseMessage.java",
+      "source_sha256": "dbf5fad67e209d2ed43e387f0aa7bef744a5cb1e26a309f600a5edeaa6cb6368",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ShareFileMessage",
+      "class_type": 1000,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ShareFileMessage.java",
+      "source_sha256": "071e4867d790e4baf2186cf7496c9fed06c1aed68a9d2ddcd3d41f988f8d2133",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ShareKeyboardMessage",
+      "class_type": 83,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ShareKeyboardMessage.java",
+      "source_sha256": "849b41487e52e450a001dbf4f4b3f98a20fccabab4c9116912007a008d65effa",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "ShareOpenScreenMessage",
+      "class_type": 86,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/ShareOpenScreenMessage.java",
+      "source_sha256": "a5893240cb5466d9ea347e0663eda0a97d96a405614875298082ada36634b8e3",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SharePCMessage",
+      "class_type": 60,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SharePCMessage.java",
+      "source_sha256": "821ced53494ea9c01e4d322cb3b6398f93042b043d77037c87b342c0e3796dc8",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SinkPCMessage",
+      "class_type": 53,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SinkPCMessage.java",
+      "source_sha256": "e9c1795a05b1495986c92ffae09cf3744b7126f78af879d5f72c085bc7489932",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SoftApInfoMessage",
+      "class_type": 47,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SoftApInfoMessage.java",
+      "source_sha256": "3f6922451dd43cadac8ab0865ea7c13bae8a4c607d5b00cccfd1bc8a2d98ed66",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SubScreenDragDropMessage",
+      "class_type": 77,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SubScreenDragDropMessage.java",
+      "source_sha256": "bacd0a566a8ea9f3aaa2a5234bd2a6d0738dc447e77084c94996d5eb26bd4d5f",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SubScreenDragDropScreenShotMessage",
+      "class_type": 1000,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SubScreenDragDropScreenShotMessage.java",
+      "source_sha256": "356fdffda81b612f2fb0a676f377e5c6967e2931629243e58249acec001c5587",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SwitchPowerSaveModeMessage",
+      "class_type": 56,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SwitchPowerSaveModeMessage.java",
+      "source_sha256": "ea1b8e76ab0128e1907af3cae32d479fb63a4351cc09bb83849273177fb29764",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "SwitchPowerSaveModeResponseMessage",
+      "class_type": 57,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/SwitchPowerSaveModeResponseMessage.java",
+      "source_sha256": "6e01134556ee2d75b61ecc8e99dde1a2095dd7e05617366d88db8c6b46ebd76f",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "TestMessage",
+      "class_type": 52,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/TestMessage.java",
+      "source_sha256": "46993cc7ed7225999dd23b30a2c119d54bed2264dc352a07ca9f7417b2ffb7da",
+      "has_parse": false,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "TouchFileMessage",
+      "class_type": 63,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/TouchFileMessage.java",
+      "source_sha256": "b8b8209b84f799bfe65d2b85990443004638991bc81003cc1c24ab154d9b486c",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "TrafficLightMessage",
+      "class_type": 89,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/TrafficLightMessage.java",
+      "source_sha256": "2de171c1ae93f976ee59331036af7f447afb3c5685b039ccea02adbeef0f6c33",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    },
+    {
+      "class": "WifiManagerMessage",
+      "class_type": 59,
+      "source": "captures/device-interconnect-20261108/hyperos4/analysis/jadx/com.xiaomi.mirror/sources/com/xiaomi/mirror/message/WifiManagerMessage.java",
+      "source_sha256": "985a3d3b3d2342954005fcb6d0f443c312a3f1fb0d38f4e201825f21a61bf7f9",
+      "has_parse": true,
+      "adapted": false,
+      "evidence": "JADX explicit method; wire format/runtime availability not implied"
+    }
+  ]
+}

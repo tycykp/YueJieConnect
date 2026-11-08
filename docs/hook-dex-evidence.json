@@ -1,0 +1,90 @@
+[
+  {
+    "apk": "base.apk",
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes3.dex",
+    "dex_sha256": "53e64eb3ac9ea364f087f2f64de92a790b15b2d3084384251514cfaaa1bdc928",
+    "class_name": "Lcom/xiaomi/continuity/netbus/DeviceInfo;",
+    "methods": [
+      "getCapability()I",
+      "getCapabilityV2()I",
+      "getCapabilityV3()J",
+      "getConnectMediumTypes()I",
+      "getDeviceId()Ljava/lang/String;",
+      "getDeviceName()Ljava/lang/String;",
+      "getDeviceType()I",
+      "getDiscoveryMediumTypes()I",
+      "getGroupId()I",
+      "getIsCutOff()Z",
+      "getNoGroupId()J",
+      "getUidHash()Ljava/lang/String;"
+    ]
+  },
+  {
+    "apk": "base.apk",
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class_name": "Lcom/miui/circulate/channel/SharedChannelImpl;",
+    "methods": [
+      "getChannelManager()Lcom/xiaomi/continuity/channel/ContinuityChannelManager;",
+      "getNetBusManager()Lcom/xiaomi/continuity/netbus/NetBusManager;",
+      "getNetworkingManager()Lcom/xiaomi/continuity/networking/NetworkingManager;",
+      "getSaveImagePath()Ljava/lang/String;",
+      "getLocalDeviceId()Ljava/lang/String;",
+      "onDeviceChanged(Lcom/xiaomi/continuity/networking/TrustedDeviceInfo;)V",
+      "onDeviceFound(Ljava/lang/String;Lcom/xiaomi/continuity/netbus/DeviceInfo;)V",
+      "onDeviceInfoChanged(Ljava/lang/String;ILcom/xiaomi/continuity/netbus/DeviceInfo;)V",
+      "onDeviceLost(Ljava/lang/String;Lcom/xiaomi/continuity/netbus/DeviceInfo;)V"
+    ]
+  },
+  {
+    "apk": "OPSynergy.apk",
+    "apk_sha256": "dfac6057390248180adf559b80cb9521c44c952a7c63a4069ba48fbcc902f20b",
+    "dex": "classes2.dex",
+    "dex_sha256": "4ecdc43b87df99f63ea75cc33241bb6dd1eed57605cb6429969dd3b6379be452",
+    "class_name": "Lcom/oplus/pantaconnect/sdk/connectionservice/connection/DisplayDevice;",
+    "methods": [
+      "component1()Ljava/lang/String;",
+      "component10()I",
+      "component11()Ljava/lang/String;",
+      "component12()Lcom/oplus/pantaconnect/sdk/discovery/DiscoveryStrategy;",
+      "component13()Ljava/lang/String;",
+      "component14()Lcom/oplus/pantaconnect/sdk/connection/VLinkType;",
+      "component15()Ljava/lang/String;",
+      "component2()Ljava/lang/String;",
+      "component3()Lcom/oplus/pantaconnect/sdk/DeviceType;",
+      "component4()Ljava/lang/String;",
+      "component5()Lcom/oplus/pantaconnect/sdk/connectionservice/connection/DeviceState;",
+      "component6()Lcom/oplus/pantaconnect/sdk/connectionservice/connection/AccountState;",
+      "component7()Z",
+      "component8()I",
+      "component9()Ljava/util/List;",
+      "getAbility()I",
+      "getAccountState()Lcom/oplus/pantaconnect/sdk/connectionservice/connection/AccountState;",
+      "getConnectedTypes()Ljava/util/List;",
+      "getDeviceIp()Ljava/lang/String;",
+      "getDeviceState()Lcom/oplus/pantaconnect/sdk/connectionservice/connection/DeviceState;",
+      "getDeviceType()Lcom/oplus/pantaconnect/sdk/DeviceType;",
+      "getDiscoveryStrategy()Lcom/oplus/pantaconnect/sdk/discovery/DiscoveryStrategy;",
+      "getDisplayName()Ljava/lang/String;",
+      "getModelId()Ljava/lang/String;",
+      "getProtocolDeviceId()Ljava/lang/String;",
+      "getProtocolVersion()I",
+      "getTempId()Ljava/lang/String;",
+      "getUsedLocalIp()Ljava/lang/String;",
+      "getVLinkType()Lcom/oplus/pantaconnect/sdk/connection/VLinkType;"
+    ]
+  },
+  {
+    "apk": "OPSynergy.apk",
+    "apk_sha256": "dfac6057390248180adf559b80cb9521c44c952a7c63a4069ba48fbcc902f20b",
+    "dex": "classes2.dex",
+    "dex_sha256": "4ecdc43b87df99f63ea75cc33241bb6dd1eed57605cb6429969dd3b6379be452",
+    "class_name": "Lcom/oplus/linker/connect/arch/discovery/DiscoveryImpl$startSearch$2;",
+    "methods": [
+      "onDeviceFound(Lcom/oplus/pantaconnect/sdk/connectionservice/connection/DisplayDevice;)V",
+      "onDeviceLost(Lcom/oplus/pantaconnect/sdk/connectionservice/connection/DisplayDevice;)V"
+    ]
+  }
+]

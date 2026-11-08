@@ -1,0 +1,15 @@
+[package]
+name = "qj-jni"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "qj_jni"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+qj-core = { path = "../core" }
+qj-transport = { path = "../transport" }
+jni = "=0.21.1"
+serde_json.workspace = true
+serde.workspace = true

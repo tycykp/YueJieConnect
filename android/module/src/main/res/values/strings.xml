@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">强兼互联</string>
+    <string name="module_description">API 102 + Rust 双向设备代理</string>
+    <string name="gateway_intro">设备代理 · 0.2\n\n两台设备连接同一局域网。一端等待连接，另一端输入它的地址。核对两端校验码并分别确认后，才交换真实资料并发布代理。\n\n本版实现资料和电池状态查询。小米设备资料业务适配正在验证；文件、投屏等功能尚未接通。</string>
+    <string name="address_hint">对端地址，例如 192.168.1.20:38271</string>
+    <string name="listen">等待另一台设备连接</string>
+    <string name="connect_peer">连接此地址</string>
+    <string name="status">刷新桥接状态</string>
+    <string name="confirm_pair">核对校验码并确认配对</string>
+    <string name="query_peer">查询对端真实资料</string>
+    <string name="disconnect">断开并撤回代理</string>
+    <string name="compare_title">确认这两台设备</string>
+    <string name="confirm_yes">两端一致，确认</string>
+    <string name="permission_needed">需要局域网访问权限，请允许后再次连接。</string>
+    <string name="connecting">正在连接本机服务…</string>
+    <string name="unavailable">本机服务未连接，请重新打开应用。</string>
+</resources>

@@ -1,0 +1,583 @@
+{
+  "sample": "com.oplus.linker 17.7.30 / PLQ110_17.0.0.104(CN01)",
+  "scope": "All declarations in the four Synergy *ServiceGrpc classes and SynergyCmd; excludes OShare. This is not an assertion that every declaration is reachable on this phone.",
+  "rpc_services": [
+    {
+      "service": "ClipboardFileService",
+      "methods": [
+        "getUriContent"
+      ],
+      "source": "com/oplus/linker/synergy/ClipboardFileServiceGrpc.java",
+      "sha256": "06032efd2a5085444b46e557d22ce20457a77227edc2896e425095a614334763",
+      "status": "declared_not_interoperable"
+    },
+    {
+      "service": "ClipBoardService",
+      "methods": [
+        "copyToClip",
+        "getClipData"
+      ],
+      "source": "com/oplus/linker/synergy/ClipBoardServiceGrpc.java",
+      "sha256": "175a7cee617370afe7079270838c7fadea60579b582793f2b191ff509ee14db9",
+      "status": "declared_not_interoperable"
+    },
+    {
+      "service": "FileService",
+      "methods": [
+        "createFile",
+        "deleteFile",
+        "openFile",
+        "readFile",
+        "writeFile"
+      ],
+      "source": "com/oplus/linker/synergy/FileServiceGrpc.java",
+      "sha256": "9f83e1172c98962b91d846433a3bdc07f87a78ec99a37d61b1b30ac542ea0213",
+      "status": "declared_not_interoperable"
+    },
+    {
+      "service": "InputService",
+      "methods": [
+        "inputToTextbox"
+      ],
+      "source": "com/oplus/linker/synergy/InputServiceGrpc.java",
+      "sha256": "d2a48abf05aea095a050d02ca3eb01da61b557cc033c480417bed64ce3242568",
+      "status": "declared_not_interoperable"
+    }
+  ],
+  "commands_source": "com/oplus/linker/synergy/protocol/SynergyCmd.java",
+  "commands_sha256": "c33e297889ca24da9cfd5d03642f7b5c5c4d02da8fd4a2b00ef32ef467fc2a8c",
+  "commands": [
+    {
+      "name": "FLAG_MIRAGE_WINDOW_STATUS_CLOSE",
+      "type": "int",
+      "value_literal": "0",
+      "line": 9,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_MIRAGE_WINDOW_STATUS_OPEN",
+      "type": "int",
+      "value_literal": "1",
+      "line": 10,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_PAD_ROTATION",
+      "type": "int",
+      "value_literal": "4",
+      "line": 11,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_RELAY_CLOSE",
+      "type": "int",
+      "value_literal": "0",
+      "line": 12,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_RELAY_OPEN",
+      "type": "int",
+      "value_literal": "1",
+      "line": 13,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_SHARED_CLIPBOARD_CLOSE",
+      "type": "int",
+      "value_literal": "0",
+      "line": 14,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_SHARED_CLIPBOARD_OPEN",
+      "type": "int",
+      "value_literal": "1",
+      "line": 15,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_SINGLE_PHONE_CALL",
+      "type": "int",
+      "value_literal": "0",
+      "line": 16,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_SINGLE_PHONE_CALL_PRIVATE_DIALOG",
+      "type": "int",
+      "value_literal": "100",
+      "line": 17,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_START_MIRROR_FAIL",
+      "type": "int",
+      "value_literal": "0",
+      "line": 18,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "FLAG_START_MIRROR_SUCCESS",
+      "type": "int",
+      "value_literal": "1",
+      "line": 19,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_CHECK_WEB_SOCKET",
+      "type": "String",
+      "value_literal": "\"check_web_socket\"",
+      "line": 20,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_INTERRUPT_RING",
+      "type": "String",
+      "value_literal": "\"synergy_interrupt_ring_phone\"",
+      "line": 21,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_MIRAGE_APP_ICON",
+      "type": "String",
+      "value_literal": "\"icon\"",
+      "line": 22,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_MIRAGE_APP_NAME",
+      "type": "String",
+      "value_literal": "\"app_name\"",
+      "line": 23,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_MIRAGE_PACKAGE_NAME",
+      "type": "String",
+      "value_literal": "\"packagename\"",
+      "line": 24,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_NEED_PRIVACY_TOAST",
+      "type": "String",
+      "value_literal": "\"synergy_need_privacy_toast\"",
+      "line": 25,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_PHONE_ACCEPT",
+      "type": "String",
+      "value_literal": "\"synergy_accept_phone\"",
+      "line": 26,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_PHONE_END_CALL",
+      "type": "String",
+      "value_literal": "\"synergy_end_phone\"",
+      "line": 27,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_PHONE_IGNORE",
+      "type": "String",
+      "value_literal": "\"synergy_ignore_phone\"",
+      "line": 28,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_SMS_RESPOND",
+      "type": "String",
+      "value_literal": "\"synergy_respond_via_message\"",
+      "line": 29,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_SPLIT_SCREEN_STATE",
+      "type": "String",
+      "value_literal": "\"split_screen_state\"",
+      "line": 30,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_SYNERGY_OS_CONFIG",
+      "type": "String",
+      "value_literal": "\"synergy_os_config\"",
+      "line": 31,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_TOP_PACKAGE_NAME",
+      "type": "String",
+      "value_literal": "\"top_package_name\"",
+      "line": 32,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "KEY_CMD_TOP_TASK_PACKAGE_NAME",
+      "type": "String",
+      "value_literal": "\"task_package_names\"",
+      "line": 33,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "REASON_CMD_FILE_MANAGER_REMOVED",
+      "type": "String",
+      "value_literal": "\"file_manager_removed\"",
+      "line": 34,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_CLIPBOARD_STATUS",
+      "type": "String",
+      "value_literal": "\"clipboardstatus\"",
+      "line": 35,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_CLOSE_MIRAGE_WINDOW",
+      "type": "String",
+      "value_literal": "\"close_mirage_window\"",
+      "line": 36,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_DISCONNECT",
+      "type": "String",
+      "value_literal": "\"synergy_disconnect\"",
+      "line": 37,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_DISCONNECT_CAST_AND_CONNECT",
+      "type": "String",
+      "value_literal": "\"synergy_disconnect_bt\"",
+      "line": 38,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_DRAG_FILE_TO_PC_START",
+      "type": "String",
+      "value_literal": "\"startdragfile\"",
+      "line": 39,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_DRAG_FILE_TO_PC_STOP",
+      "type": "String",
+      "value_literal": "\"enddragfile\"",
+      "line": 40,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_ENABLE_KEY_EVENT",
+      "type": "String",
+      "value_literal": "\"enable_key_event\"",
+      "line": 41,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_FILE_OPEN",
+      "type": "String",
+      "value_literal": "\"file_open\"",
+      "line": 42,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_FILE_PC_BACKUP",
+      "type": "String",
+      "value_literal": "\"file_pc_backup\"",
+      "line": 43,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_FILE_TRANSFER",
+      "type": "String",
+      "value_literal": "\"file_transfer\"",
+      "line": 44,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_FILE_TRANSFER_MODE",
+      "type": "String",
+      "value_literal": "\"file_transfer_mode\"",
+      "line": 45,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_IS_SEND_FILE_TO_PC",
+      "type": "String",
+      "value_literal": "\"sendfiletopcresult\"",
+      "line": 46,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_IS_SEND_FILE_TO_PC_error",
+      "type": "String",
+      "value_literal": "\"send_file_to_pc_error\"",
+      "line": 47,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_KEY_EVENTS",
+      "type": "String",
+      "value_literal": "\"key_events\"",
+      "line": 48,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_MAX_RESOLUTION",
+      "type": "String",
+      "value_literal": "\"max_resolution\"",
+      "line": 49,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_MINIMIZE_WINDOW",
+      "type": "String",
+      "value_literal": "\"minimize_window\"",
+      "line": 50,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_MIRAGE_WINDOW",
+      "type": "String",
+      "value_literal": "\"mirageWindow\"",
+      "line": 51,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_OPEN_MIRAGE_WINDOW",
+      "type": "String",
+      "value_literal": "\"open_mirage_window\"",
+      "line": 52,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_OPEN_MIRAGE_WINDOW_BY_PHONE",
+      "type": "String",
+      "value_literal": "\"open_mirage_window_by_phone\"",
+      "line": 53,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_OPEN_MIRAGE_WINDOW_STATUS",
+      "type": "String",
+      "value_literal": "\"open_mirage_window_status\"",
+      "line": 54,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_PAD_ROTATION",
+      "type": "String",
+      "value_literal": "\"pad_rotation\"",
+      "line": 55,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_PC_INPUT_MODE_START",
+      "type": "String",
+      "value_literal": "\"synergy_pc_input_mode_start\"",
+      "line": 56,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_PC_INPUT_MODE_STOP",
+      "type": "String",
+      "value_literal": "\"synergy_pc_input_mode_stop\"",
+      "line": 57,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_PC_UPDATE_CURSOR_POSITION",
+      "type": "String",
+      "value_literal": "\"synergy_pc_update_cursor_position\"",
+      "line": 58,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_RESPONSE_KSC",
+      "type": "String",
+      "value_literal": "\"rspksc\"",
+      "line": 59,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_SCREEN_STATUS",
+      "type": "String",
+      "value_literal": "\"screen_status\"",
+      "line": 60,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_SEND_API_LEVEL",
+      "type": "String",
+      "value_literal": "\"api_level\"",
+      "line": 61,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_SEND_CODEC_INFO",
+      "type": "String",
+      "value_literal": "\"codec_info\"",
+      "line": 62,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_SEND_PC_TEL_SUPPORT",
+      "type": "String",
+      "value_literal": "\"is_pc_tel_support\"",
+      "line": 63,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_START_MIRROR",
+      "type": "String",
+      "value_literal": "\"start_mirror\"",
+      "line": 64,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_START_MIRROR_RESULT",
+      "type": "String",
+      "value_literal": "\"start_mirror_result\"",
+      "line": 65,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_STREAM_INIT",
+      "type": "String",
+      "value_literal": "\"stream_init\"",
+      "line": 66,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_STREAM_PREPARED",
+      "type": "String",
+      "value_literal": "\"stream_prepared\"",
+      "line": 67,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_STREAM_START",
+      "type": "String",
+      "value_literal": "\"stream_start\"",
+      "line": 68,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_STREAM_STOP",
+      "type": "String",
+      "value_literal": "\"stream_stop\"",
+      "line": 69,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_SUPPORT_RESOLUTION",
+      "type": "String",
+      "value_literal": "\"support_resolution\"",
+      "line": 70,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_SYNC_LOCK_STATUS",
+      "type": "String",
+      "value_literal": "\"sync_lock_status\"",
+      "line": 71,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_VDC_AUDIO_DISABLE",
+      "type": "String",
+      "value_literal": "\"vdc_audio_disable\"",
+      "line": 72,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_VDC_AUDIO_ENABLE",
+      "type": "String",
+      "value_literal": "\"vdc_audio_enable\"",
+      "line": 73,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_CMD_WINDOW_STATE_CHANGED",
+      "type": "String",
+      "value_literal": "\"window_state_changed\"",
+      "line": 74,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_FOLD_MODE_CHANGE",
+      "type": "String",
+      "value_literal": "\"fold_mode_change\"",
+      "line": 75,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_PHONE_END_CALL_RESULT",
+      "type": "String",
+      "value_literal": "\"synergy_end_phone_result\"",
+      "line": 76,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_SHOW_PRIVACY_TOAST",
+      "type": "String",
+      "value_literal": "\"synergy_show_privacy_toast\"",
+      "line": 77,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_AUDIO_DEVICE_INFO",
+      "type": "String",
+      "value_literal": "\"vdc_audio_device_info\"",
+      "line": 78,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_AUDIO_DEVICE_INFO_INCALLUI",
+      "type": "String",
+      "value_literal": "\"vdc_audio_device_info_incallui\"",
+      "line": 79,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_AUDIO_DISABLE_RESULT",
+      "type": "String",
+      "value_literal": "\"vdc_audio_disable_result\"",
+      "line": 80,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_AUDIO_DISABLE_RESULT_NOTIFICATION",
+      "type": "String",
+      "value_literal": "\"vdc_audio_disable_result_notification\"",
+      "line": 81,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_AUDIO_ENABLE_RESULT",
+      "type": "String",
+      "value_literal": "\"vdc_audio_enable_result\"",
+      "line": 82,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_AUDIO_ENABLE_RESULT_NOTIFICATION",
+      "type": "String",
+      "value_literal": "\"vdc_audio_enable_result_notification\"",
+      "line": 83,
+      "status": "declared_not_interoperable"
+    },
+    {
+      "name": "TYPE_INFO_VDC_PHONE_INIT",
+      "type": "String",
+      "value_literal": "\"vdc_phone_init\"",
+      "line": 84,
+      "status": "declared_not_interoperable"
+    }
+  ]
+}
