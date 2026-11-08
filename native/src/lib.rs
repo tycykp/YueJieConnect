@@ -136,6 +136,12 @@ enum BridgeCommand {
         operations: Option<BTreeSet<Operation>>,
     },
     BridgeStop,
+    BridgeDisconnect {
+        token: String,
+        sequence: u64,
+        projection_id: String,
+        session_id: String,
+    },
     BridgeStatus,
     BridgeQueryPeer,
     BridgeProjections {
@@ -765,6 +771,11 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
                     json!({"status":"error","request_id":request_id,"session_id":session_id,"code":code})
                 }
             })
+        }
+        BridgeCommand::BridgeDisconnect { token, sequence, projection_id, session_id } => {
+            authorize(caller, now, &token, sequence)?;
+            bridge.disconnect(caller.source.ok_or("forbidden")?, &projection_id, &session_id)?;
+            Ok(json!({"status":"ok","session_id":session_id}))
         }
         BridgeCommand::BridgeProjections { token, sequence } => {
             ENGINE

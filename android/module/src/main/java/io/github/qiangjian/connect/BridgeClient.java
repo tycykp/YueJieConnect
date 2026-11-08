@@ -81,6 +81,18 @@ final class BridgeClient implements AutoCloseable {
         return ()->listeners.remove(listener);
     }
     JSONObject projection(){return projection;}
+    void disconnect(String id,String session,Consumer<JSONObject> completion){
+        if(!enqueue(()->{
+            try{
+                JSONObject response=authenticated(new JSONObject().put("op","bridge_disconnect").put("projection_id",id).put("session_id",session));
+                if(response!=null&&"ok".equals(response.optString("status"))){
+                    JSONObject live=projection;
+                    if(live!=null&&id.equals(live.optString("id"))&&session.equals(live.optString("session_id")))publish(null);
+                }
+                deliver(completion,response==null?error("service_unavailable","",session):response);
+            }catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable","",session));}
+        }))deliver(completion,error("busy","",session));
+    }
     boolean hasIncomingLogicalChannel(String operation){JSONObject p=projection;return p!=null&&logical.openFor(p.optString("session_id"),operation);}
     /** Completes on main only for an already authenticated, freshly native-approved stream.
      * Null means no pipe was opened. The media protocol, not this descriptor, proves readiness. */

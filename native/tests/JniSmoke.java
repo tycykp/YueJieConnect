@@ -63,6 +63,11 @@ public final class JniSmoke {
         contains(call(false,1,"{\"op\":\"bridge_file_allocate\",\"token\":\""+lease+"\",\"sequence\":9,\"session_id\":\"stale\"}"),"stale_session");
         contains(call(true,0,"{\"op\":\"bridge_confirm\",\"session\":\"stale\",\"operations\":[\"file_transfer\",\"clipboard_uri_write\",\"media_control\"]}"),"stale_confirmation");
         contains(call(false,1,"{\"op\":\"bridge_register_executor\",\"token\":\""+lease+"\",\"sequence\":10,\"operations\":[]}"),"ok");
+        String disconnect="{\"op\":\"bridge_disconnect\",\"token\":\""+lease+"\",\"sequence\":11,\"projection_id\":\"wrong-peer\",\"session_id\":\"stale\"}";
+        contains(NativeCore.dispatch(20,22,false,1,100,disconnect),"forbidden");
+        contains(call(false,1,disconnect),"stale_session");
+        contains(call(false,1,disconnect),"replay");
+        contains(call(false,1,"{\"op\":\"bridge_disconnect\"}"),"invalid_request");
         System.out.println("JNI smoke passed: consent, Unicode, observation, catalog, replay, denial, revoke, unsupported.");
         System.out.println("JNI v3 passed: executor registration, PID binding, replay, polling, operation whitelist, capability withdrawal.");
         System.out.println("JNI v4 passed: typed per-session consent rejects unsupported operations and stale confirmation.");

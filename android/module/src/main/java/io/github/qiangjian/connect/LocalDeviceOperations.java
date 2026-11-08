@@ -17,7 +17,15 @@ final class LocalDeviceOperations {
             int level=battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
             int plugged=state.getIntExtra(BatteryManager.EXTRA_PLUGGED,-1);
             if(level<0||level>100||(plugged!=0&&plugged!=1&&plugged!=2&&plugged!=4&&plugged!=8))return "{}";
-            return new JSONObject().put("level",level).put("plugged",plugged).toString();
+            return new JSONObject().put("level",level).put("plugged",plugged)
+                .put("charging",charging(state.getIntExtra(BatteryManager.EXTRA_STATUS,BatteryManager.BATTERY_STATUS_UNKNOWN))).toString();
         } catch(org.json.JSONException|RuntimeException unavailable) { return "{}"; }
+    }
+    static Boolean charging(int status) {
+        return switch(status){
+            case BatteryManager.BATTERY_STATUS_CHARGING -> true;
+            case BatteryManager.BATTERY_STATUS_DISCHARGING,BatteryManager.BATTERY_STATUS_NOT_CHARGING,BatteryManager.BATTERY_STATUS_FULL -> false;
+            default -> null;
+        };
     }
 }

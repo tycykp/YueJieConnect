@@ -11,7 +11,9 @@ assert sha256(apk.read_bytes()).hexdigest()=='dfac6057390248180adf559b80cb9521c4
 listener='Lcom/oplus/synergy/devicekit/callback/ISynergyDeviceChangeListener;'
 required={
     'Lcom/oplus/synergy/devicekit/OpDeviceServiceClient;':{
-        'registerDeviceChangeListener('+listener+')V','unRegisterDeviceChangeListener()V','unRegisterDeviceChangeListener('+listener+')V'},
+        'registerDeviceChangeListener('+listener+')V','unRegisterDeviceChangeListener()V','unRegisterDeviceChangeListener('+listener+')V',
+        'deviceDisconnect(Ljava/lang/String;IZLcom/oplus/synergy/devicekit/callback/ISynergyDeviceOperateCallback;)V'},
+    'Lcom/oplus/synergy/devicekit/callback/ISynergyDeviceOperateCallback;':{'onResult(ILjava/lang/String;)V'},
     listener:{'onDeviceAdded(Ljava/util/List;)V','onDeviceInfoChanged(Ljava/util/List;)V','onDeviceRemoved(Ljava/util/List;)V'},
     'Lcom/oplus/linker/plugin/devicediscovery/thirdapi/ptc/PTCWrapper;':{
         'getConnectInfo(Lcom/oplus/pantaconnect/sdk/connectionservice/connection/DisplayDevice;Lcom/oplus/linker/connect/arch/ResultCallBack;)V'},

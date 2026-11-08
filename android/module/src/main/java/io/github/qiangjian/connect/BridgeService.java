@@ -174,6 +174,8 @@ public final class BridgeService extends Service {
                     parsed.remove("runtime_revision");command=parsed.toString();
                 }
                 if(op.startsWith("screen_request_"))return screenRequest(verified,uid,pid,parsed);
+                if("bridge_disconnect".equals(op)&&(owner||!CallerPolicy.OPLUS.equals(verified.packageName())))
+                    return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                 if("bridge_media_register".equals(op)&&!mediaCaller(verified,owner,uid,pid,parsed))
                     return "{\"status\":\"error\",\"code\":\"media_native_consent_required\"}";
                 if("file_cleanup_state".equals(op)){
@@ -212,6 +214,9 @@ public final class BridgeService extends Service {
                     foreground();
                 }
                 String result=NativeCore.dispatch(uid,pid,owner,source,SystemClock.elapsedRealtime(),command);
+                if("bridge_disconnect".equals(op)&&"ok".equals(new JSONObject(result).optString("status"))){
+                    wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);
+                }
                 if("bridge_media_register".equals(op)&&"sender".equals(parsed.optString("role"))&&"ok".equals(new JSONObject(result).optString("status"))){
                     long stream=parsed.getLong("stream_id");screenMedia.put(stream,new MediaGrant(parsed.getString("session_id"),stream,new NativeScreenProofs.Caller(uid,pid)));
                 }

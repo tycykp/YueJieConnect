@@ -40,7 +40,16 @@ final class OplusDeviceKitAdapter {
     private final java.util.Map<Object,List<java.lang.ref.WeakReference<Object>>> listeners=new java.util.WeakHashMap<>();
     private Object lastDevice;
     private String lastSession="",batterySession="",batteryPeer="";
-    private Integer batteryLevel;
+    private record Battery(int level,Boolean charging) {}
+    private Battery batteryState;
+    private final Runnable batteryPoll=new Runnable(){public void run(){
+        if(closed)return;
+        listeners.values().forEach(values->values.removeIf(reference->reference.get()==null));
+        JSONObject p=active();
+        if(p!=null&&supports(p,"battery_status")&&listeners.values().stream().anyMatch(values->!values.isEmpty())&&queries.isEmpty())
+            read(p,null,List.of(),false);
+        main.postDelayed(this,2000);
+    }};
 
     private static final class Query {
         final String id, session, request;
@@ -79,6 +88,24 @@ final class OplusDeviceKitAdapter {
         for (String name : new String[]{"setDeviceType", "setDeviceState", "setDeviceProtocol"}) infoType.getMethod(name, int.class);
         infoType.getMethod("setPropertyList", ArrayList.class);
         Class<?> owner = type(KIT + "OpDeviceServiceClient");
+        Class<?> operateCallback=type(KIT+"callback.ISynergyDeviceOperateCallback");
+        Method operateResult=operateCallback.getMethod("onResult",int.class,String.class);
+        hooks.add(module.hook(owner.getMethod("deviceDisconnect",String.class,int.class,boolean.class,operateCallback))
+            .setId("qj.oplus.devicekit.disconnect").intercept(chain->{
+                JSONObject p=active();String target=(String)chain.getArg(0);
+                if(p==null||!p.optString("id").equals(target))return chain.proceed();
+                Object callback=chain.getArg(3);
+                if((Integer)chain.getArg(1)!=p.optInt("sdk_device_type")){
+                    if(callback!=null)main.post(()->call(operateResult,callback,1,"invalid_device_type"));
+                    return null;
+                }
+                client.disconnect(target,p.optString("session_id"),response->{
+                    boolean ok="ok".equals(response.optString("status"));
+                    if(callback!=null)call(operateResult,callback,ok?0:1,ok?"success":response.optString("code","disconnect_failed"));
+                    android.util.Log.i("QiangJianOplus","oplus_devicekit_disconnect_"+(ok?"completed":"failed"));
+                });
+                return null;
+            }));
         Class<?> changeListener=type(KIT+"callback.ISynergyDeviceChangeListener");
         deviceAdded=changeListener.getMethod("onDeviceAdded",List.class);
         deviceChanged=changeListener.getMethod("onDeviceInfoChanged",List.class);
@@ -122,6 +149,7 @@ final class OplusDeviceKitAdapter {
                     if (p == null || !types.contains(Integer.toString(p.optInt("sdk_device_type")))) return chain.proceed();
                     return chain.proceed(new Object[]{types, wrap(p, chain.getArg(1))});
                 }));
+        main.post(batteryPoll);
     }
 
     private JSONObject active() {
@@ -180,8 +208,12 @@ final class OplusDeviceKitAdapter {
                     JSONObject data = result.getJSONObject("data");
                     int level = data.getInt("level");
                     if (level < 0 || level > 100) throw new JSONException("invalid level");
-                    batteryPeer=query.id;batterySession=query.session;batteryLevel=level;
-                    device = build(query.projection, level);
+                    Boolean charging=data.has("charging")&&!data.isNull("charging")?data.getBoolean("charging"):null;
+                    Battery next=new Battery(level,charging);
+                    boolean changed=!next.equals(cachedBattery(query.projection));
+                    batteryPeer=query.id;batterySession=query.session;batteryState=next;
+                    device = build(query.projection, next);
+                    if(changed)publishState();
                 } else if (response != null) error = response.optString("code", "stale_session");
             } catch (ReflectiveOperationException | JSONException | RuntimeException failure) { error = "invalid_remote_result"; }
             finish(query, original, onlyProxy, device, error);
@@ -198,6 +230,7 @@ final class OplusDeviceKitAdapter {
         queries.remove(query.request);
         main.removeCallbacks(query.timeout);
         if (!current(query)) { device = null; error = "stale_session"; }
+        if(query.callback==null)return; // Listener refresh has no SDK query callback.
         if (device == null && onlyProxy) { call(onError, query.callback, "request_timeout".equals(error) ? 2 : 1, "QJ:" + error); return; }
         ArrayList<Object> result = new ArrayList<>();
         for (Object item : original) {
@@ -210,7 +243,7 @@ final class OplusDeviceKitAdapter {
         module.log(Log.INFO, "QiangJian", device == null ? "oplus_battery_request_failed" : "oplus_native_battery_result_delivered");
     }
 
-    private Object build(JSONObject p, Integer level) throws ReflectiveOperationException, JSONException {
+    private Object build(JSONObject p, Battery battery) throws ReflectiveOperationException, JSONException {
         JSONObject real = p.getJSONObject("real");
         Object device = infoType.getConstructor().newInstance();
         infoType.getMethod("setDeviceId", String.class).invoke(device, p.getString("id"));
@@ -222,8 +255,10 @@ final class OplusDeviceKitAdapter {
         infoType.getMethod("setDeviceState", int.class).invoke(device, connected.getAsBoolean()?2:1);
         infoType.getMethod("setDeviceProtocol", int.class).invoke(device, 1); // ONET SDK projection role.
         ArrayList<Object> properties = new ArrayList<>();
-        if(level!=null)properties.add(property.newInstance("batteryLevel_1280_1", Integer.toString(level)));
-        // plugged is not charging. v2 doesn't carry charging status, so don't invent that property.
+        if(battery!=null){
+            properties.add(property.newInstance("batteryLevel_1280_1",Integer.toString(battery.level())));
+            if(battery.charging()!=null)properties.add(property.newInstance("batteryCharging_1280_2",Boolean.toString(battery.charging())));
+        }
         infoType.getMethod("setPropertyList", ArrayList.class).invoke(device, properties);
         return device;
     }
@@ -240,7 +275,7 @@ final class OplusDeviceKitAdapter {
         });
     }
     private static boolean supports(JSONObject p,String operation){JSONArray ops=p.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)if(operation.equals(ops.optString(i)))return true;return false;}
-    private Integer cachedBattery(JSONObject p){return batteryPeer.equals(p.optString("id"))&&batterySession.equals(p.optString("session_id"))&&supports(p,"battery_status")?batteryLevel:null;}
+    private Battery cachedBattery(JSONObject p){return batteryPeer.equals(p.optString("id"))&&batterySession.equals(p.optString("session_id"))&&supports(p,"battery_status")?batteryState:null;}
     private void publishState(){
         JSONObject p=active();Object old=lastDevice,next=null;String session=p==null?"":p.optString("session_id");
         try{if(p!=null)next=build(p,cachedBattery(p));}catch(ReflectiveOperationException|JSONException failure){next=null;}
@@ -256,6 +291,7 @@ final class OplusDeviceKitAdapter {
 
     void close() {
         closed = true;
+        main.removeCallbacks(batteryPoll);
         for (HookHandle hook : hooks) hook.unhook();
         hooks.clear();
         sessionChanged();

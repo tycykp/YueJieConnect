@@ -341,6 +341,9 @@ impl Bridge {
     }
     fn reset(&self, phase: &'static str) -> u64 {
         let mut state = self.state.lock().unwrap();
+        self.reset_locked(&mut state, phase)
+    }
+    fn reset_locked(&self, state: &mut State, phase: &'static str) -> u64 {
         if let Some(media) = state.media.take() {
             media.end();
         }
@@ -368,6 +371,20 @@ impl Bridge {
     }
     pub fn stop(&self) {
         self.reset("stopped");
+    }
+    /// A native device action may only stop the exact projected session it displayed.
+    /// Check and reset under one lock so a delayed click cannot stop a replacement peer.
+    pub fn disconnect(&self, source: Source, id: &str, session: &str) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        let projection = state.view.projection.as_ref().ok_or("peer_offline")?;
+        if projection.target_sdk != source || projection.id != id {
+            return Err("forbidden");
+        }
+        self.reset_locked(&mut state, "stopped");
+        Ok(())
     }
     pub fn register_media(
         &self,
@@ -1955,6 +1972,38 @@ mod tests {
         b.stop();
     }
     #[test]
+    fn native_disconnect_checks_scope_withdraws_both_peers_and_rejects_old_clicks() {
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let connect = || {
+            let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+            b.connect(format!("127.0.0.1:{port}").parse().unwrap()).unwrap();
+            wait(&a, "awaiting_confirmation");
+            wait(&b, "awaiting_confirmation");
+            a.confirm(&a.snapshot().session).unwrap();
+            b.confirm(&b.snapshot().session).unwrap();
+            wait(&a, "active");
+            wait(&b, "active");
+            b.projection(Source::ColorOs17).unwrap()
+        };
+        let old = connect();
+        assert_eq!(b.disconnect(Source::HyperOs4, &old.id, &old.session_id), Err("forbidden"));
+        assert_eq!(b.disconnect(Source::ColorOs17, "wrong-peer", &old.session_id), Err("forbidden"));
+        assert_eq!(b.disconnect(Source::ColorOs17, &old.id, "stale"), Err("stale_session"));
+        assert_eq!(b.snapshot().phase, "active");
+        b.disconnect(Source::ColorOs17, &old.id, &old.session_id).unwrap();
+        assert_eq!(b.snapshot().phase, "stopped");
+        assert!(b.projection(Source::ColorOs17).is_none());
+        wait(&a, "disconnected");
+        assert!(a.projection(Source::HyperOs4).is_none());
+        let current = connect();
+        assert_eq!(b.disconnect(Source::ColorOs17, &old.id, &old.session_id), Err("stale_session"));
+        assert_eq!(b.snapshot().phase, "active");
+        b.disconnect(Source::ColorOs17, &current.id, &current.session_id).unwrap();
+        wait(&a, "disconnected");
+        a.stop();
+    }
+    #[test]
     fn frame_limits_and_fragmentation() {
         let mut reader = FrameReader::default();
         let mut source = std::io::Cursor::new(vec![0, 0, 0, 3, 7, 8, 9]);
@@ -1976,6 +2025,7 @@ mod tests {
                 Ok(BatteryStatus {
                     level: sensor.load(Ordering::SeqCst),
                     plugged: 2,
+                    charging: Some(true),
                 })
             })),
         )
@@ -2011,7 +2061,8 @@ mod tests {
             read(),
             Ok(OperationResult::BatteryStatus(BatteryStatus {
                 level: 43,
-                plugged: 2
+                plugged: 2,
+                charging: Some(true)
             }))
         );
         level.store(91, Ordering::SeqCst);
@@ -2019,7 +2070,8 @@ mod tests {
             read(),
             Ok(OperationResult::BatteryStatus(BatteryStatus {
                 level: 91,
-                plugged: 2
+                plugged: 2,
+                charging: Some(true)
             }))
         );
         level.store(255, Ordering::SeqCst);
