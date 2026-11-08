@@ -14,6 +14,12 @@ type Result<T> = std::result::Result<T, &'static str>;
 
 /// Fixed public error vocabulary: never reflect arbitrary OEM exception text or payload data.
 pub fn execution_error(code: &str) -> &'static str {
+    if let Some(value) = crate::telephony::EXECUTION_ERRORS
+        .iter()
+        .find(|value| **value == code)
+    {
+        return value;
+    }
     match code {
         "cancelled" => "cancelled",
         "permission_denied" => "permission_denied",
@@ -136,10 +142,18 @@ struct Pending {
 #[derive(Default)]
 pub struct VendorMailbox {
     registrations: BTreeMap<Operation, Registration>,
+    logical_registrations: BTreeMap<(u32, u32), (ExecutorOwner, BTreeSet<Operation>, u64)>,
+    logical_routes: BTreeMap<(String, String), ExecutorOwner>,
     pending: BTreeMap<(String, String), Pending>,
     order: VecDeque<(String, String)>,
     cancellations: VecDeque<(ExecutorOwner, String, String)>,
     files: crate::file_session::FileSession,
+}
+fn logical_control(operation: Operation) -> bool {
+    matches!(
+        operation,
+        Operation::LogicalOpen | Operation::LogicalClose | Operation::LogicalState
+    )
 }
 
 pub fn supported(operation: Operation) -> bool {
@@ -162,6 +176,10 @@ pub fn supported(operation: Operation) -> bool {
             | Operation::LogicalOpen
             | Operation::LogicalClose
             | Operation::LogicalState
+            | Operation::TelephonyCallState
+            | Operation::TelephonyCallControl
+            | Operation::TelephonySmsStatus
+            | Operation::ScreenControl
     )
 }
 pub fn valid_channel(value: &str) -> bool {
@@ -169,6 +187,48 @@ pub fn valid_channel(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+pub fn logical_business(operation: Operation) -> bool {
+    supported(operation)
+        && !matches!(
+            operation,
+            Operation::LogicalOpen
+                | Operation::LogicalClose
+                | Operation::LogicalState
+                | Operation::DeviceFinder
+                | Operation::NotificationPost
+                | Operation::NotificationRemove
+                | Operation::NotificationAction
+                | Operation::TelephonyCallState
+                | Operation::TelephonyCallControl
+                | Operation::TelephonySmsStatus
+                | Operation::ScreenControl
+        )
+}
+pub fn telephony_operation(operation: Operation) -> Option<&'static str> {
+    match operation {
+        Operation::TelephonyCallState => Some(crate::telephony::CALL_STATE),
+        Operation::TelephonyCallControl => Some(crate::telephony::CALL_CONTROL),
+        Operation::TelephonySmsStatus => Some(crate::telephony::SMS_STATUS),
+        _ => None,
+    }
+}
+
+pub(crate) fn logical_operations(payload: &Value) -> Result<BTreeSet<Operation>> {
+    let values = payload["operations"].as_array().ok_or("invalid_payload")?;
+    if values.is_empty() || values.len() > 10 {
+        return Err("invalid_payload");
+    }
+    let mut operations = BTreeSet::new();
+    for value in values {
+        let operation: Operation =
+            serde_json::from_value(value.clone()).map_err(|_| "invalid_payload")?;
+        if !logical_business(operation) || !operations.insert(operation) {
+            return Err("invalid_payload");
+        }
+    }
+    Ok(operations)
 }
 
 pub fn file_operation(operation: Operation) -> Option<&'static str> {
@@ -183,6 +243,9 @@ pub fn file_operation(operation: Operation) -> Option<&'static str> {
 }
 pub fn timeout_ms(operation: Operation) -> u64 {
     match operation {
+        Operation::TelephonyCallState
+        | Operation::TelephonyCallControl
+        | Operation::TelephonySmsStatus => 10_000,
         Operation::FileCommit => 15_000,
         Operation::AppRelay => 20_000,
         _ => 5_000,
@@ -208,6 +271,20 @@ fn uri_file_payload(payload: &Value) -> Result<Value> {
 
 /// Only this typed operation is enabled; adding a name does not grant a generic RPC channel.
 pub fn validate_payload(operation: Operation, payload: &Value) -> Result<()> {
+    if operation == Operation::ScreenControl {
+        return if crate::screen_control::valid(payload) {
+            Ok(())
+        } else {
+            Err("invalid_payload")
+        };
+    }
+    if let Some(op) = telephony_operation(operation) {
+        return if crate::telephony::valid_payload(op, payload) {
+            Ok(())
+        } else {
+            Err("invalid_payload")
+        };
+    }
     if let Some(name) = file_operation(operation) {
         return crate::file_transfer::parse(name, payload).map(|_| ());
     }
@@ -259,8 +336,7 @@ pub fn validate_payload(operation: Operation, payload: &Value) -> Result<()> {
             return Err("invalid_payload");
         }
         if operation == Operation::LogicalOpen {
-            if p.len() != 2 || p.get("operations") != Some(&serde_json::json!(["clipboard_write"]))
-            {
+            if p.len() != 2 || logical_operations(payload).is_err() {
                 return Err("invalid_payload");
             }
         } else if p.len() != 1 {
@@ -367,6 +443,21 @@ pub(crate) fn rich_clipboard_bytes(payload: &Value) -> Result<usize> {
 
 pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) -> bool {
     match value {
+        OperationResult::ScreenControl(result) => {
+            return crate::screen_control::matches(payload, result)
+        }
+        OperationResult::TelephonyCallState(result) => {
+            return crate::telephony::valid_result(crate::telephony::CALL_STATE, payload, result)
+        }
+        OperationResult::TelephonyCallControl(result) => {
+            return crate::telephony::valid_result(crate::telephony::CALL_CONTROL, payload, result)
+        }
+        OperationResult::TelephonySmsStatus(result) => {
+            return crate::telephony::valid_result(crate::telephony::SMS_STATUS, payload, result)
+        }
+        _ => {}
+    }
+    match value {
         OperationResult::FilePrepare(r) => {
             crate::file_transfer::validate_result("file_prepare", payload, r).is_ok()
         }
@@ -401,9 +492,11 @@ pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) 
         OperationResult::NotificationPost(r)
         | OperationResult::NotificationRemove(r)
         | OperationResult::NotificationAction(r) => r.matches_payload(payload),
-        OperationResult::LogicalOpen(r)
-        | OperationResult::LogicalClose(r)
-        | OperationResult::LogicalState(r) => {
+        OperationResult::LogicalOpen(r) => {
+            Some(r.channel_id.as_str()) == payload["channel_id"].as_str()
+                && logical_operations(payload).is_ok_and(|ops| ops == r.operations)
+        }
+        OperationResult::LogicalClose(r) | OperationResult::LogicalState(r) => {
             Some(r.channel_id.as_str()) == payload["channel_id"].as_str()
         }
         _ => true,
@@ -422,7 +515,7 @@ impl VendorMailbox {
             return Err("unsupported_operation");
         }
         if operations.contains(&Operation::LogicalOpen)
-            && !operations.contains(&Operation::ClipboardWrite)
+            && !operations.iter().any(|op| logical_business(*op))
         {
             return Err("executor_unavailable");
         }
@@ -438,16 +531,33 @@ impl VendorMailbox {
                 pending.owner = owner.clone();
             }
         }
+        for route in self.logical_routes.values_mut() {
+            if route.uid == owner.uid && route.pid == owner.pid {
+                *route = owner.clone();
+            }
+        }
         for (registered, _, _) in &mut self.cancellations {
             if registered.uid == owner.uid && registered.pid == owner.pid {
                 *registered = owner.clone();
             }
         }
-        if operations
-            .iter()
-            .any(|op| self.registrations.get(op).is_some_and(|r| r.owner != owner))
-        {
+        if operations.iter().any(|op| {
+            !logical_control(*op) && self.registrations.get(op).is_some_and(|r| r.owner != owner)
+        }) {
             return Err("executor_busy");
+        }
+        let logical: BTreeSet<_> = operations
+            .iter()
+            .copied()
+            .filter(|op| logical_control(*op))
+            .collect();
+        if logical.is_empty() {
+            self.logical_registrations.remove(&(owner.uid, owner.pid));
+        } else {
+            self.logical_registrations.insert(
+                (owner.uid, owner.pid),
+                (owner.clone(), logical, now + LEASE_MS),
+            );
         }
         let removed: BTreeSet<_> = self
             .registrations
@@ -467,6 +577,9 @@ impl VendorMailbox {
             }
         });
         for operation in operations {
+            if logical_control(operation) {
+                continue;
+            }
             self.registrations.insert(
                 operation,
                 Registration {
@@ -479,7 +592,15 @@ impl VendorMailbox {
     }
     pub fn operations(&mut self, now: u64) -> BTreeSet<Operation> {
         self.expire(now);
-        self.registrations.keys().copied().collect()
+        self.registrations
+            .keys()
+            .copied()
+            .chain(
+                self.logical_registrations
+                    .values()
+                    .flat_map(|(_, ops, _)| ops.iter().copied()),
+            )
+            .collect()
     }
     pub fn submit(
         &mut self,
@@ -488,12 +609,69 @@ impl VendorMailbox {
     ) -> Result<Receiver<Result<OperationResult>>> {
         self.expire(now);
         validate_payload(task.operation, &task.payload)?;
-        let owner = self
-            .registrations
-            .get(&task.operation)
-            .ok_or("executor_unavailable")?
-            .owner
-            .clone();
+        let owner = if logical_control(task.operation) {
+            let key = (
+                task.session_id.clone(),
+                task.payload["channel_id"]
+                    .as_str()
+                    .ok_or("invalid_payload")?
+                    .to_owned(),
+            );
+            let candidate = if task.operation == Operation::LogicalOpen {
+                let requested = logical_operations(&task.payload)?;
+                let first = requested.iter().next().ok_or("invalid_payload")?;
+                self.registrations
+                    .get(first)
+                    .ok_or("executor_unavailable")?
+                    .owner
+                    .clone()
+            } else if let Some(owner) = self.logical_routes.get(&key) {
+                owner.clone()
+            } else {
+                self.logical_registrations
+                    .values()
+                    .find(|(_, ops, _)| ops.contains(&task.operation))
+                    .ok_or("executor_unavailable")?
+                    .0
+                    .clone()
+            };
+            if !self
+                .logical_registrations
+                .get(&(candidate.uid, candidate.pid))
+                .is_some_and(|(o, ops, _)| o == &candidate && ops.contains(&task.operation))
+            {
+                return Err("executor_unavailable");
+            }
+            if self
+                .logical_routes
+                .get(&key)
+                .is_some_and(|o| o != &candidate)
+            {
+                return Err("channel_conflict");
+            }
+            if !self.logical_routes.contains_key(&key) && self.logical_routes.len() >= 256 {
+                return Err("busy");
+            }
+            self.logical_routes.insert(key, candidate.clone());
+            candidate
+        } else {
+            self.registrations
+                .get(&task.operation)
+                .ok_or("executor_unavailable")?
+                .owner
+                .clone()
+        };
+        if task.operation == Operation::LogicalOpen {
+            for operation in logical_operations(&task.payload)? {
+                if !self
+                    .registrations
+                    .get(&operation)
+                    .is_some_and(|r| r.owner == owner)
+                {
+                    return Err("executor_unavailable");
+                }
+            }
+        }
         if self.pending.len() >= MAX_TASKS {
             return Err("busy");
         }
@@ -528,6 +706,13 @@ impl VendorMailbox {
         now: u64,
     ) -> (Option<VendorTask>, Vec<(String, String)>) {
         self.expire(now);
+        if let Some((registered, _, until)) =
+            self.logical_registrations.get_mut(&(owner.uid, owner.pid))
+        {
+            if registered == owner {
+                *until = now + LEASE_MS;
+            }
+        }
         for registration in self
             .registrations
             .values_mut()
@@ -606,6 +791,7 @@ impl VendorMailbox {
         self.bound_cancellations();
     }
     pub fn invalidate(&mut self) {
+        self.logical_routes.clear();
         self.files.scope("");
         self.order.clear();
         for (_, p) in std::mem::take(&mut self.pending) {
@@ -624,13 +810,23 @@ impl VendorMailbox {
     }
     fn expire(&mut self, now: u64) {
         self.registrations.retain(|_, r| now < r.until);
+        self.logical_registrations
+            .retain(|_, (_, _, until)| now < *until);
         self.pending.retain(|_, p| {
             let code = if now >= p.deadline {
                 Some("request_timeout")
-            } else if !self
-                .registrations
-                .get(&p.task.operation)
-                .is_some_and(|r| r.owner == p.owner)
+            } else if logical_control(p.task.operation)
+                && !self
+                    .logical_registrations
+                    .get(&(p.owner.uid, p.owner.pid))
+                    .is_some_and(|(o, ops, _)| o == &p.owner && ops.contains(&p.task.operation))
+            {
+                Some("executor_unavailable")
+            } else if !logical_control(p.task.operation)
+                && !self
+                    .registrations
+                    .get(&p.task.operation)
+                    .is_some_and(|r| r.owner == p.owner)
             {
                 Some("executor_unavailable")
             } else {
@@ -777,6 +973,132 @@ mod tests {
             execution_error("synthetic OEM exception with private fields"),
             "remote_error"
         );
+    }
+    #[test]
+    fn logical_channels_route_to_each_business_process_and_preserve_close_owner() {
+        let mut m = VendorMailbox::default();
+        let clipboard = owner();
+        let mut relay = owner();
+        relay.pid += 1;
+        for (o, business) in [
+            (&clipboard, Operation::ClipboardWrite),
+            (&relay, Operation::AppRelay),
+        ] {
+            m.register(
+                o.clone(),
+                BTreeSet::from([
+                    business,
+                    Operation::LogicalOpen,
+                    Operation::LogicalClose,
+                    Operation::LogicalState,
+                ]),
+                0,
+            )
+            .unwrap();
+        }
+        let mut work = task("logical-relay");
+        work.operation = Operation::LogicalOpen;
+        work.payload = json!({"channel_id":"d".repeat(32),"operations":["app_relay"]});
+        let _result = m.submit(work, 1).unwrap();
+        assert!(m.poll(&clipboard, 2).0.is_none());
+        assert_eq!(m.poll(&relay, 2).0.unwrap().request_id, "logical-relay");
+        let mut close = task("close-relay");
+        close.operation = Operation::LogicalClose;
+        close.payload = json!({"channel_id":"d".repeat(32)});
+        let _closed = m.submit(close, 3).unwrap();
+        assert!(m.poll(&clipboard, 4).0.is_none());
+        assert_eq!(
+            m.poll(&relay, 4).0.unwrap().operation,
+            Operation::LogicalClose
+        );
+        let mut hijack = task("hijack");
+        hijack.operation = Operation::LogicalOpen;
+        hijack.payload = json!({"channel_id":"d".repeat(32),"operations":["clipboard_write"]});
+        assert!(matches!(m.submit(hijack, 5), Err("channel_conflict")));
+    }
+    #[test]
+    fn telephony_mailbox_rejects_fake_native_receipts_and_keeps_known_errors() {
+        let mut m = VendorMailbox::default();
+        let o = owner();
+        m.register(
+            o.clone(),
+            BTreeSet::from([Operation::TelephonyCallControl]),
+            0,
+        )
+        .unwrap();
+        let mut work = task("call-control");
+        work.operation = Operation::TelephonyCallControl;
+        work.payload = json!({"call_id":"call_local_1","revision":3,"action":"answer"});
+        let result = m.submit(work, 1).unwrap();
+        let task = m.poll(&o, 2).0.unwrap();
+        let wrong = OperationResult::TelephonyCallControl(
+            json!({"call_id":"call_local_1","revision":3,"state":"active","observed":true}),
+        );
+        assert_eq!(
+            m.complete(&o, &task.session_id, &task.request_id, Ok(wrong), 3),
+            Err("invalid_result")
+        );
+        let right = OperationResult::TelephonyCallControl(
+            json!({"call_id":"call_local_1","revision":4,"state":"active","observed":true}),
+        );
+        m.complete(&o, &task.session_id, &task.request_id, Ok(right.clone()), 4)
+            .unwrap();
+        assert_eq!(result.recv().unwrap(), Ok(right));
+        assert_eq!(execution_error("native_unavailable"), "native_unavailable");
+        assert_eq!(
+            execution_error("untrusted native exception"),
+            "remote_error"
+        );
+    }
+    #[test]
+    fn logical_business_sets_bind_receipts_and_executor_ownership() {
+        use crate::bridge::LogicalReceipt;
+        let channel = "b".repeat(32);
+        let payload = json!({"channel_id":channel,"operations":["app_relay","media_control"]});
+        assert!(validate_payload(Operation::LogicalOpen, &payload).is_ok());
+        for operations in [
+            json!([]),
+            json!(["app_relay", "app_relay"]),
+            json!(["logical_open"]),
+            json!(["camera_video"]),
+        ] {
+            assert_eq!(
+                validate_payload(
+                    Operation::LogicalOpen,
+                    &json!({"channel_id":channel,"operations":operations})
+                ),
+                Err("invalid_payload")
+            );
+        }
+        let wrong = OperationResult::LogicalOpen(LogicalReceipt {
+            channel_id: channel.clone(),
+            state: "open".into(),
+            operations: BTreeSet::from([Operation::AppRelay]),
+        });
+        assert!(!receipt_matches_payload(&wrong, &payload));
+        let right = OperationResult::LogicalOpen(LogicalReceipt {
+            channel_id: channel,
+            state: "open".into(),
+            operations: BTreeSet::from([Operation::AppRelay, Operation::MediaControl]),
+        });
+        assert!(right.matches(Operation::LogicalOpen, &[0; 32]));
+        assert!(receipt_matches_payload(&right, &payload));
+        let mut m = VendorMailbox::default();
+        let o = owner();
+        m.register(
+            o.clone(),
+            BTreeSet::from([Operation::AppRelay, Operation::LogicalOpen]),
+            0,
+        )
+        .unwrap();
+        let mut other = owner();
+        other.pid += 1;
+        m.register(other, BTreeSet::from([Operation::MediaControl]), 0)
+            .unwrap();
+        let mut work = task("1");
+        work.operation = Operation::LogicalOpen;
+        work.payload = payload;
+        assert!(matches!(m.submit(work, 1), Err("executor_unavailable")));
     }
     #[test]
     fn logical_channels_use_exact_schema_and_bound_remote_receipts() {

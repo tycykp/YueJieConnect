@@ -39,7 +39,11 @@ pub enum Operation {
     AppRelay,
     MediaControl,
     ScreenVideo,
+    ScreenControl,
     CameraVideo,
+    TelephonyCallState,
+    TelephonyCallControl,
+    TelephonySmsStatus,
 }
 
 /// Metadata received from the real peer's bridge, not inferred from a vendor advertisement.

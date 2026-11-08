@@ -25,6 +25,8 @@ public final class BridgeService extends Service {
     private int hostSource;
     private final NativeRuntimeRegistry runtimes=new NativeRuntimeRegistry();
     private final NativeScreenProofs screenProofs=new NativeScreenProofs();
+    private record MediaGrant(String session,long stream,NativeScreenProofs.Caller caller){}
+    private final java.util.Map<Long,MediaGrant> screenMedia=new java.util.concurrent.ConcurrentHashMap<>();
     private String initialization="{\"status\":\"error\",\"code\":\"profile_unavailable\"}";
     private final android.os.Handler monitor=new android.os.Handler(android.os.Looper.getMainLooper());
     private String lastState="";
@@ -80,6 +82,19 @@ public final class BridgeService extends Service {
         if(grants!=null)for(int i=0;i<grants.length();i++)if("screen_video".equals(grants.optString(i)))permitted=true;
         boolean active=state!=null&&"active".equals(state.optString("phase"))&&hostSource==2&&remote!=null&&"tablet".equals(remote.optString("kind"))&&projection!=null;
         screenProofs.scope(active?state.optString("session"):"",active?projection.optString("id"):"",active&&permitted);
+        for(MediaGrant grant:screenMedia.values())if(!screenProofs.approved(grant.caller(),grant.session(),grant.stream())){
+            try{NativeCore.dispatch(Process.myUid(),Process.myPid(),true,hostSource,SystemClock.elapsedRealtime(),
+                new JSONObject().put("op","bridge_media_revoke").put("session_id",grant.session()).put("stream_id",grant.stream()).toString());}
+            catch(org.json.JSONException ignored){}screenMedia.remove(grant.stream(),grant);
+        }
+    }
+    private boolean mediaCaller(CallerVerifier.Verified caller,boolean owner,int uid,int pid,JSONObject command){
+        String purpose=command.optString("purpose"),role=command.optString("role");
+        if(owner)return false; // Camera capture registration comes from the private consent controller, not public Binder JSON.
+        if(caller==null)return false;
+        if("receiver".equals(role)&&CallerPolicy.MIRROR.equals(caller.packageName()))return "screen_video".equals(purpose)||"camera_video".equals(purpose);
+        return "sender".equals(role)&&"screen_video".equals(purpose)&&CallerPolicy.OPLUS_CAST.equals(caller.packageName())
+            &&screenProofs.approved(new NativeScreenProofs.Caller(uid,pid),command.optString("session_id"),command.optLong("stream_id"));
     }
     private String screenRequest(CallerVerifier.Verified verified,int uid,int pid,JSONObject command)throws org.json.JSONException{
         if(verified==null)return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
@@ -114,6 +129,24 @@ public final class BridgeService extends Service {
         Object number=value.get(key);if(!(number instanceof Integer)&&!(number instanceof Long))throw new IllegalArgumentException();return ((Number)number).longValue();
     }
     private final IBridge.Stub binder = new IBridge.Stub() {
+        @Override public android.os.ParcelFileDescriptor openMediaPipe(String command){
+            int uid=Binder.getCallingUid(),pid=Binder.getCallingPid();long identity=Binder.clearCallingIdentity();
+            android.os.ParcelFileDescriptor[] pair=null;
+            try{
+                if(command==null||command.length()>2048)return null;
+                JSONObject parsed=new JSONObject(command);
+                if(!"bridge_media_attach".equals(parsed.optString("op")))return null;
+                CallerVerifier.Verified verified=CallerVerifier.resolve(getPackageManager(),uid);
+                if(verified==null&&mirrorProof.verifies(uid,pid))verified=new CallerVerifier.Verified(1,CallerPolicy.MIRROR);
+                if(verified==null||!runtimes.accepts(uid,pid,parsed.optString("token"),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime())
+                        ||!mediaCaller(verified,false,uid,pid,parsed))return null;
+                pair=android.os.ParcelFileDescriptor.createSocketPair();
+                boolean attached=NativeCore.attachMedia(uid,pid,verified.source(),SystemClock.elapsedRealtime(),command,pair[1].detachFd());
+                if(!attached)return null;
+                android.os.ParcelFileDescriptor result=pair[0];pair[0]=null;return result;
+            }catch(org.json.JSONException|java.io.IOException|RuntimeException failure){return null;}
+            finally{if(pair!=null)for(var fd:pair)if(fd!=null)try{fd.close();}catch(java.io.IOException ignored){}Binder.restoreCallingIdentity(identity);}
+        }
         @Override public String transactJson(String command) {
             int uid = Binder.getCallingUid(), pid = Binder.getCallingPid();
             boolean owner = uid == Process.myUid();
@@ -141,6 +174,8 @@ public final class BridgeService extends Service {
                     parsed.remove("runtime_revision");command=parsed.toString();
                 }
                 if(op.startsWith("screen_request_"))return screenRequest(verified,uid,pid,parsed);
+                if("bridge_media_register".equals(op)&&!mediaCaller(verified,owner,uid,pid,parsed))
+                    return "{\"status\":\"error\",\"code\":\"media_native_consent_required\"}";
                 if("file_cleanup_state".equals(op)){
                     if(owner||parsed.length()!=2||!CallerPolicy.executorAllowed(verified.packageName(),"file_offer"))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                     JSONObject state=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}")).optJSONObject("bridge");
@@ -177,6 +212,9 @@ public final class BridgeService extends Service {
                     foreground();
                 }
                 String result=NativeCore.dispatch(uid,pid,owner,source,SystemClock.elapsedRealtime(),command);
+                if("bridge_media_register".equals(op)&&"sender".equals(parsed.optString("role"))&&"ok".equals(new JSONObject(result).optString("status"))){
+                    long stream=parsed.getLong("stream_id");screenMedia.put(stream,new MediaGrant(parsed.getString("session_id"),stream,new NativeScreenProofs.Caller(uid,pid)));
+                }
                 if(!owner&&"open".equals(op)){
                     JSONObject opened=new JSONObject(result);
                     if("ok".equals(opened.optString("status")))runtimes.opened(uid,pid,opened.optString("token",""),SystemClock.elapsedRealtime());

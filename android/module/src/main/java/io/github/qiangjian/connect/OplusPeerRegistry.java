@@ -6,6 +6,16 @@ import java.util.Objects;
 
 /** OEM-independent race guard. No prefix matching, no successful native sessions implied. */
 final class OplusPeerRegistry {
+    /** A saved OFFLINE entry with our exact alias must not hide the live authenticated projection. */
+    static java.util.List<Object> overlay(java.util.List<?> original,Object live,java.util.function.Function<Object,String> identity){
+        String selected=java.util.Objects.requireNonNull(identity.apply(live));
+        java.util.List<Object> result=new java.util.ArrayList<>();boolean replaced=false;
+        for(Object item:original){
+            if(selected.equals(identity.apply(item))){if(!replaced){result.add(live);replaced=true;}}
+            else result.add(item);
+        }
+        if(!replaced)result.add(live);return result;
+    }
     record Ticket(long number, long generation, String id) {}
     private String id, session;
     private long generation, serial;

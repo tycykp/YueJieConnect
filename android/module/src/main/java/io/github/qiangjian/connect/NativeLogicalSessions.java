@@ -8,18 +8,30 @@ import java.util.function.LongSupplier;
 /** Per authenticated peer: real leases over implemented vendor execution channels.
  * Closing an unknown ID is retained so a delayed open cannot resurrect it. */
 final class NativeLogicalSessions {
+    static final Set<String> BUSINESS=Set.of("clipboard_write","clipboard_rich_write","clipboard_uri_write",
+            "file_prepare","file_offer","file_chunk","file_commit","file_cancel","app_relay","media_control");
+    static boolean validOperations(Set<String> operations){return operations!=null&&!operations.isEmpty()&&BUSINESS.containsAll(operations);}
     record State(String channelId,boolean open,Set<String> operations) {}
     private record Channel(Set<String> operations,long renewed) {}
     private final Map<String,Channel> channels=new LinkedHashMap<>();
     private final LongSupplier clock;
-    private String session;
+    private String session,recordSession;
     NativeLogicalSessions(){this(()->System.nanoTime()/1_000_000L);}
     NativeLogicalSessions(LongSupplier clock){this.clock=java.util.Objects.requireNonNull(clock);}
-    synchronized void session(String current){if(!java.util.Objects.equals(session,current)){channels.clear();session=current;}}
+    synchronized void session(String current){
+        if(current==null){
+            // Losing the local Binder/projection revokes live leases, but a reconnect to the
+            // same authenticated session must not erase close/expiry replay tombstones.
+            channels.replaceAll((id,value)->new Channel(Set.of(),0));
+        }else if(!java.util.Objects.equals(recordSession,current)){
+            channels.clear();recordSession=current;
+        }
+        session=current;
+    }
     synchronized State open(String expected,String channel,Set<String> requested,Set<String> available){
         check(expected,channel);
         expire();
-        if(!NativeLogicalOperations.valid(requested))throw new IllegalArgumentException("unsupported_operation");
+        if(!NativeLogicalSessions.validOperations(requested))throw new IllegalArgumentException("unsupported_operation");
         if(!available.containsAll(requested))throw new IllegalStateException("executor_unavailable");
         Channel old=channels.get(channel);Set<String> previous=old==null?null:old.operations();
         if(previous!=null){
@@ -45,6 +57,7 @@ final class NativeLogicalSessions {
     // lost close ACK cannot consume an active slot indefinitely; expired IDs remain tombstones.
     private void expire(){long now=clock.getAsLong();channels.replaceAll((id,value)->!value.operations().isEmpty()&&now-value.renewed()>=8_000?new Channel(Set.of(),0):value);}
     synchronized boolean hasRecords(){return !channels.isEmpty();}
+    synchronized boolean openFor(String expected,String operation){expire();return expected!=null&&expected.equals(session)&&channels.values().stream().anyMatch(c->c.operations().contains(operation));}
     private void check(String expected,String channel){
         if(session==null||!session.equals(expected)||!session.matches("[0-9a-f]{64}"))throw new IllegalStateException("stale_session");
         if(channel==null||!channel.matches("[0-9a-f]{32}"))throw new IllegalArgumentException("invalid_payload");

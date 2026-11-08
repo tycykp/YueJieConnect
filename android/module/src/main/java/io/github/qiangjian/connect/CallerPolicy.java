@@ -12,6 +12,9 @@ final class CallerPolicy {
                 &&"c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025".equals(cert);
     }
     static boolean executorAllowed(String pkg,String operation){
+        if("screen_control".equals(operation))return MIRROR.equals(pkg)||OPLUS_CAST.equals(pkg);
+        if(java.util.Set.of("telephony_call_state","telephony_call_control","telephony_sms_status").contains(operation))
+            return MIRROR.equals(pkg)||OPLUS.equals(pkg);
         if("device_finder".equals(operation))return XIAOMI.equals(pkg)||OPLUS_FINDER.equals(pkg);
         if("clipboard_write".equals(operation)||"clipboard_rich_write".equals(operation)||"app_relay".equals(operation)||"logical_open".equals(operation)||"logical_close".equals(operation)||"logical_state".equals(operation)
                 ||java.util.Set.of("file_prepare","file_offer","file_chunk","file_commit","file_cancel","clipboard_uri_write","media_control").contains(operation))

@@ -81,6 +81,7 @@ final class BridgeClient implements AutoCloseable {
         return ()->listeners.remove(listener);
     }
     JSONObject projection(){return projection;}
+    boolean hasIncomingLogicalChannel(String operation){JSONObject p=projection;return p!=null&&logical.openFor(p.optString("session_id"),operation);}
     /** Completes on main only for an already authenticated, freshly native-approved stream.
      * Null means no pipe was opened. The media protocol, not this descriptor, proves readiness. */
     void openMediaPipe(String id,String session,long stream,String purpose,String role,Consumer<MediaPipe> completion){
@@ -120,7 +121,7 @@ final class BridgeClient implements AutoCloseable {
             writer=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<>(7),r->{Thread t=new Thread(r,"qj-media-write");t.setDaemon(true);return t;});
             if("sender".equals(role))output=new android.os.ParcelFileDescriptor.AutoCloseOutputStream(descriptor);
         }
-        boolean offer(byte[] wire){
+        public boolean offer(byte[] wire){
             Write task;
             synchronized(this){
                 if(closed||!"sender".equals(role)||wire==null||wire.length<40||wire.length>1_048_616||frames>=8||bytes+wire.length>4*1_048_576)return false;
@@ -140,7 +141,7 @@ final class BridgeClient implements AutoCloseable {
                 int n=packet.length;output.write(new byte[]{(byte)n,(byte)(n>>>8),(byte)(n>>>16),(byte)(n>>>24)});output.write(packet);output.flush();
             }catch(java.io.IOException|RuntimeException failure){close();}finally{wipe();}}
         }
-        synchronized void setReceiver(Consumer<byte[]> callback){
+        public synchronized void setReceiver(Consumer<byte[]> callback){
             if(!"receiver".equals(role)||receiver!=null||callback==null)throw new IllegalStateException("media_receiver_already_bound");
             if(closed)return;receiver=callback;reading=true;
             Thread reader=new Thread(this::read,"qj-media-read");reader.setDaemon(true);reader.start();
@@ -155,7 +156,7 @@ final class BridgeClient implements AutoCloseable {
                 }
             }catch(java.io.IOException|RuntimeException failure){close();}
         }
-        void setOnClosed(Runnable callback){boolean done;synchronized(this){if(onClosed!=null)throw new IllegalStateException("media_close_already_bound");onClosed=java.util.Objects.requireNonNull(callback);done=closed;}if(done)main.post(callback);}
+        public void setOnClosed(Runnable callback){boolean done;synchronized(this){if(onClosed!=null)throw new IllegalStateException("media_close_already_bound");onClosed=java.util.Objects.requireNonNull(callback);done=closed;}if(done)main.post(callback);}
         @Override public void close(){Runnable callback;synchronized(this){if(closed)return;closed=true;callback=onClosed;}
             try{android.system.Os.shutdown(descriptor.getFileDescriptor(),android.system.OsConstants.SHUT_RDWR);}catch(android.system.ErrnoException|RuntimeException ignored){}
             try{descriptor.close();}catch(java.io.IOException ignored){}
@@ -163,6 +164,27 @@ final class BridgeClient implements AutoCloseable {
             if(callback!=null)main.post(callback);
         }
     }
+    java.util.concurrent.CompletableFuture<MediaPipe> openNativeMedia(String id,String session,long stream,String purpose,String role){
+        var result=new java.util.concurrent.CompletableFuture<MediaPipe>();
+        if(!enqueue(()->{try{
+            JSONObject registered=authenticated(new JSONObject().put("op","bridge_media_register").put("projection_id",id).put("session_id",session)
+                .put("stream_id",stream).put("purpose",purpose).put("role",role).put("lifetime_ms",900000));
+            if(registered==null||!"ok".equals(registered.optString("status"))){result.completeExceptionally(new IllegalStateException(registered==null?"service_unavailable":registered.optString("code","media_unavailable")));return;}
+            long deadline=SystemClock.elapsedRealtime()+8500;
+            main.post(new Runnable(){public void run(){
+                JSONObject p=projection;
+                if(result.isDone()||closed||p==null||!id.equals(p.optString("id"))||!session.equals(p.optString("session_id"))||SystemClock.elapsedRealtime()>=deadline){
+                    closeNativeMedia(session,stream);result.completeExceptionally(new IllegalStateException("media_open_cancelled_or_expired"));return;
+                }
+                openMediaPipe(id,session,stream,purpose,role,pipe->{
+                    if(pipe!=null){if(!result.complete(pipe))pipe.close();}
+                    else if(!result.isDone())main.postDelayed(this,100);
+                });
+            }});
+        }catch(org.json.JSONException|RemoteException|RuntimeException failure){result.completeExceptionally(failure);}}))result.completeExceptionally(new IllegalStateException("busy"));
+        result.whenComplete((pipe,error)->{if(error!=null)closeNativeMedia(session,stream);});return result;
+    }
+    void closeNativeMedia(String session,long stream){enqueue(()->{try{authenticated(new JSONObject().put("op","bridge_media_close").put("session_id",session).put("stream_id",stream));}catch(org.json.JSONException|RemoteException ignored){}});}
     void allocateFile(String expectedSession,Consumer<JSONObject> completion){
         localFileCommand("bridge_file_allocate",expectedSession,null,null,completion);
     }
@@ -200,7 +222,8 @@ final class BridgeClient implements AutoCloseable {
     Subscription registerExecutor(String operation,VendorExecutor executor){
         if(!"clipboard_write".equals(operation)&&!"clipboard_rich_write".equals(operation)&&!"device_finder".equals(operation)
                 &&!"notification_post".equals(operation)&&!"notification_remove".equals(operation)&&!"notification_action".equals(operation)&&!"app_relay".equals(operation)
-                &&!java.util.Set.of("file_prepare","file_offer","file_chunk","file_commit","file_cancel","clipboard_uri_write","media_control").contains(operation))throw new IllegalArgumentException("Operation not implemented");
+                &&!java.util.Set.of("file_prepare","file_offer","file_chunk","file_commit","file_cancel","clipboard_uri_write","media_control",
+                    "telephony_call_state","telephony_call_control","telephony_sms_status","screen_control").contains(operation))throw new IllegalArgumentException("Operation not implemented");
         synchronized(executors){if(executors.containsKey(operation))throw new IllegalStateException("Executor already registered");executors.put(operation,executor);}
         enqueue(()->nextRegistration=0);
         return ()->{synchronized(executors){executors.remove(operation,executor);}enqueue(()->nextRegistration=0);main.post(executor::sessionChanged);};
@@ -242,8 +265,9 @@ final class BridgeClient implements AutoCloseable {
         try{
             long now=SystemClock.elapsedRealtime();
             if(now>=nextProjection){nextProjection=now+1000;JSONObject response=authenticated(new JSONObject().put("op","bridge_projections"));publish(response==null?null:response.optJSONObject("projection"));}
-            JSONArray operations=new JSONArray();boolean clipboardReady;synchronized(executors){for(String operation:executors.keySet())operations.put(operation);clipboardReady=executors.containsKey("clipboard_write");}
-            if(clipboardReady){operations.put("logical_open").put("logical_close").put("logical_state");}
+            JSONArray operations=new JSONArray();boolean businessReady;synchronized(executors){for(String operation:executors.keySet())operations.put(operation);businessReady=executors.keySet().stream().anyMatch(NativeLogicalSessions.BUSINESS::contains);}
+            // The mailbox routes each logical channel to its requested business's process.
+            if(businessReady){operations.put("logical_open").put("logical_close").put("logical_state");}
             else if(logical.hasRecords()){operations.put("logical_close").put("logical_state");}
             if(now>=nextRegistration){nextRegistration=now+1000;JSONObject registered=authenticated(new JSONObject().put("op","bridge_register_executor").put("operations",operations));if(registered==null||!"ok".equals(registered.optString("status")))nextRegistration=now+300;}
             if(operations.length()>0){JSONObject reply=authenticated(new JSONObject().put("op","bridge_poll_executor"));if(reply!=null&&"ok".equals(reply.optString("status"))){JSONObject task=reply.optJSONObject("task");JSONArray cancelled=reply.optJSONArray("cancelled");if(cancelled!=null&&cancelled.length()>0)main.post(()->cancelTasks(cancelled));if(task!=null){task.put("deadline_elapsed_ms",SystemClock.elapsedRealtime()+task.getLong("remaining_ms"));main.post(()->executeTask(task));}}}
@@ -277,7 +301,10 @@ final class BridgeClient implements AutoCloseable {
         if(operation.equals("logical_open")||operation.equals("logical_close")||operation.equals("logical_state")){
             try{
                 JSONObject payload=task.getJSONObject("payload");String channel=payload.getString("channel_id");
-                java.util.Set<String> available;synchronized(executors){available=java.util.Set.copyOf(executors.keySet());}
+                java.util.Set<String> available;synchronized(executors){available=new java.util.HashSet<>(executors.keySet());}
+                java.util.Set<String> granted=new java.util.HashSet<>();JSONArray values=selected.optJSONArray("operations");
+                if(values!=null)for(int i=0;i<values.length();i++)granted.add(values.optString(i));
+                available.retainAll(granted);
                 NativeLogicalSessions.State state;
                 if(operation.equals("logical_open")){JSONArray list=payload.getJSONArray("operations");java.util.Set<String> requested=new java.util.HashSet<>();for(int i=0;i<list.length();i++)requested.add(list.getString(i));state=logical.open(session,channel,requested,available);}
                 else if(operation.equals("logical_close"))state=logical.close(session,channel);
@@ -307,7 +334,7 @@ final class BridgeClient implements AutoCloseable {
             }catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable",requestId,session));}
         }))deliver(completion,error("busy",requestId,session));
     }
-    private static long requestBudget(String operation){return switch(operation){case "file_commit"->16_500;case "app_relay"->21_500;case "network_share"->36_500;default->6500;};}
+    private static long requestBudget(String operation){return switch(operation){case "file_commit"->16_500;case "app_relay"->21_500;case "network_share"->36_500;case "telephony_call_state","telephony_call_control","telephony_sms_status"->11_500;default->6500;};}
     void cancel(String session,String requestId,Consumer<JSONObject> completion){
         if(!enqueue(()->{try{JSONObject response=authenticated(new JSONObject().put("op","bridge_cancel").put("session_id",session).put("request_id",requestId));deliver(completion,response==null?error("service_unavailable",requestId,session):response);}catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable",requestId,session));}}))deliver(completion,error("busy",requestId,session));
     }

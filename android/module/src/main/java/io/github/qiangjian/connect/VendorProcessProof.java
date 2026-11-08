@@ -56,7 +56,7 @@ final class VendorProcessProof implements AutoCloseable {
         @Override public void onBindingDied(ComponentName name){invalidate(remote);releaseBinding();}
         @Override public void onNullBinding(ComponentName name){invalidate(remote);releaseBinding();}
     };
-    private synchronized void invalidate(IBinder expected){if(remote!=expected)return;remote=null;verifiedUid=-1;verifiedPid=-1;challenge=null;}
+    private synchronized void invalidate(IBinder expected){if(remote!=expected)return;remote=null;verifiedUid=-1;verifiedPid=-1;challenge=null;if(!closed)requestVerification();}
     private void prove(IBinder binder){
         String nonce;synchronized(this){if(remote!=binder||closed)return;nonce=challenge;}
         IBinder callback=new Binder(){@Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{

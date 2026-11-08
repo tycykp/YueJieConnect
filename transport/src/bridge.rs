@@ -24,7 +24,7 @@ use std::{
 };
 
 const PATTERN: &str = "Noise_XX_25519_ChaChaPoly_SHA256";
-const PROLOGUE: &[u8] = b"qiangjian-connect/bridge/v7";
+const PROLOGUE: &[u8] = b"qiangjian-connect/bridge/v8";
 const MAX_FRAME: usize = 16_384;
 const SESSION_MS: u64 = 900_000;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -94,6 +94,7 @@ struct State {
     jobs: Option<SyncSender<Job>>,
     gateway: Gateway,
     next_request: u64,
+    media: Option<Arc<crate::media_control_plane::ControlPlane>>,
 }
 pub struct Bridge {
     identity: Identity,
@@ -104,6 +105,7 @@ pub struct Bridge {
     mailbox: Mutex<VendorMailbox>,
 }
 enum Job {
+    Media(Vec<crate::media_control_plane::Signal>),
     Confirm(String, BTreeSet<Operation>),
     Request {
         id: u64,
@@ -123,6 +125,9 @@ type PendingResponse = (
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum Wire {
+    Media {
+        signal: crate::media_control_plane::Signal,
+    },
     Confirm,
     Profile {
         device: RealDevice,
@@ -174,6 +179,10 @@ pub enum OperationResult {
     NotificationRemove(crate::notification::Receipt),
     NotificationAction(crate::notification::Receipt),
     AppRelay(crate::relay::Receipt),
+    TelephonyCallState(Value),
+    TelephonyCallControl(Value),
+    TelephonySmsStatus(Value),
+    ScreenControl(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +220,13 @@ pub struct RichClipboardReceipt {
 impl OperationResult {
     pub(crate) fn matches(&self, operation: Operation, peer: &[u8; 32]) -> bool {
         match (operation, self) {
+            (Operation::ScreenControl, Self::ScreenControl(r)) => crate::screen_control::receipt(r),
+            (Operation::TelephonyCallState, Self::TelephonyCallState(r))
+            | (Operation::TelephonyCallControl, Self::TelephonyCallControl(r))
+            | (Operation::TelephonySmsStatus, Self::TelephonySmsStatus(r)) => {
+                crate::executor::telephony_operation(operation)
+                    .is_some_and(|op| crate::telephony::valid_receipt(op, r))
+            }
             (Operation::DeviceProfile, Self::DeviceProfile(p)) => {
                 &p.peer_key == peer && qj_core::gateway::validate(p).is_ok()
             }
@@ -256,7 +272,10 @@ impl OperationResult {
                     && match r.state.as_str() {
                         "open" => {
                             operation != Operation::LogicalClose
-                                && r.operations == BTreeSet::from([Operation::ClipboardWrite])
+                                && !r.operations.is_empty()
+                                && r.operations
+                                    .iter()
+                                    .all(|op| crate::executor::logical_business(*op))
                         }
                         "closed" => operation != Operation::LogicalOpen && r.operations.is_empty(),
                         _ => false,
@@ -310,6 +329,7 @@ impl Bridge {
                 jobs: None,
                 gateway: Gateway::default(),
                 next_request: 0,
+                media: None,
             }),
             clock: Instant::now(),
             battery_reader,
@@ -321,6 +341,9 @@ impl Bridge {
     }
     fn reset(&self, phase: &'static str) -> u64 {
         let mut state = self.state.lock().unwrap();
+        if let Some(media) = state.media.take() {
+            media.end();
+        }
         self.mailbox.lock().unwrap().invalidate();
         state.epoch = state.epoch.wrapping_add(1);
         state.jobs = None;
@@ -346,6 +369,88 @@ impl Bridge {
     pub fn stop(&self) {
         self.reset("stopped");
     }
+    pub fn register_media(
+        &self,
+        session: &str,
+        stream: u64,
+        purpose: crate::media_channel::Purpose,
+        role: crate::media_channel::Role,
+        lifetime_ms: u64,
+    ) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        let operation = match purpose {
+            crate::media_channel::Purpose::ScreenVideo => Operation::ScreenVideo,
+            crate::media_channel::Purpose::CameraVideo => Operation::CameraVideo,
+        };
+        if !state.view.granted_operations.contains(&operation) {
+            return Err("permission_denied");
+        }
+        let media = state.media.as_ref().ok_or("media_unavailable")?;
+        if lifetime_ms == 0 || lifetime_ms > SESSION_MS {
+            return Err("media_scope_invalid");
+        }
+        let signals = media.register(stream, purpose, role, Duration::from_millis(lifetime_ms))?;
+        if state
+            .jobs
+            .as_ref()
+            .ok_or("peer_offline")?
+            .try_send(Job::Media(signals))
+            .is_err()
+        {
+            let _ = media.close(stream);
+            return Err("busy");
+        }
+        Ok(())
+    }
+    pub fn media_status(
+        &self,
+        session: &str,
+        stream: u64,
+    ) -> Result<crate::media_runtime::StreamStatus> {
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        state
+            .media
+            .as_ref()
+            .ok_or("media_unavailable")?
+            .status(stream)
+    }
+    pub fn close_media(&self, session: &str, stream: u64) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        state
+            .media
+            .as_ref()
+            .ok_or("media_unavailable")?
+            .close(stream)?;
+        state
+            .jobs
+            .as_ref()
+            .ok_or("peer_offline")?
+            .try_send(Job::Media(vec![
+                crate::media_control_plane::Signal::Close { stream },
+            ]))
+            .map_err(|_| "busy")
+    }
+    #[cfg(unix)]
+    pub fn attach_media(&self, session: &str, stream: u64, fd: std::os::fd::OwnedFd) -> Result<()> {
+        let state = self.state.lock().unwrap();
+        if state.view.phase != "active" || state.view.session != session {
+            return Err("stale_session");
+        }
+        state
+            .media
+            .as_ref()
+            .ok_or("media_unavailable")?
+            .attach(stream, fd)
+    }
     pub fn snapshot(&self) -> Snapshot {
         let mut view = self.state.lock().unwrap().view.clone();
         view.local = self.local_profile();
@@ -356,6 +461,9 @@ impl Bridge {
         profile
             .operations
             .extend(self.mailbox.lock().unwrap().operations(self.now()));
+        if profile.operations.contains(&Operation::ScreenControl) {
+            profile.operations.insert(Operation::ScreenVideo);
+        }
         profile
     }
     fn advertised_profile(&self) -> RealDevice {
@@ -412,6 +520,18 @@ impl Bridge {
         }
         if !state.view.granted_operations.contains(&task.operation) {
             return Err("permission_denied");
+        }
+        if task.operation == Operation::LogicalOpen {
+            let requested = crate::executor::logical_operations(&task.payload)?;
+            if !requested.is_subset(&state.view.granted_operations)
+                || !state
+                    .view
+                    .projection
+                    .as_ref()
+                    .is_some_and(|p| requested.is_subset(&p.operations))
+            {
+                return Err("permission_denied");
+            }
         }
         if !state
             .view
@@ -509,11 +629,17 @@ impl Bridge {
                     | Operation::MediaControl
                     | Operation::ScreenVideo
                     | Operation::CameraVideo
+                    | Operation::TelephonyCallState
+                    | Operation::TelephonyCallControl
+                    | Operation::TelephonySmsStatus
             )
         }) {
             return Err("unsupported_operation");
         }
         granted.insert(Operation::DeviceProfile);
+        if granted.contains(&Operation::ScreenVideo) {
+            granted.insert(Operation::ScreenControl);
+        }
         if granted.contains(&Operation::FileTransfer) {
             granted.extend([
                 Operation::FilePrepare,
@@ -523,7 +649,10 @@ impl Bridge {
                 Operation::FileCancel,
             ]);
         }
-        if granted.contains(&Operation::ClipboardWrite) {
+        if granted
+            .iter()
+            .any(|op| crate::executor::logical_business(*op))
+        {
             granted.extend([
                 Operation::LogicalOpen,
                 Operation::LogicalClose,
@@ -595,6 +724,17 @@ impl Bridge {
             if s.view.phase != "active" {
                 return Err("peer_offline");
             }
+            if operation == Operation::LogicalOpen {
+                let requested = crate::executor::logical_operations(&payload)?;
+                if !s
+                    .view
+                    .projection
+                    .as_ref()
+                    .is_some_and(|p| requested.is_subset(&p.operations))
+                {
+                    return Err("permission_denied");
+                }
+            }
             s.next_request = s.next_request.checked_add(1).ok_or("request_limit")?;
             let request_id = s.next_request;
             s.gateway
@@ -659,6 +799,9 @@ impl Bridge {
     }
     fn fail(&self, epoch: u64, reason: &'static str) {
         self.update(epoch, |s| {
+            if let Some(media) = s.media.take() {
+                media.end();
+            }
             self.mailbox.lock().unwrap().invalidate();
             s.view.phase = "disconnected";
             s.view.last_error = Some(reason);
@@ -695,6 +838,29 @@ impl Bridge {
             );
             match projection {
                 Ok(p) => {
+                    if s.media.is_none() {
+                        let setup = s
+                            .view
+                            .transport_address
+                            .as_ref()
+                            .and_then(|address| address.parse().ok())
+                            .ok_or("media_peer_invalid")
+                            .and_then(|address| {
+                                crate::media_control_plane::ControlPlane::confirmed(
+                                    session_key,
+                                    self.identity.public,
+                                    device.peer_key,
+                                    address,
+                                )
+                            });
+                        match setup {
+                            Ok(media) => s.media = Some(Arc::new(media)),
+                            Err(error) => {
+                                result = Err(error);
+                                return;
+                            }
+                        }
+                    }
                     s.view.remote = Some(device);
                     s.view.projection = Some(p);
                     s.view.phase = "active";
@@ -815,6 +981,9 @@ impl Bridge {
         let mut pending: BTreeMap<u64, PendingResponse> = BTreeMap::new();
         let mut incoming: BTreeMap<u64, Receiver<Result<OperationResult>>> = BTreeMap::new();
         while self.current(epoch) {
+            if let Some(media) = self.state.lock().unwrap().media.as_ref().cloned() {
+                media.tick();
+            }
             if began.elapsed() > Duration::from_millis(SESSION_MS) {
                 return Err("session_expired");
             }
@@ -826,6 +995,11 @@ impl Bridge {
             }
             while let Ok(job) = jobs.try_recv() {
                 match job {
+                    Job::Media(signals) if active => {
+                        for signal in signals {
+                            send(noise, socket, &Wire::Media { signal })?;
+                        }
+                    }
                     Job::Confirm(id, granted) if id == session && !local_ok => {
                         send(noise, socket, &Wire::Confirm)?;
                         local_ok = true;
@@ -923,6 +1097,60 @@ impl Bridge {
                     serde_json::from_slice(&plaintext[..n]).map_err(|_| "invalid_message")?;
                 last_rx = Instant::now();
                 match message {
+                    Wire::Media { signal } if active => {
+                        let stream = signal.stream();
+                        if stream == 0 || stream > i64::MAX as u64 {
+                            return Err("media_scope_invalid");
+                        }
+                        let closing =
+                            matches!(&signal, crate::media_control_plane::Signal::Close { .. });
+                        let scope = self.state.lock().unwrap();
+                        let media = scope.media.as_ref().cloned().ok_or("media_unavailable")?;
+                        let purpose = match &signal {
+                            crate::media_control_plane::Signal::Ready { purpose, .. }
+                            | crate::media_control_plane::Signal::Offer { purpose, .. } => {
+                                Some(*purpose)
+                            }
+                            _ => None,
+                        };
+                        let allowed = purpose.is_none_or(|p| {
+                            scope.view.granted_operations.contains(&match p {
+                                crate::media_channel::Purpose::ScreenVideo => {
+                                    Operation::ScreenVideo
+                                }
+                                crate::media_channel::Purpose::CameraVideo => {
+                                    Operation::CameraVideo
+                                }
+                            })
+                        });
+                        drop(scope);
+                        let outcome = if allowed {
+                            media.receive(signal)
+                        } else {
+                            Err("permission_denied")
+                        };
+                        match outcome {
+                            Ok(signals) => {
+                                for signal in signals {
+                                    send(noise, socket, &Wire::Media { signal })?;
+                                }
+                            }
+                            Err(_) => {
+                                let _ = media.close(stream);
+                                if !closing {
+                                    send(
+                                        noise,
+                                        socket,
+                                        &Wire::Media {
+                                            signal: crate::media_control_plane::Signal::Close {
+                                                stream,
+                                            },
+                                        },
+                                    )?;
+                                }
+                            }
+                        }
+                    }
                     Wire::Confirm if !remote_ok => {
                         remote_ok = true;
                         self.update(epoch, |s| s.view.remote_confirmed = true);
@@ -1426,6 +1654,154 @@ mod tests {
                 Err(crate::executor::execution_error(code))
             );
         }
+        a.stop();
+        b.stop();
+    }
+    #[test]
+    fn media_rendezvous_is_bound_to_confirmed_parent_and_two_local_native_registrations() {
+        use crate::media_channel::{Purpose, Role};
+        use crate::media_runtime::Phase;
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap())
+            .unwrap();
+        for bridge in [&a, &b] {
+            wait(bridge, "awaiting_confirmation");
+        }
+        let session = a.snapshot().session;
+        assert_eq!(
+            a.register_media(&session, 7, Purpose::ScreenVideo, Role::Receiver, 30000),
+            Err("stale_session")
+        );
+        for bridge in [&a, &b] {
+            bridge
+                .confirm_operations(
+                    &bridge.snapshot().session,
+                    Some(BTreeSet::from([Operation::ScreenVideo])),
+                )
+                .unwrap();
+        }
+        for bridge in [&a, &b] {
+            wait(bridge, "active");
+        }
+        assert_eq!(
+            a.register_media(&session, 8, Purpose::CameraVideo, Role::Receiver, 30000),
+            Err("permission_denied")
+        );
+        b.register_media(&session, 7, Purpose::ScreenVideo, Role::Sender, 30000)
+            .unwrap();
+        assert_eq!(
+            b.media_status(&session, 7).unwrap().phase,
+            Phase::Registered
+        );
+        a.register_media(&session, 7, Purpose::ScreenVideo, Role::Receiver, 30000)
+            .unwrap();
+        let until = Instant::now() + Duration::from_secs(3);
+        while a.media_status(&session, 7).unwrap().phase != Phase::Ready
+            || b.media_status(&session, 7).unwrap().phase != Phase::Ready
+        {
+            assert!(Instant::now() < until);
+            thread::sleep(Duration::from_millis(5));
+        }
+        a.close_media(&session, 7).unwrap();
+        let until = Instant::now() + Duration::from_secs(2);
+        while b.media_status(&session, 7).unwrap().phase != Phase::Closed {
+            assert!(Instant::now() < until);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(a
+            .register_media(&session, 7, Purpose::ScreenVideo, Role::Receiver, 30000)
+            .is_err());
+        a.stop();
+        b.stop();
+        assert_eq!(a.media_status(&session, 7).err(), Some("stale_session"));
+    }
+    #[test]
+    fn logical_connection_without_clipboard_requires_exact_business_grants() {
+        use serde_json::json;
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let owner = ExecutorOwner {
+            uid: 123,
+            pid: 456,
+            token: "logical-test".into(),
+        };
+        let operations = BTreeSet::from([
+            Operation::AppRelay,
+            Operation::LogicalOpen,
+            Operation::LogicalState,
+            Operation::LogicalClose,
+        ]);
+        for bridge in [&a, &b] {
+            bridge
+                .register_executor(owner.clone(), operations.clone())
+                .unwrap();
+        }
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap())
+            .unwrap();
+        for bridge in [&a, &b] {
+            wait(bridge, "awaiting_confirmation");
+        }
+        for bridge in [&a, &b] {
+            bridge
+                .confirm_operations(
+                    &bridge.snapshot().session,
+                    Some(BTreeSet::from([Operation::AppRelay])),
+                )
+                .unwrap();
+        }
+        for bridge in [&a, &b] {
+            wait(bridge, "active");
+        }
+        let p = a.snapshot().projection.unwrap();
+        assert!(p.operations.contains(&Operation::LogicalOpen));
+        assert!(!p.operations.contains(&Operation::ClipboardWrite));
+        let channel = "b".repeat(32);
+        assert!(matches!(
+            a.submit_operation(
+                Source::HyperOs4,
+                &p.id,
+                &p.session_id,
+                Operation::LogicalOpen,
+                json!({"channel_id":channel,"operations":["clipboard_write"]})
+            ),
+            Err("permission_denied")
+        ));
+        let (_, result) = a
+            .submit_operation(
+                Source::HyperOs4,
+                &p.id,
+                &p.session_id,
+                Operation::LogicalOpen,
+                json!({"channel_id":channel,"operations":["app_relay"]}),
+            )
+            .unwrap();
+        let until = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let (Some(task), _) = b.poll_executor(&owner) {
+                assert_eq!(task.operation, Operation::LogicalOpen);
+                b.complete_executor(
+                    &owner,
+                    &task.session_id,
+                    &task.request_id,
+                    Ok(OperationResult::LogicalOpen(LogicalReceipt {
+                        channel_id: channel.clone(),
+                        state: "open".into(),
+                        operations: BTreeSet::from([Operation::AppRelay]),
+                    })),
+                )
+                .unwrap();
+                break;
+            }
+            assert!(Instant::now() < until);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(
+            result.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Ok(OperationResult::LogicalOpen(_))
+        ));
         a.stop();
         b.stop();
     }

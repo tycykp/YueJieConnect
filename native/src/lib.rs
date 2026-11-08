@@ -33,11 +33,47 @@ struct AsyncRequest {
 }
 static REQUESTS: OnceLock<Mutex<BTreeMap<AsyncKey, AsyncRequest>>> = OnceLock::new();
 static FILE_REQUESTS: OnceLock<Mutex<file_requests::FileRequests>> = OnceLock::new();
+type MediaOwner = (
+    u32,
+    u32,
+    qj_transport::media_channel::Purpose,
+    qj_transport::media_channel::Role,
+);
+static MEDIA_OWNERS: OnceLock<Mutex<BTreeMap<(String, u64), MediaOwner>>> = OnceLock::new();
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[allow(clippy::enum_variant_names)] // Mirrors the versioned IPC namespace, not vendor APIs.
 enum BridgeCommand {
+    BridgeMediaRegister {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        projection_id: String,
+        stream_id: u64,
+        purpose: qj_transport::media_channel::Purpose,
+        role: qj_transport::media_channel::Role,
+        lifetime_ms: u64,
+    },
+    BridgeMediaStatus {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        projection_id: String,
+        stream_id: u64,
+        purpose: qj_transport::media_channel::Purpose,
+        role: qj_transport::media_channel::Role,
+    },
+    BridgeMediaClose {
+        token: String,
+        sequence: u64,
+        session_id: String,
+        stream_id: u64,
+    },
+    BridgeMediaRevoke {
+        session_id: String,
+        stream_id: u64,
+    },
     BridgeFileAllocate {
         token: String,
         sequence: u64,
@@ -146,6 +182,110 @@ fn valid_request(request: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
 }
+fn require_media_owner(
+    uid: u32,
+    pid: u32,
+    session: &str,
+    stream: u64,
+    purpose: qj_transport::media_channel::Purpose,
+    role: qj_transport::media_channel::Role,
+) -> Result<(), &'static str> {
+    let owners = MEDIA_OWNERS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .map_err(|_| "core_unavailable")?;
+    if owners.get(&(session.to_owned(), stream)) != Some(&(uid, pid, purpose, role)) {
+        return Err("forbidden");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MediaAttach {
+    op: String,
+    token: String,
+    sequence: u64,
+    session_id: String,
+    projection_id: String,
+    stream_id: u64,
+    purpose: qj_transport::media_channel::Purpose,
+    role: qj_transport::media_channel::Role,
+}
+#[no_mangle]
+pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_attachMedia(
+    mut env: JNIEnv,
+    _: JClass,
+    uid: jint,
+    pid: jint,
+    source: jint,
+    elapsed_ms: jlong,
+    input: JString,
+    fd: jint,
+) -> jboolean {
+    #[cfg(target_os = "android")]
+    {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        if fd < 0 {
+            return 0;
+        }
+        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        catch_unwind(AssertUnwindSafe(|| -> Result<(), &'static str> {
+            if uid < 0 || pid <= 0 || elapsed_ms < 0 {
+                return Err("invalid_caller");
+            }
+            let text: String = env.get_string(&input).map_err(|_| "invalid_utf8")?.into();
+            if text.len() > 2048 {
+                return Err("payload_too_large");
+            }
+            let request: MediaAttach =
+                serde_json::from_str(&text).map_err(|_| "invalid_request")?;
+            if request.op != "bridge_media_attach" {
+                return Err("invalid_request");
+            }
+            let caller = Caller {
+                uid: uid as u32,
+                pid: pid as u32,
+                owner: false,
+                source: match source {
+                    1 => Some(Source::HyperOs4),
+                    2 => Some(Source::ColorOs17),
+                    _ => None,
+                },
+            };
+            authorize(caller, elapsed_ms as u64, &request.token, request.sequence)?;
+            require_media_owner(
+                caller.uid,
+                caller.pid,
+                &request.session_id,
+                request.stream_id,
+                request.purpose,
+                request.role,
+            )?;
+            let bridge = BRIDGE.get().ok_or("bridge_not_initialized")?;
+            if !bridge.snapshot().projection.is_some_and(|p| {
+                p.id == request.projection_id && p.session_id == request.session_id
+            }) {
+                return Err("stale_session");
+            }
+            if bridge
+                .media_status(&request.session_id, request.stream_id)?
+                .phase
+                != qj_transport::media_runtime::Phase::Ready
+            {
+                return Err("media_not_ready");
+            }
+            bridge.attach_media(&request.session_id, request.stream_id, owned)
+        }))
+        .is_ok_and(|result| result.is_ok()) as jboolean
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (&mut env, uid, pid, source, elapsed_ms, input, fd);
+        0
+    }
+}
 fn request_response(
     result: Option<&Result<OperationResult, &'static str>>,
     request: &str,
@@ -213,6 +353,106 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
     let bridge = BRIDGE.get().ok_or("bridge_not_initialized")?;
     let cancelling = matches!(&command, BridgeCommand::BridgeCancel { .. });
     match command {
+        BridgeCommand::BridgeMediaRegister {
+            token,
+            sequence,
+            session_id,
+            projection_id,
+            stream_id,
+            purpose,
+            role,
+            lifetime_ms,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            let state = bridge.snapshot();
+            if state.session != session_id
+                || !state.projection.is_some_and(|p| p.id == projection_id)
+            {
+                return Err("stale_session");
+            }
+            let mut owners = MEDIA_OWNERS
+                .get_or_init(|| Mutex::new(BTreeMap::new()))
+                .lock()
+                .map_err(|_| "core_unavailable")?;
+            owners.retain(|(session, _), _| session == &session_id);
+            if owners.contains_key(&(session_id.clone(), stream_id)) {
+                return Err("media_stream_reused");
+            }
+            if owners.len() >= 64 {
+                return Err("media_history_capacity");
+            }
+            bridge.register_media(&session_id, stream_id, purpose, role, lifetime_ms)?;
+            owners.insert(
+                (session_id, stream_id),
+                (caller.uid, caller.pid, purpose, role),
+            );
+            Ok(json!({"status":"ok","phase":"opening"}))
+        }
+        BridgeCommand::BridgeMediaStatus {
+            token,
+            sequence,
+            session_id,
+            projection_id,
+            stream_id,
+            purpose,
+            role,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            if !bridge
+                .snapshot()
+                .projection
+                .is_some_and(|p| p.id == projection_id && p.session_id == session_id)
+            {
+                return Err("stale_session");
+            }
+            require_media_owner(
+                caller.uid,
+                caller.pid,
+                &session_id,
+                stream_id,
+                purpose,
+                role,
+            )?;
+            let state = bridge.media_status(&session_id, stream_id)?;
+            let phase = match state.phase {
+                qj_transport::media_runtime::Phase::Registered => "registered",
+                qj_transport::media_runtime::Phase::Opening => "opening",
+                qj_transport::media_runtime::Phase::Ready => "ready",
+                qj_transport::media_runtime::Phase::Closed => "closed",
+            };
+            Ok(
+                json!({"status":"ok","session_id":session_id,"stream_id":stream_id,"purpose":purpose,"role":role,"phase":phase}),
+            )
+        }
+        BridgeCommand::BridgeMediaClose {
+            token,
+            sequence,
+            session_id,
+            stream_id,
+        } => {
+            authorize(caller, now, &token, sequence)?;
+            let owners = MEDIA_OWNERS
+                .get_or_init(|| Mutex::new(BTreeMap::new()))
+                .lock()
+                .map_err(|_| "core_unavailable")?;
+            if !owners
+                .get(&(session_id.clone(), stream_id))
+                .is_some_and(|(uid, pid, _, _)| *uid == caller.uid && *pid == caller.pid)
+            {
+                return Err("forbidden");
+            }
+            drop(owners);
+            bridge.close_media(&session_id, stream_id)?;
+            Ok(json!({"status":"ok"}))
+        }
+        BridgeCommand::BridgeMediaRevoke {
+            session_id,
+            stream_id,
+        } if caller.owner => {
+            bridge.close_media(&session_id, stream_id)?;
+            Ok(json!({"status":"ok"}))
+        }
+        BridgeCommand::BridgeMediaRevoke { .. } => Err("forbidden"),
         BridgeCommand::BridgeFileAllocate {
             token,
             sequence,
@@ -732,3 +972,4 @@ pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_dispatch(
         }
     }
 }
+mod telephony_binder;

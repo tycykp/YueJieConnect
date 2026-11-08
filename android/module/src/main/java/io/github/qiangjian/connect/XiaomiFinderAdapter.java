@@ -37,7 +37,8 @@ final class XiaomiFinderAdapter implements AutoCloseable {
     synchronized void update(JSONObject next) {
         String before = projection == null ? "" : projection.optString("session_id");
         String after = next == null ? "" : next.optString("session_id");
-        if (!before.equals(after)) {
+        if (!before.equals(after) || next==null || !supports(next)
+                || projection!=null&&!projection.optString("id").equals(next.optString("id"))) {
             connections.clear();
             monitoringSession = null;
             notifyContext = null;
@@ -141,7 +142,7 @@ final class XiaomiFinderAdapter implements AutoCloseable {
 
     private boolean matches(String id, String session, JSONObject reply) {
         JSONObject p = projection;
-        return !closed && p != null && id.equals(p.optString("id")) && !session.isEmpty()
+        return !closed && p != null && supports(p) && id.equals(p.optString("id")) && !session.isEmpty()
                 && session.equals(p.optString("session_id")) && reply != null && "ok".equals(reply.optString("status"))
                 && session.equals(reply.optString("session_id")) && data(reply) != null;
     }

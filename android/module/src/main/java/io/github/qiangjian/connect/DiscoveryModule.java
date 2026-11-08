@@ -23,6 +23,7 @@ public final class DiscoveryModule extends XposedModule {
     private FileTransferBridge fileBridge;
     private ClipboardUriBridge clipboardUris;
     private DeviceFinderBinding finderBinding;
+    private AppRelayRuntime relayRuntime;
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
         client=new BridgeClient();
         processName=param.getProcessName();
@@ -79,6 +80,13 @@ public final class DiscoveryModule extends XposedModule {
                                 if(clipboardUris!=null)clipboardUris.close();
                                 if(fileBridge!=null)fileBridge.close();
                                 log(Log.WARN,TAG,"file_uri_bridges_unavailable "+fileFailure.getClass().getSimpleName());
+                            }
+                            if(mirror||(expected==2&&CallerPolicy.OPLUS.equals(processName))){
+                                // Run after the current Application launch transaction. Do not
+                                // depend on whether an OEM overrides/inherits Application.onCreate.
+                                new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                    if(allowed&&relayRuntime==null)relayRuntime=new AppRelayRuntime(this,client,cl,expected,()->allowed,fileBridge);
+                                });
                             }
                             if(expected==1&&"com.milink.service:core".equals(processName))try {
                                 // This class is absent from release builds. It only triggers the native read-only API.

@@ -28,8 +28,8 @@ android {
         // This build is limited to the two Android 17 samples under review.
         minSdk = 37
         targetSdk = 37
-        versionCode = 21
-        versionName = "0.6.0-integration-v7"
+        versionCode = 22
+        versionName = "0.6.1-integration-v8"
         buildConfigField("String", "RUNTIME_INPUT_SHA", "\"$runtimeInputDigest\"")
         ndk { abiFilters += "arm64-v8a" }
     }

@@ -36,6 +36,8 @@ final class OplusProtocolAdapter {
     private volatile NativeLogicalClient.Lease connected;
     private volatile Object connectionInfo;
     private boolean checkingChannel;
+    private long nextAutoConnect;
+    private String userClosedSession="";
     private final Map<Object,WeakReference<Object>> stateListeners=new java.util.WeakHashMap<>();
     private volatile boolean closed;
     private volatile Published published;
@@ -77,7 +79,7 @@ final class OplusProtocolAdapter {
             installDiscovery();
             installConnections();
             installLogicalRouteSelection();
-            deviceKit = new OplusDeviceKitAdapter(module, client, loader, allowed, () -> currentProjection);
+            deviceKit = new OplusDeviceKitAdapter(module, client, loader, allowed, () -> currentProjection,this::currentChannel);
             deviceKit.install();
             probe = new OplusRuntimeProbe(module, loader, allowed, () -> currentProjection);
             probe.install();
@@ -123,6 +125,7 @@ final class OplusProtocolAdapter {
         handles.add(module.hook(clients.getMethod("startGlobalDeviceDiscovery", type(BASE + "DeviceDiscoveryOptions"),
                 type(BASE + "GlobalDeviceDiscoveryCallback"))).setId("qj.oplus.discovery.start").intercept(chain -> {
             Object result = chain.proceed();
+            log("oplus_discovery_result code="+resultCode.invoke(result));
             if (!closed && allowed.getAsBoolean() && Integer.valueOf(1).equals(resultCode.invoke(result))) {
                 Object owner = chain.getThisObject(), receiver = chain.getArg(1), options = chain.getArg(0);
                 Set<?> roles = Set.copyOf((Set<?>) optionRoles.invoke(options));
@@ -144,9 +147,7 @@ final class OplusProtocolAdapter {
                 return future.thenApply(value -> {
                     Published current = published;
                     if (closed || !allowed.getAsBoolean() || current == null || !(value instanceof List<?> list)) return value;
-                    List<Object> copy = new ArrayList<>(list);
-                    for (Object item : list) if (current.id().equals(id(item))) return value;
-                    copy.add(current.device());
+                    List<Object> copy = OplusPeerRegistry.overlay(list,current.device(),this::id);
                     log("oplus_projection_list_added");
                     return copy;
                 });
@@ -215,6 +216,7 @@ final class OplusProtocolAdapter {
     }
 
     private void request(String target, Object device, Object receiver) {
+        if(receiver!=null)userClosedSession="";
         if (closed || !allowed.getAsBoolean() || !registry.owns(target)) {
             fail(receiver, device, "peer_offline"); return;
         }
@@ -249,7 +251,7 @@ final class OplusProtocolAdapter {
                 connected=lease;connectionInfo=info;
                 if(!currentChannel())throw new IllegalStateException("native_channel_unavailable");
                 refreshConnectionState();
-                if(!notify(receiver,success,published.device(),info)){clearConnection();logical.close(lease);}
+                if(receiver!=null&&!notify(receiver,success,published.device(),info)){clearConnection();logical.close(lease);}
                 else log("oplus_logical_channel_open_remote_ack");
             }catch(ReflectiveOperationException|RuntimeException failure){logical.close(lease);clearConnection();fail(receiver,device,"native_channel_setup_failed");}
         });
@@ -258,6 +260,17 @@ final class OplusProtocolAdapter {
     /** The sampled UI hardcodes PAD to Bluetooth. For our exact LAN-bound peer, select the
      * implemented WLAN logical path while retaining PAD/PHONE, account state and OEM flags. */
     private void installLogicalRouteSelection() throws ReflectiveOperationException {
+        Class<?> wrapper=type("com.oplus.linker.plugin.devicediscovery.thirdapi.ptc.PTCWrapper");
+        Class<?> resultCallback=type("com.oplus.linker.connect.arch.ResultCallBack");
+        Method resultMethod=resultCallback.getMethod("onResult",Object.class);
+        handles.add(module.hook(wrapper.getDeclaredMethod("getConnectInfo",deviceType,resultCallback))
+            .setId("qj.oplus.logical.discovery.metadata").intercept(chain->{
+                Object device=chain.getArg(0),info=connectionInfo;
+                // The OEM wrapper only asks for WLAN metadata for PCs. This exact PAD proxy
+                // has a real acknowledged WLAN lease, so supply that lease's existing result.
+                if(registry.owns(id(device))&&matchesSession(device)&&currentChannel()&&info!=null){resultMethod.invoke(chain.getArg(1),info);return null;}
+                return chain.proceed();
+            }));
         Class<?> options=type(BASE+"GlobalDeviceConnectOptions");
         Method copy=options.getMethod("copy",type("com.oplus.pantaconnect.sdk.connection.ConnectionType"),type(BASE+"ChannelType"),type(BASE+"OptionExtensionArgs"),type(BASE+"DirectDecision"));
         Method extra=options.getMethod("getExtra"),direct=options.getMethod("getDirectDecision");
@@ -283,12 +296,14 @@ final class OplusProtocolAdapter {
     private static boolean supports(JSONObject projection,String operation){if(projection==null)return false;var ops=projection.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)if(operation.equals(ops.optString(i)))return true;return false;}
     private boolean currentChannel(){return !closed&&allowed.getAsBoolean()&&logical.current(connected);}
     private void refreshConnectionState(){
+        if(deviceKit!=null)deviceKit.sessionChanged();
         Published old=published;if(old==null||currentProjection==null)return;
         try{Published next=new Published(old.id(),old.session(),old.fingerprint(),build(currentProjection));published=next;for(WeakReference<Object> listener:stateListeners.values()){Object callback=listener.get();if(callback!=null)notify(callback,stateChanged,old.device(),next.device());}}
         catch(ReflectiveOperationException|JSONException failure){log("oplus_connection_state_failed");}
     }
     private void clearConnection(){boolean existed=connected!=null;connected=null;connectionInfo=null;if(existed)refreshConnectionState();}
     private void closeRemote(String target,String reason,CompletableFuture<Boolean> result){
+        JSONObject selected=currentProjection;if(selected!=null&&target.equals(selected.optString("id")))userClosedSession=selected.optString("session_id");
         ArrayList<NativeLogicalClient.Lease> leases=new ArrayList<>();
         for(Pending item:new ArrayList<>(pending.values()))if(item.ticket().id().equals(target)){leases.add(item.lease());complete(item.ticket(),reason);}
         if(connected!=null&&target.equals(connected.peer()))leases.add(connected);
@@ -301,6 +316,14 @@ final class OplusProtocolAdapter {
         if(closed)return;
         if(currentChannel()&&!checkingChannel){checkingChannel=true;NativeLogicalClient.Lease lease=connected;logical.state(lease).whenComplete((open,error)->{checkingChannel=false;if(connected==lease&&(error!=null||!Boolean.TRUE.equals(open)))clearConnection();});}
         else if(connected!=null&&!currentChannel())clearConnection();
+        JSONObject live=client.projection();Published device=published;
+        if(connected==null&&pending.isEmpty()&&allowed.getAsBoolean()&&live!=null&&device!=null
+                &&device.id().equals(live.optString("id"))&&device.session().equals(live.optString("session_id"))
+                &&!userClosedSession.equals(device.session())&&supports(live,"logical_open")
+                &&android.os.SystemClock.elapsedRealtime()>=nextAutoConnect){
+            nextAutoConnect=android.os.SystemClock.elapsedRealtime()+5000;
+            request(device.id(),device.device(),null);
+        }
         main.postDelayed(this,2000);
     }};
 
@@ -329,6 +352,7 @@ final class OplusProtocolAdapter {
         long deadline = duration > 0 ? SystemClock.elapsedRealtime() + Math.min(duration, 86_400_000L) : Long.MAX_VALUE;
         Discovery discovery = new Discovery(owner, receiver, roles, deadline);
         discoveries.add(discovery);
+        log("oplus_discovery_registered roles="+roles+" projection="+(published!=null));
         publish(discovery);
         if (duration > 0) main.postDelayed(() -> {
             withdraw(discovery);
@@ -377,8 +401,8 @@ final class OplusProtocolAdapter {
         if (current == null || receiver == null || SystemClock.elapsedRealtime() >= discovery.deadline) return;
         try {
             Object role = roleGetter.invoke(current.device());
-            if (!discovery.roles.isEmpty() && !discovery.roles.contains(role)) return;
-            if (notify(receiver, found, current.device())) discovery.emitted = current.device();
+            if (!discovery.roles.isEmpty() && !discovery.roles.contains(role)){log("oplus_discovery_role_filtered");return;}
+            if (notify(receiver, found, current.device())){discovery.emitted = current.device();log("oplus_discovery_published");}
         } catch (ReflectiveOperationException error) { log("oplus_role_mapping_failed"); }
     }
 
@@ -419,10 +443,10 @@ final class OplusProtocolAdapter {
         catch (ReflectiveOperationException | RuntimeException error) { log("oplus_callback_failed " + method.getName()); return false; }
     }
     private void fail(Object receiver, Object device, String error) {
-        notify(receiver, failure, device, new IllegalStateException("QJ:" + error));
+        if(receiver!=null)notify(receiver, failure, device, new IllegalStateException("QJ:" + error));
         log("oplus_request_failed " + error);
     }
-    private void log(String event) { module.log(Log.INFO, "QiangJian", event + " source=2"); }
+    private void log(String event) { module.log(Log.INFO, "QiangJian", event + " source=2");android.util.Log.i("QiangJianOplus",event); }
 
     void close() {
         if (closed) return;

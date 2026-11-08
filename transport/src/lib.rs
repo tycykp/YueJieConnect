@@ -4,13 +4,20 @@ use sha2::{Digest, Sha256};
 
 pub mod battery;
 pub mod bridge;
+pub mod camera_still;
 pub mod executor;
 pub mod file_session;
 pub mod file_transfer;
 pub mod media_channel;
 pub mod media_control;
+pub mod media_control_plane;
+pub mod media_runtime;
 pub mod notification;
 pub mod relay;
+pub mod screen_control;
+pub mod stable_channel;
+pub mod telephony;
+pub mod telephony_audio;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

@@ -114,6 +114,19 @@ public final class DeviceFinderAdapterRaceCheck {
             if (resume != null) resume.countDown();
             adapter.close();
         }
+        XiaomiFinderAdapter[] revoked = new XiaomiFinderAdapter[1];
+        revoked[0] = new XiaomiFinderAdapter((id,session,operation,request,payload) -> {
+            JSONObject reply=wire.request(id,session,operation,request,payload);
+            try { revoked[0].update(projection(session).put("operations",new JSONArray())); }
+            catch(Exception failure){throw new AssertionError(failure);}
+            return reply;
+        });
+        try {
+            revoked[0].update(projection("revoked-session"));
+            Object card=new Object();
+            check(revoked[0].connect(card,"synthetic-peer")==-11,"late successful state cannot reopen revoked capability");
+            check(revoked[0].send(card,CONTEXT,"synthetic-peer",START)==-12,"revoked connect creates no usable native route");
+        } finally { revoked[0].close(); }
         System.out.println("PASS device-finder card-release races: " + checks + " assertions");
     }
 }

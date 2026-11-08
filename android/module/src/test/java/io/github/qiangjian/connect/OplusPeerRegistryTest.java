@@ -4,6 +4,14 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class OplusPeerRegistryTest {
+    private record Device(String id,String session,boolean connected){}
+    @Test public void liveProjectionReplacesSavedOfflineDeviceWithoutChangingOtherPeers(){
+        Device old=new Device("qj:real","old",false),live=new Device("qj:real","new",true),other=new Device("native:other","native",false);
+        var input=java.util.List.of(old,other,old);
+        var result=OplusPeerRegistry.overlay(input,live,value->((Device)value).id());
+        assertEquals(java.util.List.of(live,other),result);
+        assertSame(live,result.get(0));assertSame(other,result.get(1));assertSame(old,input.get(0));
+    }
     @Test public void forgedPrefixAndForeignIdAreNotOwned() {
         OplusPeerRegistry registry = new OplusPeerRegistry();
         registry.update("qj:real", "session-a");

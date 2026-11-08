@@ -26,6 +26,7 @@ final class OplusDeviceKitAdapter {
     private final BridgeClient client;
     private final ClassLoader loader;
     private final BooleanSupplier allowed;
+    private final BooleanSupplier connected;
     private final Supplier<JSONObject> selected;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<HookHandle> hooks = new ArrayList<>();
@@ -35,6 +36,11 @@ final class OplusDeviceKitAdapter {
     private Class<?> callbackType, infoType;
     private Constructor<?> property;
     private Method onResult, onError, deviceId;
+    private Method deviceAdded,deviceChanged,deviceRemoved;
+    private final java.util.Map<Object,List<java.lang.ref.WeakReference<Object>>> listeners=new java.util.WeakHashMap<>();
+    private Object lastDevice;
+    private String lastSession="",batterySession="",batteryPeer="";
+    private Integer batteryLevel;
 
     private static final class Query {
         final String id, session, request;
@@ -53,9 +59,10 @@ final class OplusDeviceKitAdapter {
     }
 
     OplusDeviceKitAdapter(XposedModule module, BridgeClient client, ClassLoader loader,
-                         BooleanSupplier allowed, Supplier<JSONObject> selected) {
+                         BooleanSupplier allowed, Supplier<JSONObject> selected,BooleanSupplier connected) {
         this.module = module; this.client = client; this.loader = loader;
         this.allowed = allowed; this.selected = selected;
+        this.connected=connected;
     }
 
     private Class<?> type(String name) throws ClassNotFoundException { return Class.forName(name, false, loader); }
@@ -72,6 +79,23 @@ final class OplusDeviceKitAdapter {
         for (String name : new String[]{"setDeviceType", "setDeviceState", "setDeviceProtocol"}) infoType.getMethod(name, int.class);
         infoType.getMethod("setPropertyList", ArrayList.class);
         Class<?> owner = type(KIT + "OpDeviceServiceClient");
+        Class<?> changeListener=type(KIT+"callback.ISynergyDeviceChangeListener");
+        deviceAdded=changeListener.getMethod("onDeviceAdded",List.class);
+        deviceChanged=changeListener.getMethod("onDeviceInfoChanged",List.class);
+        deviceRemoved=changeListener.getMethod("onDeviceRemoved",List.class);
+        hooks.add(module.hook(owner.getMethod("registerDeviceChangeListener",changeListener)).setId("qj.oplus.devicekit.listen").intercept(chain->{
+            Object result=chain.proceed(),service=chain.getThisObject(),listener=chain.getArg(0);
+            main.post(()->{if(closed)return;var values=listeners.computeIfAbsent(service,k->new ArrayList<>());
+                values.removeIf(w->w.get()==null);if(values.stream().noneMatch(w->w.get()==listener))values.add(new java.lang.ref.WeakReference<>(listener));
+                JSONObject p=active();if(p!=null)try{call(deviceAdded,listener,List.of(build(p,cachedBattery(p))));}catch(ReflectiveOperationException|JSONException ignored){}
+            });return result;
+        }));
+        for(Class<?>[] signature:new Class<?>[][]{{},{changeListener}}){
+            hooks.add(module.hook(owner.getMethod("unRegisterDeviceChangeListener",signature)).setId("qj.oplus.devicekit.unlisten."+signature.length).intercept(chain->{
+                Object result=chain.proceed(),service=chain.getThisObject(),listener=signature.length==0?null:chain.getArg(0);
+                main.post(()->{if(listener==null)listeners.remove(service);else{var values=listeners.get(service);if(values!=null)values.removeIf(w->w.get()==null||w.get()==listener);}});return result;
+            }));
+        }
         hooks.add(module.hook(owner.getMethod("queryOriginalDeviceListWithIds", List.class, callbackType))
                 .setId("qj.oplus.devicekit.ids").intercept(chain -> {
                     JSONObject p = active();
@@ -108,7 +132,7 @@ final class OplusDeviceKitAdapter {
                 || !p.optString("session_id").equals(live.optString("session_id"))) return null;
         JSONArray operations = p.optJSONArray("operations");
         if (operations != null) for (int i = 0; i < operations.length(); i++)
-            if ("battery_status".equals(operations.optString(i))) return p;
+            if ("device_profile".equals(operations.optString(i))) return p;
         return null;
     }
 
@@ -141,6 +165,10 @@ final class OplusDeviceKitAdapter {
         queries.put(query.request, query);
         query.timeout = () -> finish(query, original, onlyProxy, null, "request_timeout");
         main.postDelayed(query.timeout, 10_000);
+        if(!supports(p,"battery_status")){
+            try{finish(query,original,onlyProxy,build(p,null),"");}
+            catch(ReflectiveOperationException|JSONException failure){finish(query,original,onlyProxy,null,"invalid_remote_result");}return;
+        }
         client.request(query.id, query.session, "battery_status", query.request, new JSONObject(), response -> {
             Object device = null;
             String error = "remote_error";
@@ -152,6 +180,7 @@ final class OplusDeviceKitAdapter {
                     JSONObject data = result.getJSONObject("data");
                     int level = data.getInt("level");
                     if (level < 0 || level > 100) throw new JSONException("invalid level");
+                    batteryPeer=query.id;batterySession=query.session;batteryLevel=level;
                     device = build(query.projection, level);
                 } else if (response != null) error = response.optString("code", "stale_session");
             } catch (ReflectiveOperationException | JSONException | RuntimeException failure) { error = "invalid_remote_result"; }
@@ -181,17 +210,19 @@ final class OplusDeviceKitAdapter {
         module.log(Log.INFO, "QiangJian", device == null ? "oplus_battery_request_failed" : "oplus_native_battery_result_delivered");
     }
 
-    private Object build(JSONObject p, int level) throws ReflectiveOperationException, JSONException {
+    private Object build(JSONObject p, Integer level) throws ReflectiveOperationException, JSONException {
         JSONObject real = p.getJSONObject("real");
         Object device = infoType.getConstructor().newInstance();
         infoType.getMethod("setDeviceId", String.class).invoke(device, p.getString("id"));
         infoType.getMethod("setName", String.class).invoke(device, real.getString("name"));
         infoType.getMethod("setModelId", String.class).invoke(device, real.getString("model"));
         infoType.getMethod("setDeviceType", int.class).invoke(device, p.getInt("sdk_device_type"));
-        infoType.getMethod("setDeviceState", int.class).invoke(device, 1); // DISCOVERED; no native connected state invented.
+        // PantaUtils DEVICE_STATE_CONNECTED=2, DISCOVERED=1 in the pinned APK.
+        // This uses the same remote-acknowledged lease as DisplayDevice and getConnectionList.
+        infoType.getMethod("setDeviceState", int.class).invoke(device, connected.getAsBoolean()?2:1);
         infoType.getMethod("setDeviceProtocol", int.class).invoke(device, 1); // ONET SDK projection role.
         ArrayList<Object> properties = new ArrayList<>();
-        properties.add(property.newInstance("batteryLevel_1280_1", Integer.toString(level)));
+        if(level!=null)properties.add(property.newInstance("batteryLevel_1280_1", Integer.toString(level)));
         // plugged is not charging. v2 doesn't carry charging status, so don't invent that property.
         infoType.getMethod("setPropertyList", ArrayList.class).invoke(device, properties);
         return device;
@@ -205,7 +236,22 @@ final class OplusDeviceKitAdapter {
     void sessionChanged() {
         main.post(() -> {
             for (Query query : queries.values()) if (!current(query)) finish(query, query.original, query.onlyProxy, null, "stale_session");
+            publishState();
         });
+    }
+    private static boolean supports(JSONObject p,String operation){JSONArray ops=p.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)if(operation.equals(ops.optString(i)))return true;return false;}
+    private Integer cachedBattery(JSONObject p){return batteryPeer.equals(p.optString("id"))&&batterySession.equals(p.optString("session_id"))&&supports(p,"battery_status")?batteryLevel:null;}
+    private void publishState(){
+        JSONObject p=active();Object old=lastDevice,next=null;String session=p==null?"":p.optString("session_id");
+        try{if(p!=null)next=build(p,cachedBattery(p));}catch(ReflectiveOperationException|JSONException failure){next=null;}
+        boolean replaced=!lastSession.equals(session);lastDevice=next;lastSession=session;
+        for(var values:listeners.values()){
+            values.removeIf(w->w.get()==null);
+            for(var reference:values){Object listener=reference.get();if(listener==null)continue;
+                if(old!=null&&(next==null||replaced))call(deviceRemoved,listener,List.of(old));
+                if(next!=null)call(old==null||replaced?deviceAdded:deviceChanged,listener,List.of(next));
+            }
+        }
     }
 
     void close() {
@@ -213,5 +259,6 @@ final class OplusDeviceKitAdapter {
         for (HookHandle hook : hooks) hook.unhook();
         hooks.clear();
         sessionChanged();
+        main.post(listeners::clear);
     }
 }

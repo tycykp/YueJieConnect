@@ -40,6 +40,7 @@ final class AppRelayBridge implements AutoCloseable {
     private final ClassLoader loader;
     private final int brand;
     private final BooleanSupplier allowed;
+    private BooleanSupplier registrationReady;
     private final DocumentsFactory documents;
     private final DirectoryFactory directories;
     private final SourceFactory sources;
@@ -71,6 +72,7 @@ final class AppRelayBridge implements AutoCloseable {
         if (brand != 1 && brand != 2) throw new IllegalArgumentException("invalid_brand");
         this.client = client; this.context = client.context(); this.loader = loader; this.brand = brand;
         this.allowed = allowed; this.documents = documents; this.sender = new AppRelaySender(transport);
+        this.registrationReady = allowed;
         this.syncClient = new AppRelaySyncClient(transport);
         this.directories = directories;
         this.sources = sources;
@@ -83,12 +85,18 @@ final class AppRelayBridge implements AutoCloseable {
         // Symbol resolution must succeed before the public capability is registered.
         try {
             endpoint(null).close();
-            if (allowed.getAsBoolean()) executorSubscription = client.registerExecutor("app_relay", executor);
+            if (canRegister()) executorSubscription = client.registerExecutor("app_relay", executor);
             projectionSubscription = client.addProjectionListener(ignored -> nativeStateChanged());
             nativeStateChanged();
         } catch (ReflectiveOperationException | RuntimeException failure) { close(); throw failure; }
     }
     AppRelaySender sender() { return sender; }
+    void registrationReady(BooleanSupplier ready) {
+        if(projectionSubscription!=null||executorSubscription!=null)throw new IllegalStateException("relay_already_installed");
+        registrationReady=java.util.Objects.requireNonNull(ready);
+    }
+    private boolean canRegister(){JSONObject p=client.projection();return !closed&&registrationReady.getAsBoolean()
+        &&(p==null||!revokedSession.equals(p.optString("session_id")));}
     boolean authorized() { return current(scope); }
     // Close source click hooks only after this resolves, so a queued old launcher click remains
     // guarded until its native directory entry was withdrawn or the slot was transferred.
@@ -116,7 +124,7 @@ final class AppRelayBridge implements AutoCloseable {
     // object across native readiness changes: rebuilding it in the same session would lose no-replay state.
     synchronized void nativeStateChanged() {
         if (closed || projectionSubscription == null) return;
-        if (!allowed.getAsBoolean()) {
+        if (!canRegister()) {
             // Preparing local OEM hooks before a DATA channel opens is not revocation. refresh
             // retires (and tombstones) an actually active scope, never a not-yet-used session.
             BridgeClient.Subscription registration = executorSubscription; executorSubscription = null;

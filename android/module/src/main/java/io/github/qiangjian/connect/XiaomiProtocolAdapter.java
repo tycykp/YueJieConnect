@@ -107,7 +107,7 @@ final class XiaomiProtocolAdapter {
     }
     private boolean matches(String id,String session,JSONObject reply){
         JSONObject p=current,live=client.projection();
-        return owns(id)&&p!=null&&live!=null&&session.equals(p.optString("session_id"))&&session.equals(live.optString("session_id"))
+        return owns(id)&&p!=null&&live!=null&&supports(live,"battery_status")&&session.equals(p.optString("session_id"))&&session.equals(live.optString("session_id"))
             &&reply!=null&&"ok".equals(reply.optString("status"))&&session.equals(reply.optString("session_id"));
     }
     private int send(Object receiver,String id,byte[] request){
@@ -149,6 +149,21 @@ final class XiaomiProtocolAdapter {
     }
     private void update(JSONObject projection){
         if(closed||!allowed.getAsBoolean())projection=null;
+        JSONObject previous=current;
+        if(previous!=null&&projection!=null
+                &&previous.optString("id").equals(projection.optString("id"))
+                &&previous.optString("session_id").equals(projection.optString("session_id"))
+                &&previous.optInt("sdk_device_type")==projection.optInt("sdk_device_type")
+                &&previous.optJSONObject("real")!=null&&projection.optJSONObject("real")!=null
+                &&previous.optJSONObject("real").optString("name").equals(projection.optJSONObject("real").optString("name"))){
+            // Executor registration and consent refreshes do not remove the discovered device.
+            // Revoke only the business whose capability disappeared, retaining the native peer.
+            synchronized(this){
+                if(!supports(projection,"device_profile")||!supports(projection,"battery_status")){generation++;connections.clear();}
+                current=projection;
+            }
+            finder.update(projection);return;
+        }
         Object next=null;
         if(projection!=null)try{
             Class<?> builder=type("com.xiaomi.continuity.netbus.DeviceInfo$Builder");Object b=builder.getConstructor().newInstance();

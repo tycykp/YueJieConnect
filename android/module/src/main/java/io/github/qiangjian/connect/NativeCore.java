@@ -14,4 +14,6 @@ public final class NativeCore {
     public static native String initialize(String identityPath, String localProfile);
     public static native String dispatch(int uid, int pid, boolean owner, int source,
                                          long elapsedMs, String command);
+    /** Consumes fd on every return path. The service has checked native caller/stream consent. */
+    static native boolean attachMedia(int uid,int pid,int source,long elapsedMs,String command,int fd);
 }

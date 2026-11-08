@@ -11,6 +11,7 @@ final class AppRelayNativeBinding implements AutoCloseable {
         String deviceName();
         boolean dataChannelReady();
         boolean ownsNativeSlot(AppRelayPeer peer);
+        default boolean canPrepare(){return dataChannelReady();}
     }
     private final BridgeClient client;
     private final Selection selection;
@@ -53,6 +54,7 @@ final class AppRelayNativeBinding implements AutoCloseable {
             return brand == 1 ? xiaomiSource.forPeer(peer) : oplusSource.forPeer(peer);
         });
         documentNegotiation = new AppRelayDocumentNegotiation(bridge, documentDecisions);
+        bridge.registrationReady(()->installed&&!closed&&selection.canPrepare()&&client.hasLocalGrant("app_relay"));
         try {
             OplusRelayAdapter oplus = brand == 2 ? new OplusRelayAdapter(client.context(), loader, bridge.sender()) : null;
             delegate = new AppRelayNativeDelegate(bridge, resolver, client::projection, this::ready, oplus, documentsReady);
