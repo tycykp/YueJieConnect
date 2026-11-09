@@ -337,7 +337,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "qj-core"
+name = "yj-core"
 version = "0.1.0"
 dependencies = [
  "getrandom",
@@ -347,24 +347,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "qj-jni"
+name = "yj-jni"
 version = "0.1.0"
 dependencies = [
  "getrandom",
  "jni",
- "qj-core",
- "qj-transport",
+ "yj-core",
+ "yj-transport",
  "serde",
  "serde_json",
  "sha2",
 ]
 
 [[package]]
-name = "qj-transport"
+name = "yj-transport"
 version = "0.1.0"
 dependencies = [
  "getrandom",
- "qj-core",
+ "yj-core",
  "serde",
  "serde_json",
  "sha2",

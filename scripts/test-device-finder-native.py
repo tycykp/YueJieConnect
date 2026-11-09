@@ -31,7 +31,7 @@ def require_native(serial):
  if current_package(serial)!=pkg:raise RuntimeError('Expected original finder UI not foreground; no capture/tap performed')
  return pkg
 def ui_nodes(serial):
- pkg=require_native(serial);temporary='/data/local/tmp/qj-finder-native.xml'
+ pkg=require_native(serial);temporary='/data/local/tmp/yj-finder-native.xml'
  try:
   adb(serial,'shell','uiautomator dump '+temporary)
   root=ET.fromstring(adb(serial,'exec-out','cat',temporary))
@@ -88,7 +88,7 @@ try:
    if op=='verify':
     step['installed']={}
     for serial in SERIALS:
-     paths=adb(serial,'shell','pm path io.github.qiangjian.connect').strip().splitlines()
+     paths=adb(serial,'shell','pm path io.github.yuejie.connect').strip().splitlines()
      if len(paths)!=1 or not re.fullmatch(r'package:/data/app/[A-Za-z0-9_=+./~-]+\.apk',paths[0]):raise RuntimeError('Unexpected installed APK path')
      actual=adb(serial,'shell','sha256sum '+paths[0][8:]).split()[0];step['installed'][serial]=actual
      if actual!=apk_sha:raise RuntimeError('Installed APK differs; this window will not install/restart')
@@ -136,7 +136,7 @@ try:
     serial=data.get('serial',target_serial);pkg=require_native(serial)
     bridge=command(serial,{'op':'bridge_status'})['bridge'];peer=((bridge.get('projection')or{}).get('real')or{}).get('name')
     if not peer:raise RuntimeError('No real selected peer name')
-    temporary='/data/local/tmp/qj-finder-native.xml'
+    temporary='/data/local/tmp/yj-finder-native.xml'
     try:
      require_native(serial);adb(serial,'shell','uiautomator dump '+temporary)
      tree=ET.fromstring(adb(serial,'exec-out','cat',temporary))

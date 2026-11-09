@@ -261,7 +261,7 @@ pub struct MediaTicket {
 }
 impl MediaTicket {
     fn prologue(&self) -> Vec<u8> {
-        let mut result = b"qiangjian-connect/media/v1\0".to_vec();
+        let mut result = b"yuejie-connect/media/v1\0".to_vec();
         result.extend_from_slice(&self.authorization.session_id);
         result.extend_from_slice(&self.stream_id.to_be_bytes());
         result.push(self.purpose as u8);
@@ -299,7 +299,7 @@ impl VideoPacket {
         let sequence = u64::from_be_bytes(wire[16..24].try_into().unwrap());
         let pts = u64::from_be_bytes(wire[24..32].try_into().unwrap());
         let len = u32::from_be_bytes(wire[32..36].try_into().unwrap()) as usize;
-        if wire[..4] != [0x51, 0x4a, 0x56, 0x31]
+        if wire[..4] != [0x59, 0x4a, 0x56, 0x31]
             || wire[4..6] != [0, 1]
             || wire[36..40] != [0; 4]
             || stream_id == 0
@@ -531,7 +531,7 @@ impl MediaChannel {
         let write_shared = shared.clone();
         let write_noise = noise.clone();
         let writer = thread::Builder::new()
-            .name("qj-media-send".into())
+            .name("yj-media-send".into())
             .spawn(move || {
                 let result = send_loop(&mut socket, &write_shared, &write_noise);
                 write_shared.close(
@@ -547,7 +547,7 @@ impl MediaChannel {
             })?;
         let read_shared = shared.clone();
         let reader = match thread::Builder::new()
-            .name("qj-media-receive".into())
+            .name("yj-media-receive".into())
             .spawn(move || {
                 let result = receive_loop(&mut read_socket, &read_shared, &noise);
                 read_shared.close(
@@ -912,7 +912,7 @@ mod tests {
 
     fn packet(sequence: u64, size: usize, flags: u16) -> VideoPacket {
         let mut wire = Vec::with_capacity(PACKET_HEADER + size);
-        wire.extend_from_slice(&[0x51, 0x4a, 0x56, 0x31, 0, 1]);
+        wire.extend_from_slice(&[0x59, 0x4a, 0x56, 0x31, 0, 1]);
         wire.extend_from_slice(&flags.to_be_bytes());
         wire.extend_from_slice(&9u64.to_be_bytes());
         wire.extend_from_slice(&sequence.to_be_bytes());

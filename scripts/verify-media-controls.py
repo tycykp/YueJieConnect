@@ -11,11 +11,11 @@ from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/media-controls"
-MAIN = ROOT / "android/module/src/main/java/io/github/qiangjian/connect"
-TESTS = sorted((ROOT / "android/module/src/test/java/io/github/qiangjian/connect").glob("MediaControl*Test.java"))
+MAIN = ROOT / "android/module/src/main/java/io/github/yuejie/connect"
+TESTS = sorted((ROOT / "android/module/src/test/java/io/github/yuejie/connect").glob("MediaControl*Test.java"))
 SOURCES = sorted([*MAIN.glob("MediaControl*.java"), *MAIN.glob("XiaomiMedia*.java"), *MAIN.glob("OplusMedia*.java")])
 SHARED = [MAIN / "BridgeClient.java", MAIN / "IBridge.java", MAIN / "NativeLogicalSessions.java"]
-FIXTURE = ROOT / "android/module/src/debug/java/io/github/qiangjian/connect/MediaControlFixture.java"
+FIXTURE = ROOT / "android/module/src/debug/java/io/github/yuejie/connect/MediaControlFixture.java"
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -64,7 +64,7 @@ def code():
     steps = [run([jdk / "bin/javac.exe", "--release", "17", "-encoding", "UTF-8", "-cp", os.pathsep.join(map(str, [android, xposed])), "-d", classes, *SOURCES, *SHARED, FIXTURE], "compile.txt")]
     steps.append(run([jdk / "bin/javac.exe", "--release", "17", "-encoding", "UTF-8", "-cp", os.pathsep.join(map(str, [classes, junit, android])), "-d", tests, *json_sources, *selected_tests], "test-compile.txt"))
     steps.append(run([jdk / "bin/java.exe", "-cp", os.pathsep.join(map(str, [tests, classes, junit, hamcrest, android])),
-                      "org.junit.runner.JUnitCore", *["io.github.qiangjian.connect." + p.stem for p in selected_tests]], "tests.txt"))
+                      "org.junit.runner.JUnitCore", *["io.github.yuejie.connect." + p.stem for p in selected_tests]], "tests.txt"))
     inputs_after = {str(p.relative_to(ROOT)): sha(p) for p in input_paths}
     races = [name for name in inputs_before if inputs_before[name] != inputs_after[name]]
     report = {"utc": datetime.now(timezone.utc).isoformat(), "sources": {str(p.relative_to(ROOT)): inputs_before[str(p.relative_to(ROOT))] for p in [*SOURCES, *selected_tests, FIXTURE, Path(__file__)]},

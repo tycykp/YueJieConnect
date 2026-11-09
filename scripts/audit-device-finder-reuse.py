@@ -6,8 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/device-finder-round2"
 OUT.mkdir(parents=True, exist_ok=True)
-MAIN = "android/module/src/main/java/io/github/qiangjian/connect/"
-TEST = "android/module/src/test/java/io/github/qiangjian/connect/"
+MAIN = "android/module/src/main/java/io/github/yuejie/connect/"
+TEST = "android/module/src/test/java/io/github/yuejie/connect/"
 
 
 def sha(path):

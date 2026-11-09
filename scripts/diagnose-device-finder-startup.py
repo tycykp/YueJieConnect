@@ -22,7 +22,7 @@ try:
  if OUT.exists():raise RuntimeError('This startup observation already exists; do not automatically repeat')
  fd=os.open(LOCK,os.O_CREAT|os.O_EXCL|os.O_WRONLY);owned=True
  with os.fdopen(fd,'w',encoding='utf-8') as stream:json.dump(lease,stream)
- paths=adb('shell','pm path io.github.qiangjian.connect').splitlines()
+ paths=adb('shell','pm path io.github.yuejie.connect').splitlines()
  if len(paths)!=1 or not re.fullmatch(r'package:/data/app/[A-Za-z0-9_=+./~-]+\.apk',paths[0]):raise RuntimeError('Unexpected module APK path')
  installed=adb('shell','sha256sum '+paths[0][8:]).split()[0];record['installed_sha256']=installed
  if installed!=metadata['sha256']:raise RuntimeError('Installed module differs from this observation input')

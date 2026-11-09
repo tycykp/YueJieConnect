@@ -8,7 +8,7 @@ $dex = Join-Path $out 'dex'
 $javaBin = 'C:\Program Files\Android\Android Studio\jbr\bin'
 $sdk = Join-Path $env:LOCALAPPDATA 'Android/Sdk'
 $androidJar = Join-Path $sdk 'platforms/android-37.0/android.jar'
-$source = Join-Path $PSScriptRoot 'functional-test/QjHtmlClipboard.java'
+$source = Join-Path $PSScriptRoot 'functional-test/YjHtmlClipboard.java'
 & (Join-Path $javaBin 'javac.exe') --release 17 -encoding UTF-8 -cp $androidJar -d $classes $source
 if ($LASTEXITCODE -ne 0) { throw 'Standalone HTML probe compilation failed' }
 & (Join-Path $javaBin 'jar.exe') cf (Join-Path $out 'classes.jar') -C $classes .

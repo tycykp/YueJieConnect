@@ -12,7 +12,7 @@ $sourceText='#[path="'+$channel.Replace([char]92,[char]47)+'"] pub mod media_cha
 [IO.File]::WriteAllText($wrapper,$sourceText,[Text.UTF8Encoding]::new($false))
 $cargoText=@"
 [package]
-name = "qj-screen-media-runtime-validation"
+name = "yj-screen-media-runtime-validation"
 version = "0.0.0"
 edition = "2021"
 [workspace]

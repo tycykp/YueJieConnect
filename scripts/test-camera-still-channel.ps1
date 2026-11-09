@@ -8,7 +8,7 @@ $manifest = Join-Path $out 'Cargo.toml'
 $portable = $source.Replace([char]92,[char]47)
 $content = @"
 [package]
-name = "qj-camera-still-validation"
+name = "yj-camera-still-validation"
 version = "0.0.0"
 edition = "2021"
 [workspace]

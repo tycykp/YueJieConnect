@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 APK=ROOT/'android/module/build/outputs/apk/debug/module-debug.apk'
 OUT=ROOT/'build/production-integration'
 DEVICES=['b59f8656','3B161Q00YN200000']
-PKG='io.github.qiangjian.connect'
+PKG='io.github.yuejie.connect'
 def adb(serial,*args):
     result=subprocess.run(['adb','-s',serial,*args],capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=60)
     if result.returncode or 'Error:' in result.stdout or 'Exception' in result.stderr:
@@ -67,8 +67,8 @@ def main():
                     for serial in DEVICES:
                         runtime=command(serial,{'op':'bridge_runtime_status'})
                         pids={str(c['pid']) for c in runtime.get('clients',[]) if c.get('matches')}
-                        logs=adb(serial,'shell','logcat','-d','-v','brief','-s','QiangJianRelay:I','*:S')
-                        if any(pid in pids for pid in re.findall(r'QiangJianRelay\(\s*(\d+)\).*data_channel_open',logs)):acknowledged.add(serial)
+                        logs=adb(serial,'shell','logcat','-d','-v','brief','-s','YueJieRelay:I','*:S')
+                        if any(pid in pids for pid in re.findall(r'YueJieRelay\(\s*(\d+)\).*data_channel_open',logs)):acknowledged.add(serial)
                     if time.monotonic()>=deadline:raise RuntimeError('Native DATA channel has not received a bound remote acknowledgement')
                     if len(acknowledged)<len(DEVICES):time.sleep(.5)
                 record['logical_data_acknowledged']=sorted(acknowledged);record['result']='passed'
@@ -76,7 +76,7 @@ def main():
                 record['last_status']=states()
                 record['runtimes']={s:command(s,{'op':'bridge_runtime_status'}) for s in DEVICES}
                 for serial in DEVICES:
-                    lines='\n'.join(adb(serial,'shell','logcat','-d','-v','brief','-s','QiangJian:I','QiangJianClient:I','QiangJianRelay:I','*:S').splitlines()[-250:])
+                    lines='\n'.join(adb(serial,'shell','logcat','-d','-v','brief','-s','YueJie:I','YueJieClient:I','YueJieRelay:I','*:S').splitlines()[-250:])
                     (OUT/(serial+'-integration.log')).write_text(lines,encoding='utf-8')
         except Exception as error:
             record['error']=str(error);raise

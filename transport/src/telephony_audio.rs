@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 pub const PACKET_BYTES: usize = 744;
 const HEADER: usize = 104;
 const PATTERN: &str = "Noise_NNpsk0_25519_ChaChaPoly_SHA256";
-const DOMAIN: &[u8] = b"qiangjian-connect/telephony-audio/v1";
+const DOMAIN: &[u8] = b"yuejie-connect/telephony-audio/v1";
 const POLL: Duration = Duration::from_millis(50);
 const STALL: Duration = Duration::from_secs(2);
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> { value.lock().unwrap_or_else(|p| p.into_inner()) }
@@ -96,7 +96,7 @@ impl Lease {
     }
     fn packet(&self, raw: &[u8], role: u8, sequence: u64) -> Result<(), Error> {
         self.check()?;
-        if raw.len() != PACKET_BYTES || &raw[..4] != b"QJTA" || raw[4] != 1 || raw[5] != role || raw[6..8] != [0, 0]
+        if raw.len() != PACKET_BYTES || &raw[..4] != b"YJTA" || raw[4] != 1 || raw[5] != role || raw[6..8] != [0, 0]
             || raw[8..40] != self.authorization.session || raw[40..56] != self.stream || raw[56..88] != self.call_hash
             || u64::from_be_bytes(raw[88..96].try_into().map_err(|_| Error::Protocol)?) != sequence
             || u64::from_be_bytes(raw[96..HEADER].try_into().map_err(|_| Error::Protocol)?) != sequence.checked_mul(20_000).ok_or(Error::Protocol)? {
@@ -262,7 +262,7 @@ mod tests {
         (phone,pad,channel,joining.join().unwrap())
     }
     fn packet(role: Role, sequence: u64) -> Vec<u8> {
-        let mut packet = vec![0x2a;PACKET_BYTES]; packet[..4].copy_from_slice(b"QJTA");packet[4]=1;packet[5]=role.wire();packet[6..8].fill(0);
+        let mut packet = vec![0x2a;PACKET_BYTES]; packet[..4].copy_from_slice(b"YJTA");packet[4]=1;packet[5]=role.wire();packet[6..8].fill(0);
         packet[8..40].copy_from_slice(&[1;32]);packet[40..56].copy_from_slice(&[4;16]);
         packet[56..88].copy_from_slice(&Sha256::digest(b"synthetic_call"));packet[88..96].copy_from_slice(&sequence.to_be_bytes());
         packet[96..104].copy_from_slice(&(sequence*20_000).to_be_bytes());packet

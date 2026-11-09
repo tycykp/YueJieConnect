@@ -27,8 +27,8 @@ with zipfile.ZipFile(API) as archive:
     (OUT / "libxposed.jar").write_bytes(archive.read("classes.jar"))
 JUNIT = next((CACHE / "junit/junit/4.13.2").rglob("*.jar"))
 HAMCREST = next((CACHE / "org.hamcrest/hamcrest-core/1.3").rglob("*.jar"))
-SOURCE = ROOT / "android/module/src/main/java/io/github/qiangjian/connect"
-TESTS = ROOT / "android/module/src/test/java/io/github/qiangjian/connect"
+SOURCE = ROOT / "android/module/src/main/java/io/github/yuejie/connect"
+TESTS = ROOT / "android/module/src/test/java/io/github/yuejie/connect"
 sources = sorted(SOURCE.glob("NetworkShare*.java")) + sorted(SOURCE.glob("XiaomiNetwork*.java")) + sorted(SOURCE.glob("OplusNetwork*.java"))
 tests = sorted(TESTS.glob("NetworkShare*Test.java"))
 parser = argparse.ArgumentParser()
@@ -47,7 +47,7 @@ classpath = os.pathsep.join(map(str, [ANDROID, OUT / "libxposed.jar", JUNIT, HAM
 commands = [
     [str(JAVA / "javac.exe"), "-J-Duser.language=en", "-encoding", "UTF-8", "--release", "17", "-cp", classpath, "-d", str(classes), *map(str, sources + tests)],
     [str(JAVA / "java.exe"), "-cp", os.pathsep.join([str(classes), classpath]), "org.junit.runner.JUnitCore",
-     *["io.github.qiangjian.connect." + p.stem for p in selected]],
+     *["io.github.yuejie.connect." + p.stem for p in selected]],
 ]
 if args.compile_only:
     commands = commands[:1]

@@ -13,7 +13,7 @@ spec.loader.exec_module(rich)
 OUT = ROOT / 'build/clipboard-validation/uri-receiver-host'
 rich.OUT = OUT
 PKG = rich.PKG
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.net.Uri;import android.os.*;import io.github.libxposed.api.XposedModule;
 import java.io.*;import java.nio.file.*;import java.util.*;import java.util.concurrent.*;import java.util.function.*;import org.json.*;
 public class ClipboardUriReceiverHarness {
@@ -31,7 +31,7 @@ public class ClipboardUriReceiverHarness {
   volatile boolean nativeCurrent=true,deleted,mutated,block,failCleanup;volatile int claims;byte[] published;
   final CountDownLatch claimEntered=new CountDownLatch(1),claimRelease=new CountDownLatch(1);
   FileFixture()throws Exception {
-   root=Files.createTempDirectory("qj-uri-receive-").toFile();engine=new FileTransferEngine(root,k->nativeCurrent,()->SystemClock.now);
+   root=Files.createTempDirectory("yj-uri-receive-").toFile();engine=new FileTransferEngine(root,k->nativeCurrent,()->SystemClock.now);
    lease=new FileTransferReceiveLease<>(key,offer,k->nativeCurrent,new FileTransferReceiveLease.Destination<Uri>(){
     public Uri value(){return uri;}
     public void publishVerified(File file,FileTransferEngine.Offer o,FileTransferEngine.SessionGate gate,FileTransferEngine.Key k)throws IOException{published=Files.readAllBytes(file.toPath());}
@@ -121,7 +121,7 @@ def main():
     assert len(json_sources) >= 6
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
         *actual, *json_sources, *sorted(sources.rglob('*.java')))
-    rich.run('uri-receive-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardUriReceiverHarness')
+    rich.run('uri-receive-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardUriReceiverHarness')
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-receiver.py',
         source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in [*actual, Path(__file__), ROOT / 'scripts/validate-clipboard-rich.py']},

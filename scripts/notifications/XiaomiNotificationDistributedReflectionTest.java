@@ -1,4 +1,4 @@
-package io.github.qiangjian.connect;
+package io.github.yuejie.connect;
 
 import static org.junit.Assert.*;
 import org.junit.Test;

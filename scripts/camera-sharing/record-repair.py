@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "build/camera-validation/repair-20261109-ledger.json"
-MAIN = ROOT / "android/module/src/main/java/io/github/qiangjian/connect"
+MAIN = ROOT / "android/module/src/main/java/io/github/yuejie/connect"
 names = ["CameraShareStillReceipt", "XiaomiCameraStillConsumer", "XiaomiCameraNativeRequests",
          "XiaomiCameraStillResultHooks", "XiaomiCameraStillLifecycleHooks"]
 

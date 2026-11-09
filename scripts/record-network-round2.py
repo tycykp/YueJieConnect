@@ -8,8 +8,8 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/network-sharing"
-MAIN = Path("android/module/src/main/java/io/github/qiangjian/connect")
-TEST = Path("android/module/src/test/java/io/github/qiangjian/connect")
+MAIN = Path("android/module/src/main/java/io/github/yuejie/connect")
+TEST = Path("android/module/src/test/java/io/github/yuejie/connect")
 
 
 def sha(path):
@@ -37,7 +37,7 @@ records = []
 for test_class, filename, count, dependencies in matrix:
     evidence = read(filename)
     assert all(run["returncode"] == 0 for run in evidence["runs"]), filename
-    assert any("io.github.qiangjian.connect." + test_class in run["command"] for run in evidence["runs"]), filename
+    assert any("io.github.yuejie.connect." + test_class in run["command"] for run in evidence["runs"]), filename
     dependencies = [MAIN / (name + ".java") for name in dependencies] + [TEST / (test_class + ".java")]
     hashes = normalized_sources(evidence)
     assert all(hashes[str(path).replace("\\", "/")] == sha(ROOT / path) for path in dependencies), filename + " source drift"

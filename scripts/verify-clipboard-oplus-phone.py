@@ -51,6 +51,6 @@ if not args.lease_only:
     assert any('if-' in line for line in execute[repeat_index:dispatch_index])
 out = ROOT / ('build/clipboard-validation/oplus-source-lease-dex.json' if args.lease_only else 'build/clipboard-validation/oplus-phone-dex.json')
 out.write_text(json.dumps(dict(apk_sha256=digest, classes=evidence,
-    implementation_sha256=hashlib.sha256((ROOT / 'android/module/src/main/java/io/github/qiangjian/connect/OplusClipboardPhoneSource.java').read_bytes()).hexdigest(),
+    implementation_sha256=hashlib.sha256((ROOT / 'android/module/src/main/java/io/github/yuejie/connect/OplusClipboardPhoneSource.java').read_bytes()).hexdigest(),
     scope='Native repeat-state singleton and methods; not device proof' if args.lease_only else 'Native execute type27 -> repeat check -> dealClipBoardInfo, native phone/tablet clipboard setting; not device proof'), indent=2), encoding='utf-8')
 print(f'PASS: {len(required)} classes / {sum(len(v) for v in required.values())} descriptors and native fields; {out}')

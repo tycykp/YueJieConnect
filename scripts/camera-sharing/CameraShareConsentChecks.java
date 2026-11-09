@@ -1,4 +1,4 @@
-package io.github.qiangjian.connect;
+package io.github.yuejie.connect;
 
 import java.util.HashSet;
 import java.util.Set;

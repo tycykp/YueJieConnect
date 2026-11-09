@@ -27,7 +27,7 @@ def require_ui():
  focus=[line for line in raw.splitlines()if'mCurrentFocus=Window{'in line]
  if len(focus)!=1 or 'com.milink.service/'not in focus[0]:raise RuntimeError('Expected native Xiaomi UI not foreground; no capture/tap')
 def tree():
- require_ui();path='/data/local/tmp/qj-finder-controls.xml'
+ require_ui();path='/data/local/tmp/yj-finder-controls.xml'
  try:
   adb(SERIALS[0],'shell','uiautomator dump '+path)
   return ET.fromstring(adb(SERIALS[0],'exec-out','cat',path))

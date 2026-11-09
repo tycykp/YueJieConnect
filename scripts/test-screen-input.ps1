@@ -14,14 +14,14 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($xposedAar)
 $xposed = Join-Path $out 'xposed-api.jar'
 try { [IO.Compression.ZipFileExtensions]::ExtractToFile($archive.GetEntry('classes.jar'),$xposed,$true) } finally { $archive.Dispose() }
-$sourceDir = Join-Path $root 'android/module/src/main/java/io/github/qiangjian/connect'
-$testDir = Join-Path $root 'android/module/src/test/java/io/github/qiangjian/connect'
+$sourceDir = Join-Path $root 'android/module/src/main/java/io/github/yuejie/connect'
+$testDir = Join-Path $root 'android/module/src/test/java/io/github/yuejie/connect'
 $sources = @('ScreenCastFormat','ScreenCastPacket','ScreenCastFrameQueue','ScreenCastVideoEncoder','ScreenCastVideoDecoder','ScreenCastProjectionSource','ScreenCastSession','ScreenCastNativeSession','ScreenCastBridge','RemoteInputSession','RemoteInputImeTarget','RemoteInputPointerTarget','RemoteInputDesktopSession','RemoteInputDesktopTarget','RemoteInputDesktopExecutor','RemoteInputReceiver','RemoteInputPacket','RemoteInputOplusTarget','OplusScreenInputAdapter','OplusScreenFocusAdapter','XiaomiScreenSinkAdapter','XiaomiScreenRequestAdapter','OplusScreenSourceAdapter','OplusScreenRequestAdapter','OplusScreenSessionLease','XiaomiScreenInputCodec','ScreenCastNativeConsent','XiaomiScreenCirculateDelegate','OplusScreenLinkerAdapter','RemoteInputSender','XiaomiScreenInputAdapter') | ForEach-Object { Join-Path $sourceDir "${_}.java" }
 $tests = @('ScreenCastPacketTest','ScreenCastFrameQueueTest','RemoteInputSessionTest','ScreenCastSessionTest','ScreenCastNativeSessionTest','ScreenCastBridgeTest','RemoteInputDesktopSessionTest','XiaomiScreenInputCodecTest','RemoteInputDesktopExecutorTest','RemoteInputReceiverTest','RemoteInputPacketTest','RemoteInputOplusTargetTest','OplusScreenFocusAdapterTest','OplusScreenReleaseTest','OplusScreenSessionLeaseTest','ScreenCastNativeConsentTest','RemoteInputSenderTest','OplusScreenNativeProofTest') | ForEach-Object { Join-Path $testDir "${_}.java" }
 & (Join-Path $java 'javac.exe') --release 17 -encoding UTF-8 -cp "$sdk;$xposed;$junit;$hamcrest" -d $classes @sources @tests 2>&1 | Tee-Object -FilePath (Join-Path $out 'compile.log')
 if ($LASTEXITCODE -ne 0) { throw 'screen-input compilation failed' }
 if (-not $CompileOnly) {
-    $qualified = @($TestClasses | ForEach-Object { "io.github.qiangjian.connect.$_" })
+    $qualified = @($TestClasses | ForEach-Object { "io.github.yuejie.connect.$_" })
     & (Join-Path $java 'java.exe') -cp "$classes;$junit;$hamcrest" org.junit.runner.JUnitCore @qualified 2>&1 | Tee-Object -FilePath (Join-Path $out 'tests.log')
     if ($LASTEXITCODE -ne 0) { throw 'screen-input tests failed' }
 }

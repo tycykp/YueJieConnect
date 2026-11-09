@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/app-relay-validation'
-MAIN = 'android/module/src/main/java/io/github/qiangjian/connect/'
-TEST = 'android/module/src/test/java/io/github/qiangjian/connect/'
+MAIN = 'android/module/src/main/java/io/github/yuejie/connect/'
+TEST = 'android/module/src/test/java/io/github/yuejie/connect/'
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()

@@ -32,7 +32,7 @@ gradle.beforeProject { p ->
     }
 }
 '@ | Set-Content -LiteralPath $taskInit -Encoding ascii
-    $taskSource = Join-Path $taskRoot 'android/module/src/main/java/io/github/qiangjian/connect/NetworkShareEndpoint.java'
+    $taskSource = Join-Path $taskRoot 'android/module/src/main/java/io/github/yuejie/connect/NetworkShareEndpoint.java'
     $taskBefore = (Get-FileHash -LiteralPath $taskSource -Algorithm SHA256).Hash
     $taskLog = Join-Path $taskOutput 'lint-permissions.log'
     $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'

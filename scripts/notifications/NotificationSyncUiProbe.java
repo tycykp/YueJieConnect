@@ -23,7 +23,7 @@ public final class NotificationSyncUiProbe extends com.android.uiautomator.testr
         String s=value==null?"":value.toString();
         if(s.startsWith("展开")||s.startsWith("Expand "))return "展开";
         if(s.startsWith("收起")||s.startsWith("Collapse "))return "收起";
-        return List.of(target,"测试动作","测试回复","在来源设备移除","展开","Expand","收起","Collapse","人工回复","QJ-test-reply","发送","Send").contains(s)?s:"";
+        return List.of(target,"测试动作","测试回复","在来源设备移除","展开","Expand","收起","Collapse","人工回复","YJ-test-reply","发送","Send").contains(s)?s:"";
     }
     private static void write(XmlSerializer xml, AccessibilityNodeInfo n, String target) throws Exception {
         xml.startTag(null,"node");
@@ -111,7 +111,7 @@ public final class NotificationSyncUiProbe extends com.android.uiautomator.testr
             for(int attempt=0;root==null&&attempt<15;attempt++){Thread.sleep(100);root=ui.getRootInActiveWindow();}
             if("smoke".equals(operation)){
                 int windows=ui.getWindows().size(),roots=0;for(var window:ui.getWindows())if(window.getRoot()!=null)roots++;
-                System.out.println("qj_ui_runner_ready:"+(root!=null)+",windows="+windows+",roots="+roots);return;
+                System.out.println("yj_ui_runner_ready:"+(root!=null)+",windows="+windows+",roots="+roots);return;
             }
             if(root==null||!title(root,target))for(var window:ui.getWindows()){
                 AccessibilityNodeInfo candidate=window.getRoot();if(candidate!=null&&title(candidate,target)){root=candidate;break;}

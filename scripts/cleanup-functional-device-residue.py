@@ -11,30 +11,30 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/functional-test-20261108/device-cleanup'
 DEVICES = ['b59f8656', '3B161Q00YN200000']
 EXACT = {
-    '/data/local/tmp/qj-camera-metadata.jar',
-    '/data/local/tmp/qj-screen-codec-probe.jar',
-    '/data/local/tmp/qj-functional-html-probe.jar',
-    '/data/local/tmp/qj-synthetic-actions.xml',
-    '/data/local/tmp/qj-functional-final.xml',
-    '/sdcard/qj-ui.xml',
+    '/data/local/tmp/yj-camera-metadata.jar',
+    '/data/local/tmp/yj-screen-codec-probe.jar',
+    '/data/local/tmp/yj-functional-html-probe.jar',
+    '/data/local/tmp/yj-synthetic-actions.xml',
+    '/data/local/tmp/yj-functional-final.xml',
+    '/sdcard/yj-ui.xml',
 }
 LEGACY_XML = {
     'b59f8656': {
-        '/sdcard/qj-ui.xml': 'regular file|30280|1794140204',
-        '/data/local/tmp/qj-dialog.xml': 'regular file|6418|1794134642',
-        '/data/local/tmp/qj-gateway.xml': 'regular file|6896|1794134306',
-        '/data/local/tmp/qj-hma.xml': 'regular file|29572|1794134501',
-        '/data/local/tmp/qj-window.xml': 'regular file|1460|1794132742',
+        '/sdcard/yj-ui.xml': 'regular file|30280|1794140204',
+        '/data/local/tmp/yj-dialog.xml': 'regular file|6418|1794134642',
+        '/data/local/tmp/yj-gateway.xml': 'regular file|6896|1794134306',
+        '/data/local/tmp/yj-hma.xml': 'regular file|29572|1794134501',
+        '/data/local/tmp/yj-window.xml': 'regular file|1460|1794132742',
     },
     '3B161Q00YN200000': {
-        '/sdcard/qj-oplus-after-stop.xml': 'regular file|14494|1794138360',
-        '/sdcard/qj-oplus-native-add.xml': 'regular file|16363|1794138167',
-        '/sdcard/qj-oplus-native-connect.xml': 'regular file|8489|1794138186',
-        '/sdcard/qj-oplus-native.xml': 'regular file|16449|1794138156',
-        '/sdcard/qj-oplus-settings.xml': 'regular file|13661|1794137954',
-        '/data/local/tmp/qj-native-ui.xml': 'regular file|19954|1794142524',
-        '/data/local/tmp/qj-native.xml': 'regular file|14834|1794135999',
-        '/data/local/tmp/qj-window.xml': 'regular file|13189|1794134247',
+        '/sdcard/yj-oplus-after-stop.xml': 'regular file|14494|1794138360',
+        '/sdcard/yj-oplus-native-add.xml': 'regular file|16363|1794138167',
+        '/sdcard/yj-oplus-native-connect.xml': 'regular file|8489|1794138186',
+        '/sdcard/yj-oplus-native.xml': 'regular file|16449|1794138156',
+        '/sdcard/yj-oplus-settings.xml': 'regular file|13661|1794137954',
+        '/data/local/tmp/yj-native-ui.xml': 'regular file|19954|1794142524',
+        '/data/local/tmp/yj-native.xml': 'regular file|14834|1794135999',
+        '/data/local/tmp/yj-window.xml': 'regular file|13189|1794134247',
     },
 }
 SAFE_DIRS = {'/data/local/tmp', '/sdcard', '/sdcard/Download'}
@@ -59,12 +59,12 @@ def inventory():
         result = report['devices'][serial] = {'files': [], 'test_processes': []}
         ps = adb(serial, 'ps -A -o PID,ARGS')
         for line in ps.splitlines():
-            if any(name in line for name in ['QjHtmlClipboard', 'ScreenCastCodecProbe', 'CameraShareCapabilityProbe']):
+            if any(name in line for name in ['YjHtmlClipboard', 'ScreenCastCodecProbe', 'CameraShareCapabilityProbe']):
                 result['test_processes'].append(line.strip())
         for directory in SAFE_DIRS:
             names = adb(serial, 'ls -1 ' + shlex.quote(directory)).splitlines()
             for name in names:
-                if not re.fullmatch(r'[A-Za-z0-9_.-]+', name) or not re.match(r'(?i)(qj[-_.]|qiangjian[-_.])', name):
+                if not re.fullmatch(r'[A-Za-z0-9_.-]+', name) or not re.match(r'(?i)(yj[-_.]|yuejie[-_.])', name):
                     continue
                 path = directory + '/' + name
                 metadata = adb(serial, 'stat -c ' + shlex.quote('%F|%s|%Y') + ' ' + shlex.quote(path)).strip()

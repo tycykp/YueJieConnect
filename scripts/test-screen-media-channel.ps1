@@ -8,7 +8,7 @@ $manifest=Join-Path $out 'Cargo.toml'
 $portable=$source.Replace([char]92,[char]47)
 $text=@"
 [package]
-name = "qj-screen-media-validation"
+name = "yj-screen-media-validation"
 version = "0.0.0"
 edition = "2021"
 [workspace]

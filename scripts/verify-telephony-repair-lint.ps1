@@ -8,7 +8,7 @@ $lock = $null
 try { $lock = [IO.File]::Open($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read) }
 catch [IO.IOException] { Write-Output 'Build lock busy; no Gradle task started.'; exit 2 }
 function OwnedSnapshot {
-    $source = Join-Path $root 'android\module\src\main\java\io\github\qiangjian\connect'
+    $source = Join-Path $root 'android\module\src\main\java\io\github\yuejie\connect'
     $map = [ordered]@{}
     foreach ($file in @((Get-ChildItem $source -Filter 'TelephonySync*.java'), (Get-ChildItem $source -Filter 'OplusTelephony*.java'), (Get-ChildItem $source -Filter 'XiaomiTelephony*.java')) | ForEach-Object { $_ }) {
         $map[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()

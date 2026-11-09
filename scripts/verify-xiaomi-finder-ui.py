@@ -3,7 +3,7 @@ from pathlib import Path
 import os,hashlib,json,subprocess
 root=Path(__file__).resolve().parents[1]
 out=root/'build/device-finder-repair/xiaomi-ui';out.mkdir(parents=True,exist_ok=True)
-main=root/'android/module/src/main/java/io/github/qiangjian/connect'
+main=root/'android/module/src/main/java/io/github/yuejie/connect'
 java=Path('C:/Program Files/Android/Android Studio/jbr/bin')
 android=Path(os.environ['LOCALAPPDATA'])/'Android/Sdk/platforms/android-37.0/android.jar'
 api=root/'build/device-finder-validation/libxposed-api.jar'
@@ -21,7 +21,7 @@ inputs=[source,test,*generated,*fixtures.rglob('*.java'),*json_src.glob('*.java'
 shared=[main/name for name in ('BridgeClient.java','IBridge.java','NativeLogicalSessions.java')]
 commands=[
  [java/'javac.exe','--release','17','-encoding','UTF-8','-d',out/'host',*inputs],
- [java/'java.exe','-cp',out/'host','io.github.qiangjian.connect.XiaomiFinderUiCheck'],
+ [java/'java.exe','-cp',out/'host','io.github.yuejie.connect.XiaomiFinderUiCheck'],
  [java/'javac.exe','--release','17','-encoding','UTF-8','-cp',str(android)+os.pathsep+str(api),'-d',out/'android',source,*shared],
 ]
 results=[]

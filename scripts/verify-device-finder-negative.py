@@ -8,8 +8,8 @@ import subprocess
 root = Path(__file__).resolve().parents[1]
 out = root / "build/device-finder-negative"
 out.mkdir(parents=True, exist_ok=True)
-src = root / "android/module/src/main/java/io/github/qiangjian/connect"
-test = root / "android/module/src/test/java/io/github/qiangjian/connect/DeviceFinderAdversarialCheck.java"
+src = root / "android/module/src/main/java/io/github/yuejie/connect"
+test = root / "android/module/src/test/java/io/github/yuejie/connect/DeviceFinderAdversarialCheck.java"
 production = sorted(p for pattern in ("DeviceFinder*.java", "XiaomiFinder*.java", "OplusFinder*.java") for p in src.glob(pattern))
 before = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in production}
 jdk = Path(os.environ.get("JAVA_HOME", "")) / "bin"
@@ -18,7 +18,7 @@ if not (jdk / "javac.exe").exists():
 inputs = [src / "DeviceFinderController.java", src / "XiaomiFinderCodec.java", test]
 commands = [
     [jdk / "javac.exe", "--release", "17", "-encoding", "UTF-8", "-d", out / "classes", *inputs],
-    [jdk / "java.exe", "-cp", out / "classes", "io.github.qiangjian.connect.DeviceFinderAdversarialCheck"],
+    [jdk / "java.exe", "-cp", out / "classes", "io.github.yuejie.connect.DeviceFinderAdversarialCheck"],
 ]
 results = []
 for command in commands:

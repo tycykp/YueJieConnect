@@ -64,7 +64,7 @@ assert '@drawable/ic_device_list_default_bg' in layouts[0].read_text(encoding='u
 assert 'tv_support_remote_open_device_title' in layouts[1].read_text(encoding='utf-8')
 record=dict(command='python -X utf8 scripts/verify-device-finder-ui-surface.py',apk_sha256=apk_sha,
  classes=evidence,source_sha256={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in
- [Path(__file__),root/'android/module/src/main/java/io/github/qiangjian/connect/OplusFinderUiAdapter.java',*layouts]},
+ [Path(__file__),root/'android/module/src/main/java/io/github/yuejie/connect/OplusFinderUiAdapter.java',*layouts]},
  scope='Original native class/field/method and layout contract only; no runtime/device/account/cloud/playback')
 out.write_text(json.dumps(record,ensure_ascii=False,indent=2),encoding='utf-8')
 print(f'PASS {len(evidence)} original native UI class surfaces and 2 OEM layouts; no baseline playback/transport checks rerun')

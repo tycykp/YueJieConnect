@@ -10,15 +10,15 @@ probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 OUT = ROOT / 'build/clipboard-validation/html-probe-host'
 probe.OUT = OUT
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.os.*;import android.util.Log;import java.util.concurrent.*;import java.util.concurrent.atomic.*;
 public class ClipboardHtmlProbeHarness {
  static final String RUN="b".repeat(32),SESSION="a".repeat(64),PRIVATE="PRIVATE synthetic snapshot";
  static int checks;
  static void check(boolean ok,String why){if(!ok)throw new AssertionError(why);checks++;}
- static String text(int leg){return "QJ_HTML_"+RUN+"_"+leg+"_中文🙂\n\t";}
+ static String text(int leg){return "YJ_HTML_"+RUN+"_"+leg+"_中文🙂\n\t";}
  static String html(int leg){return "<b>"+text(leg)+"</b><i>synthetic</i>";}
- static void command(Context c,String op,int leg){Intent i=new Intent("io.github.qiangjian.connect.CLIPBOARD_NATIVE_PROBE");
+ static void command(Context c,String op,int leg){Intent i=new Intent("io.github.yuejie.connect.CLIPBOARD_NATIVE_PROBE");
   i.args.put("run",RUN);i.args.put("op",op);i.args.put("leg",leg);i.args.put("format","html");c.receiver.onReceive(c,i);Handler.drain();}
  static boolean event(String value){return Log.events.stream().anyMatch(e->e.contains("result="+value+"}"));}
  static void observe(){Handler.delayed.remove(Handler.delayed.size()-1).run();Handler.drain();}
@@ -74,7 +74,7 @@ def main():
         path.write_text(body, encoding='utf-8')
     probe.run('compile', probe.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
               probe.PROBE, probe.CODEC, probe.NATIVE_CLOCK, *sorted(sources.rglob('*.java')))
-    probe.run('html-probe-tests', probe.JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardHtmlProbeHarness')
+    probe.run('html-probe-tests', probe.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardHtmlProbeHarness')
     files = [probe.PROBE, probe.CODEC, probe.NATIVE_CLOCK, Path(__file__), Path(probe.__file__)]
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-html-probe.py',
         result='passed', source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files},

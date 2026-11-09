@@ -18,7 +18,7 @@ from debug_control import command
 
 ROOT=Path(__file__).resolve().parents[1]
 DEVICES=('b59f8656','3B161Q00YN200000')
-PKG='io.github.qiangjian.connect'
+PKG='io.github.yuejie.connect'
 TASK='01a1bbe4-a33d-7f83-80db-5442125d938f'
 parser=argparse.ArgumentParser()
 parser.add_argument('--apk',type=Path,required=True)

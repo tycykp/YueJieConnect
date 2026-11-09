@@ -18,7 +18,7 @@ from clipboard_device_guard import check_native_foreground
 
 ROOT = Path(__file__).resolve().parents[1]
 DEVICES = [('b59f8656', 'com.xiaomi.mirror', 1), ('3B161Q00YN200000', 'com.oplus.linker', 2)]
-ACTION = 'io.github.qiangjian.connect.CLIPBOARD_NATIVE_PROBE'
+ACTION = 'io.github.yuejie.connect.CLIPBOARD_NATIVE_PROBE'
 RESTORED = {'restored', 'unchanged', 'preserved_new_clipboard'}
 
 
@@ -54,7 +54,7 @@ def parse_events(output, run):
                 and re.fullmatch('[a-z_]{1,50}', event.get('stage', ''))
                 and re.fullmatch('[a-z_]{1,64}', event.get('result', ''))
                 and event.get('leg') in (0, 1, 2)):
-            prefix = re.fullmatch(r'\s*([0-9]+\.[0-9]+)\s+([0-9]+)\s+([0-9]+)\s+I\s+QJClipboardProbe\s*:\s*', line[:start])
+            prefix = re.fullmatch(r'\s*([0-9]+\.[0-9]+)\s+([0-9]+)\s+([0-9]+)\s+I\s+YJClipboardProbe\s*:\s*', line[:start])
             if prefix:
                 identity = ':'.join(prefix.groups())
                 key = (identity, line[start:])
@@ -137,7 +137,7 @@ def main():
     def read(device):
         serial, _, _ = device
         collected = traces.setdefault(serial, [])
-        for event in parse_events(command(serial, 'logcat', '-d', '-v', 'epoch', '-s', 'QJClipboardProbe:I', '*:S'), run):
+        for event in parse_events(command(serial, 'logcat', '-d', '-v', 'epoch', '-s', 'YJClipboardProbe:I', '*:S'), run):
             if event not in collected:
                 collected.append(event)
         return collected
@@ -167,13 +167,13 @@ def main():
         # Verify both installed artifacts before any clipboard mutation.
         for device in DEVICES:
             serial, _, _ = device
-            paths = command(serial, 'shell', 'pm', 'path', 'io.github.qiangjian.connect').strip().splitlines()
+            paths = command(serial, 'shell', 'pm', 'path', 'io.github.yuejie.connect').strip().splitlines()
             if len(paths) != 1 or not re.fullmatch(r'package:/data/app/[A-Za-z0-9_=+./~-]+\.apk', paths[0]):
                 raise RuntimeError('unexpected installed module path')
             installed = command(serial, 'shell', 'sha256sum', paths[0][8:]).split()[0]
             if installed != evidence['apk_sha256']:
                 raise RuntimeError('installed APK differs from supplied artifact')
-            package = command(serial, 'shell', 'dumpsys', 'package', 'io.github.qiangjian.connect')
+            package = command(serial, 'shell', 'dumpsys', 'package', 'io.github.yuejie.connect')
             version = re.search(r'versionCode=(\d+)', package)
             name = re.search(r'versionName=([^\s]+)', package)
             evidence['devices'][serial] = dict(apk_sha256=installed, version_code=version.group(1) if version else None,

@@ -1,4 +1,4 @@
-package io.github.qiangjian.connect;
+package io.github.yuejie.connect;
 
 import android.inputmethodservice.InputMethodService;
 import android.view.KeyEvent;

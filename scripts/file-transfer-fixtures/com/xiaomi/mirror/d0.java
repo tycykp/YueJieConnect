@@ -2,7 +2,7 @@ package com.xiaomi.mirror;
 import android.content.ClipData;
 import com.xiaomi.mirror.message.*;
 import com.xiaomi.mirror.connection.G;
-import io.github.qiangjian.connect.FileTransferHookHarness;
+import io.github.yuejie.connect.FileTransferHookHarness;
 public final class d0 {
     public long b;
     public ClipData c;

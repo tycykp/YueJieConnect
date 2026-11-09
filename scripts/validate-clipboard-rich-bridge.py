@@ -17,7 +17,7 @@ stubs = dict(rich.stubs)
 stubs['android/app/Application.java'] = '''package android.app;public class Application {public static String getProcessName(){return "com.oplus.linker:app";}}'''
 stubs['android/util/Log.java'] = '''package android.util;public class Log {public static final int INFO=4,WARN=5;}'''
 stubs['io/github/libxposed/api/XposedModule.java'] = stubs['io/github/libxposed/api/XposedModule.java'].replace('public Builder hook(', 'public void log(int p,String t,String m){} public Builder hook(')
-stubs[PKG+'BridgeClient.java'] = r'''package io.github.qiangjian.connect;
+stubs[PKG+'BridgeClient.java'] = r'''package io.github.yuejie.connect;
 import android.content.Context;import org.json.*;import java.util.*;import java.util.function.Consumer;
 class BridgeClient {
  interface Subscription{void close();} interface TaskCompletion {void success(JSONObject d);void fail(String c);}
@@ -31,7 +31,7 @@ class BridgeClient {
  void cancel(String s,String r,Consumer<JSONObject> callback){cancels++;callback.accept(new JSONObject());}
  void changed(){listener.accept(projection);}
 }'''
-stubs[PKG+'OplusClipboardAdapter.java'] = r'''package io.github.qiangjian.connect;
+stubs[PKG+'OplusClipboardAdapter.java'] = r'''package io.github.yuejie.connect;
 import org.json.JSONObject;import java.util.concurrent.*;import java.util.function.*;
 class OplusClipboardAdapter {
  record Receipt(String id,String session,String request,int utf8Bytes){}
@@ -41,16 +41,16 @@ class OplusClipboardAdapter {
 }'''
 stubs[PKG+'XiaomiClipboardAdapter.java'] = stubs[PKG+'OplusClipboardAdapter.java'].replace('class OplusClipboardAdapter','class XiaomiClipboardAdapter').replace(' OplusClipboardAdapter(', ' XiaomiClipboardAdapter(').replace('Transport t)', 'OplusClipboardAdapter.Transport t)').replace('CompletableFuture<Receipt> lastTransfer()', 'CompletableFuture<OplusClipboardAdapter.Receipt> lastTransfer()')
 for name in ['OplusClipboardReceiver', 'XiaomiClipboardReceiver']:
-    stubs[PKG+name+'.java'] = '''package io.github.qiangjian.connect;
+    stubs[PKG+name+'.java'] = '''package io.github.yuejie.connect;
 import java.util.concurrent.*;import java.util.function.*;import org.json.JSONObject;
 class NAME {record Result(String session,String request,int utf8Bytes,String error){}
 NAME(android.content.Context c,ClassLoader l,BooleanSupplier a,Supplier<JSONObject> p)throws ReflectiveOperationException{}
 CompletableFuture<Result> execute(String s,String r,String t,long d){return null;}CompletableFuture<Boolean> cancel(String s,String r){return CompletableFuture.completedFuture(false);}void sessionChanged(){}void close(){}}
 '''.replace('NAME', name)
-stubs[PKG+'OplusClipboardEndpoint.java'] = '''package io.github.qiangjian.connect;class OplusClipboardEndpoint {OplusClipboardEndpoint(ClassLoader l)throws ReflectiveOperationException{}boolean enabled(android.content.Context c){return true;}}'''
-stubs[PKG+'XiaomiClipboardEndpoint.java'] = '''package io.github.qiangjian.connect;class XiaomiClipboardEndpoint {XiaomiClipboardEndpoint(ClassLoader l)throws ReflectiveOperationException{}boolean available(){return true;}}'''
-stubs[PKG+'XiaomiClipboardSourceLease.java'] = '''package io.github.qiangjian.connect;class XiaomiClipboardSourceLease {XiaomiClipboardSourceLease(ClassLoader l)throws ReflectiveOperationException{}void update(boolean b)throws ReflectiveOperationException{}void close(){}}'''
-harness = r'''package io.github.qiangjian.connect;
+stubs[PKG+'OplusClipboardEndpoint.java'] = '''package io.github.yuejie.connect;class OplusClipboardEndpoint {OplusClipboardEndpoint(ClassLoader l)throws ReflectiveOperationException{}boolean enabled(android.content.Context c){return true;}}'''
+stubs[PKG+'XiaomiClipboardEndpoint.java'] = '''package io.github.yuejie.connect;class XiaomiClipboardEndpoint {XiaomiClipboardEndpoint(ClassLoader l)throws ReflectiveOperationException{}boolean available(){return true;}}'''
+stubs[PKG+'XiaomiClipboardSourceLease.java'] = '''package io.github.yuejie.connect;class XiaomiClipboardSourceLease {XiaomiClipboardSourceLease(ClassLoader l)throws ReflectiveOperationException{}void update(boolean b)throws ReflectiveOperationException{}void close(){}}'''
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.os.*;import io.github.libxposed.api.XposedModule;
 import org.json.*;import java.util.*;import java.util.concurrent.*;
 public class ClipboardRichBridgeHarness {
@@ -108,7 +108,7 @@ def main():
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
         *actual, *json_sources, *sorted(sources.rglob('*.java')))
-    rich.run('rich-bridge-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardRichBridgeHarness')
+    rich.run('rich-bridge-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardRichBridgeHarness')
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-rich-bridge.py',
         source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [*actual, Path(__file__), ROOT / 'scripts/validate-clipboard-rich.py']},
         generated_test_sha256={str(p.relative_to(OUT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources.rglob('*.java')},

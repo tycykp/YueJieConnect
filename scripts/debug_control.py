@@ -10,13 +10,13 @@ def command(serial, payload):
     request_id=uuid.uuid4().hex
     encoded=base64.b64encode(json.dumps(payload).encode()).decode()
     launch=subprocess.run(['adb','-s',serial,'shell','am','start','-W','-n',
-        'io.github.qiangjian.connect/.DebugControlActivity','--es','request_id',request_id,
+        'io.github.yuejie.connect/.DebugControlActivity','--es','request_id',request_id,
         '--es','command_b64',encoded],capture_output=True,timeout=15)
     if b'Error' in launch.stdout or b'Exception' in launch.stderr:
         raise RuntimeError('Debug activity launch failed: '+launch.stderr.decode('utf-8','replace'))
     deadline=time.monotonic()+9
     while time.monotonic()<deadline:
-        log=subprocess.check_output(['adb','-s',serial,'shell','logcat','-d','-v','brief','-s','QiangJianTest:I','*:S']).decode('utf-8','replace')
+        log=subprocess.check_output(['adb','-s',serial,'shell','logcat','-d','-v','brief','-s','YueJieTest:I','*:S']).decode('utf-8','replace')
         for line in log.splitlines():
             marker=request_id+' '
             if marker in line:

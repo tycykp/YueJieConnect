@@ -58,7 +58,7 @@ stubs['io/github/libxposed/api/XposedModule.java'] = '''package io.github.libxpo
  public static Object call(Object instance,String name,Class<?>[] types,Object...args)throws Throwable{
  java.lang.reflect.Method m=instance.getClass().getMethod(name,types);Interceptor h=hooks.get(m);Chain chain=new Chain(){public Object getArg(int n){return args[n];}public Object getThisObject(){return instance;}
  public Object proceed()throws Throwable{return m.invoke(instance,args);}};return h==null?chain.proceed():h.run(chain);}}'''
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.net.Uri;import android.os.*;import io.github.libxposed.api.XposedModule;
 import java.io.*;import java.nio.file.*;import java.util.*;import java.util.concurrent.*;import java.util.function.*;import org.json.*;
 public class ClipboardUriPasteHarness{
@@ -76,7 +76,7 @@ public class ClipboardUriPasteHarness{
   final ClipboardUriPasteHooks hooks;final ContentProvider provider;final ClipboardUriPasteHooks.Prepared prepared;
   volatile boolean live=true;volatile int receives,claims,verifies,revokes;volatile FileTransferReceiveLease<Uri> lease;volatile boolean deleted;final CompletableFuture<ClipboardUriReceiver.Result> applied=new CompletableFuture<>();
   Fixture(int brand)throws Exception{
-   SystemClock.now=1000;context=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");root=Files.createTempDirectory("qj-uri-paste").toFile();engine=new FileTransferEngine(root,k->live,()->SystemClock.now);
+   SystemClock.now=1000;context=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");root=Files.createTempDirectory("yj-uri-paste").toFile();engine=new FileTransferEngine(root,k->live,()->SystemClock.now);
    V3.V.context=context;V3.V.manager.clock=0;endpoint=new ClipboardNativeContent(new XposedModule(),context,getClass().getClassLoader(),brand);
    JSONObject projection=new JSONObject().put("id","peer").put("session_id",A);routes=new ClipboardUriRoutes(endpoint,guard,()->live,()->projection);
    prepared=new ClipboardUriPasteHooks.Prepared(key,offer,"b".repeat(32));
@@ -148,7 +148,7 @@ def main():
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
              *actual, *json_sources, *sorted(sources.rglob('*.java')))
-    rich.run('paste-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardUriPasteHarness')
+    rich.run('paste-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardUriPasteHarness')
     races = [p for p, sha in inputs.items() if hashlib.sha256((ROOT / p).read_bytes()).hexdigest() != sha]
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-paste.py',
         result='passed' if not races else 'source_changed', source_sha256=inputs, source_races=races,

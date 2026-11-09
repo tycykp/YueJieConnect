@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/device-finder-validation"
 OUT.mkdir(parents=True, exist_ok=True)
-SRC = ROOT / "android/module/src/main/java/io/github/qiangjian/connect"
+SRC = ROOT / "android/module/src/main/java/io/github/yuejie/connect"
 java = Path(os.environ.get("JAVA_HOME", r"C:\Program Files\Android\Android Studio\jbr")) / "bin"
 if not (java / "javac.exe").exists():
     java = Path(r"C:\Program Files\Android\Android Studio\jbr\bin")
@@ -18,7 +18,7 @@ android = sdk / "platforms/android-37.0/android.jar"
 if not android.exists():
     android = Path(os.environ["LOCALAPPDATA"]) / "Android/Sdk/platforms/android-37.0/android.jar"
 sources = sorted(p for glob in ("DeviceFinder*.java", "XiaomiFinder*.java", "OplusFinder*.java") for p in SRC.glob(glob))
-test = ROOT / "android/module/src/test/java/io/github/qiangjian/connect/DeviceFinderLogicTest.java"
+test = ROOT / "android/module/src/test/java/io/github/yuejie/connect/DeviceFinderLogicTest.java"
 commands = []
 checkpoint = OUT / "command-cache.json"
 cache = json.loads(checkpoint.read_text(encoding="utf-8")) if checkpoint.exists() else {}
@@ -44,7 +44,7 @@ def run(argv, inputs):
 
 pure = [SRC / "DeviceFinderController.java", SRC / "XiaomiFinderCodec.java", test]
 run([java / "javac.exe", "--release", "17", "-encoding", "UTF-8", "-d", OUT / "jvm", *pure], pure)
-run([java / "java.exe", "-cp", OUT / "jvm", "io.github.qiangjian.connect.DeviceFinderLogicTest"], [*pure, *sorted((OUT / "jvm").rglob("*.class"))])
+run([java / "java.exe", "-cp", OUT / "jvm", "io.github.yuejie.connect.DeviceFinderLogicTest"], [*pure, *sorted((OUT / "jvm").rglob("*.class"))])
 shared = [SRC / "BridgeClient.java", SRC / "IBridge.java", SRC / "NativeLogicalSessions.java"]
 aar = next((Path(os.environ["USERPROFILE"]) / ".gradle/caches/modules-2/files-2.1/io.github.libxposed/api/102.0.0").rglob("*.aar"))
 api = OUT / "libxposed-api.jar"

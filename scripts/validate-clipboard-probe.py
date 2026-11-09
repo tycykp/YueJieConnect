@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/clipboard-validation/probe-host'
-PKG = 'io/github/qiangjian/connect'
+PKG = 'io/github/yuejie/connect'
 PROBE = ROOT / ('android/module/src/debug/java/' + PKG + '/ClipboardNativeProbe.java')
 CODEC = ROOT / ('android/module/src/main/java/' + PKG + '/OplusClipboardCodec.java')
 PHONE_SOURCE = ROOT / ('android/module/src/main/java/' + PKG + '/OplusClipboardPhoneSource.java')
@@ -124,20 +124,20 @@ public class XposedModule {
  public static class Builder { final String name; Builder(String n){name=n;} public Builder setId(String s){return this;} public XposedInterface.HookHandle intercept(Interceptor i){
   if(name.equals("dealClipBoardInfo")){source=i;return ()->source=null;} converter=i;return ()->converter=null;} }
 }''',
-PKG+'/BridgeClient.java': '''package io.github.qiangjian.connect; class BridgeClient {
+PKG+'/BridgeClient.java': '''package io.github.yuejie.connect; class BridgeClient {
  org.json.JSONObject value; org.json.JSONObject projection(){return value;} }''',
-PKG+'/ClipboardBridge.java': '''package io.github.qiangjian.connect; class ClipboardBridge {
+PKG+'/ClipboardBridge.java': '''package io.github.yuejie.connect; class ClipboardBridge {
  record RichReceipt(String peer,String session,String request,int utf8Bytes){}
  interface Probe extends AutoCloseable {boolean permitOutbound(String t); boolean permitInbound(String t); void received(String s,String r,String t,String e);void close();
  default boolean permitUriOutbound(android.content.ClipData c){return true;}default boolean permitUriInbound(String n,long z,String h){return true;}
  default void attachUriTransfers(java.util.function.Supplier<? extends java.util.concurrent.CompletableFuture<?>> s){}
  default void uriStaged(String s,String n,android.content.ClipData c){}default void uriApplied(String s,String n,android.content.ClipData c){}default void uriConsumed(String s,String n){} } }''',
-PKG+'/ClipboardUriBridge.java': 'package io.github.qiangjian.connect;class ClipboardUriBridge{record Receipt(String peer,String session,String request,String transfer,long size,String sha256){}}',
+PKG+'/ClipboardUriBridge.java': 'package io.github.yuejie.connect;class ClipboardUriBridge{record Receipt(String peer,String session,String request,String transfer,long size,String sha256){}}',
 'android/net/Uri.java': 'package android.net;public record Uri(String value){public static Uri parse(String s){return new Uri(s);}}',
-PKG+'/OplusClipboardAdapter.java': '''package io.github.qiangjian.connect; class OplusClipboardAdapter {
+PKG+'/OplusClipboardAdapter.java': '''package io.github.yuejie.connect; class OplusClipboardAdapter {
  interface Transport {boolean ready(org.json.JSONObject p);java.util.concurrent.CompletableFuture<Receipt> write(String i,String s,String r,String t);java.util.concurrent.CompletableFuture<Boolean> cancel(String i,String s,String r);}
  record Receipt(String id,String session,String request,int utf8Bytes){} }''',
-PKG+'/OplusClipboardEndpoint.java': '''package io.github.qiangjian.connect; class OplusClipboardEndpoint {
+PKG+'/OplusClipboardEndpoint.java': '''package io.github.yuejie.connect; class OplusClipboardEndpoint {
  record Snapshot(String text,long timestamp){}
  static String text="synthetic"; static long stamp=1; OplusClipboardEndpoint(ClassLoader l){} String readText(){return text;} Snapshot snapshot(){return new Snapshot(text,stamp);} }''',
 'com/oplus/linker/synergy/wisetransfer/clipboard/scene/ClipBoardDataBusScene.java': '''package com.oplus.linker.synergy.wisetransfer.clipboard.scene;
@@ -195,7 +195,7 @@ public class V {
 }''',
 }
 
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;
 import android.os.Handler;
 import android.util.Log;
@@ -205,8 +205,8 @@ public class ClipboardProbeHarness {
  static final String RUN="b".repeat(32),SESSION="a".repeat(64),PRIVATE="PRIVATE never log or transmit";
  static int assertions;
  static void check(boolean ok,String msg){if(!ok)throw new AssertionError(msg);assertions++;}
- static String marker(int leg){return "QJ_CLIP_"+RUN+"_"+leg+"_中文🙂\n\t";}
- static void command(Context c,String op,int leg){android.os.SystemClock.now++;Intent i=new Intent("io.github.qiangjian.connect.CLIPBOARD_NATIVE_PROBE");i.args.put("run",RUN);i.args.put("op",op);i.args.put("leg",leg);c.receiver.onReceive(c,i);Handler.drain();}
+ static String marker(int leg){return "YJ_CLIP_"+RUN+"_"+leg+"_中文🙂\n\t";}
+ static void command(Context c,String op,int leg){android.os.SystemClock.now++;Intent i=new Intent("io.github.yuejie.connect.CLIPBOARD_NATIVE_PROBE");i.args.put("run",RUN);i.args.put("op",op);i.args.put("leg",leg);c.receiver.onReceive(c,i);Handler.drain();}
  static boolean event(String value){return Log.events.stream().anyMatch(e->e.contains("result="+value+"}"));}
  static void test(int brand)throws Exception {
   Log.events.clear();Handler.delayed.clear();Handler.immediate.clear();
@@ -254,7 +254,7 @@ public class ClipboardProbeHarness {
  public static void main(String[] args)throws Exception{test(2);test(1);System.out.println("PASS "+assertions+" probe assertions; OEM/Android doubles, not device evidence");}
 }'''
 
-source_harness = r'''package io.github.qiangjian.connect;
+source_harness = r'''package io.github.yuejie.connect;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import android.os.Handler;
@@ -317,7 +317,7 @@ public class ClipboardPhoneSourceHarness {
  }
 }'''
 
-lease_harness = r'''package io.github.qiangjian.connect;
+lease_harness = r'''package io.github.yuejie.connect;
 import android.content.ClipboardManager;
 import com.xiaomi.mirror.Mirror;
 public class ClipboardMirrorLeaseHarness {
@@ -345,7 +345,7 @@ public class ClipboardMirrorLeaseHarness {
  }
 }'''
 
-endpoint_harness = r'''package io.github.qiangjian.connect;
+endpoint_harness = r'''package io.github.yuejie.connect;
 import android.content.*;
 import com.xiaomi.mirror.Mirror;
 import com.xiaomi.mirror.message.*;
@@ -406,28 +406,28 @@ def main():
     run('compile', JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
         PROBE, CODEC, PHONE_SOURCE, MIRROR_LEASE, MIRROR_ENDPOINT, NATIVE_CLOCK, *sorted(sources.rglob('*.java')))
     if args.endpoint_only:
-        run('mirror-endpoint-tests', JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardMirrorEndpointHarness')
+        run('mirror-endpoint-tests', JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardMirrorEndpointHarness')
         tested = [MIRROR_ENDPOINT, NATIVE_CLOCK, ROOT / ('android/module/src/main/java/' + PKG + '/XiaomiClipboardAdapter.java'), Path(__file__)]
         (OUT / 'mirror-endpoint-evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-probe.py --endpoint-only',
             source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in tested},
             result='passed', apk=None, device_operations=False, scope='Real source-format/clock/readback endpoint with Android/OEM doubles'), indent=2), encoding='utf-8')
         return
     if args.lease_only:
-        run('mirror-lease-tests', JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardMirrorLeaseHarness')
+        run('mirror-lease-tests', JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardMirrorLeaseHarness')
         tested = [MIRROR_LEASE, Path(__file__)]
         (OUT / 'mirror-lease-evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-probe.py --lease-only',
             source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in tested},
             result='passed', apk=None, device_operations=False, scope='Real native source lease with Android/OEM doubles'), indent=2), encoding='utf-8')
         return
     if not args.probe_only:
-        run('phone-source-tests', JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardPhoneSourceHarness')
+        run('phone-source-tests', JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardPhoneSourceHarness')
     if args.source_only:
         tested = [PHONE_SOURCE, CODEC, Path(__file__)]
         (OUT / 'phone-source-evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-probe.py --source-only',
             source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in tested},
             result='passed', apk=None, device_operations=False, scope='OEM hook/transport doubles; not native device proof'), indent=2), encoding='utf-8')
         return
-    run('probe-tests', JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardProbeHarness')
+    run('probe-tests', JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardProbeHarness')
     spec = importlib.util.spec_from_file_location('native_evidence', ROOT / 'scripts/validate-clipboard-native.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

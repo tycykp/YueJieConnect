@@ -39,33 +39,33 @@ try {
     $before | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $evidence "$Batch-inputs.json") -Encoding utf8
     if($JvmOnly){
         $jvmArgs=@(':android:module:testDebugUnitTest')
-        foreach($testClass in $TestClasses){$jvmArgs+=@('--tests',"io.github.qiangjian.connect.$testClass")}
+        foreach($testClass in $TestClasses){$jvmArgs+=@('--tests',"io.github.yuejie.connect.$testClass")}
         $jvmArgs+='--console=plain'
         RunStep 'jvm' { & .\gradlew.bat @jvmArgs }
-        foreach($testClass in $TestClasses){Copy-Item -LiteralPath "android/module/build/test-results/testDebugUnitTest/TEST-io.github.qiangjian.connect.$testClass.xml" -Destination (Join-Path $evidence "$Batch-$testClass.xml")}
+        foreach($testClass in $TestClasses){Copy-Item -LiteralPath "android/module/build/test-results/testDebugUnitTest/TEST-io.github.yuejie.connect.$testClass.xml" -Destination (Join-Path $evidence "$Batch-$testClass.xml")}
         Write-Output "Targeted JVM checks completed: $Batch";return
     }
     if($FileChecks){
-        RunStep 'file-session' {cargo test --locked -p qj-transport file_session_}
-        RunStep 'file-requests' {cargo test --locked -p qj-jni file_requests_}
-        RunStep 'relay-wire' {cargo test --locked -p qj-transport relay::tests}
-        RunStep 'clippy' {cargo clippy --locked -p qj-jni -p qj-transport --lib -- -D warnings}
+        RunStep 'file-session' {cargo test --locked -p yj-transport file_session_}
+        RunStep 'file-requests' {cargo test --locked -p yj-jni file_requests_}
+        RunStep 'relay-wire' {cargo test --locked -p yj-transport relay::tests}
+        RunStep 'clippy' {cargo clippy --locked -p yj-jni -p yj-transport --lib -- -D warnings}
         RunStep 'jni' {powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-jni.ps1 -Jdk $env:JAVA_HOME}
     } elseif (!$PackageOnly) {
         if(!$FinalSchemaChecks){
-            RunStep 'executor' { cargo test --locked -p qj-transport executor::tests }
-            RunStep 'bridge' { cargo test --locked -p qj-transport bridge::tests }
+            RunStep 'executor' { cargo test --locked -p yj-transport executor::tests }
+            RunStep 'bridge' { cargo test --locked -p yj-transport bridge::tests }
         }
-        RunStep 'notification-wire' { cargo test --locked -p qj-transport notification::tests }
-        RunStep 'relay-wire' { cargo test --locked -p qj-transport relay::tests }
-        RunStep 'clippy' { cargo clippy --locked -p qj-jni -p qj-transport --lib -- -D warnings }
+        RunStep 'notification-wire' { cargo test --locked -p yj-transport notification::tests }
+        RunStep 'relay-wire' { cargo test --locked -p yj-transport relay::tests }
+        RunStep 'clippy' { cargo clippy --locked -p yj-jni -p yj-transport --lib -- -D warnings }
         RunStep 'jni' { powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-jni.ps1 -Jdk $env:JAVA_HOME }
     }
     if($ChecksOnly){Write-Output "Host checks completed: $Batch";return}
     $gradleArgs=@(':android:module:assembleDebug',':android:module:lintDebug')
     if(!$SkipJvmTests){
         $gradleArgs+=':android:module:testDebugUnitTest'
-        foreach($testClass in $TestClasses){$gradleArgs+=@('--tests',"io.github.qiangjian.connect.$testClass")}
+        foreach($testClass in $TestClasses){$gradleArgs+=@('--tests',"io.github.yuejie.connect.$testClass")}
     }
     $gradleArgs+='--console=plain'
     RunStep 'package' { & .\gradlew.bat @gradleArgs }
@@ -78,7 +78,7 @@ try {
     ConvertTo-Json -InputObject $races -Depth 4 | Set-Content -LiteralPath (Join-Path $evidence "$Batch-source-races.json") -Encoding utf8
     Copy-Item -LiteralPath 'build/apk-verification.json' -Destination (Join-Path $evidence "$Batch-apk.json")
     Copy-Item -LiteralPath 'android/module/build/outputs/apk/debug/module-debug.apk' -Destination (Join-Path $evidence "module-$Batch.apk")
-    if(!$SkipJvmTests){foreach($testClass in $TestClasses){Copy-Item -LiteralPath "android/module/build/test-results/testDebugUnitTest/TEST-io.github.qiangjian.connect.$testClass.xml" -Destination (Join-Path $evidence "$Batch-$testClass.xml")}}
+    if(!$SkipJvmTests){foreach($testClass in $TestClasses){Copy-Item -LiteralPath "android/module/build/test-results/testDebugUnitTest/TEST-io.github.yuejie.connect.$testClass.xml" -Destination (Join-Path $evidence "$Batch-$testClass.xml")}}
     if ($races.Count -ne 0) { throw "Source changed during validation ($($races.Count) paths); see source-races.json. Artifact is not a stable batch." }
     Write-Output "Stable batch verified: $Batch"
 } finally {

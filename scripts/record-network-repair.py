@@ -8,8 +8,8 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/network-sharing"
 DEST = OUT / "functional-repair-20261109"
-MAIN = Path("android/module/src/main/java/io/github/qiangjian/connect")
-TEST = Path("android/module/src/test/java/io/github/qiangjian/connect")
+MAIN = Path("android/module/src/main/java/io/github/yuejie/connect")
+TEST = Path("android/module/src/test/java/io/github/yuejie/connect")
 
 
 def sha(path):
@@ -78,7 +78,7 @@ for filename, test_class, production_names in [
     source = OUT / filename
     record = load(source)
     assert all(run["returncode"] == 0 for run in record["runs"]), filename
-    assert any("io.github.qiangjian.connect." + test_class in run["command"] for run in record["runs"]), filename
+    assert any("io.github.yuejie.connect." + test_class in run["command"] for run in record["runs"]), filename
     inputs = hashes(record)
     dependencies = [ROOT / MAIN / (name + ".java") for name in production_names] + [ROOT / TEST / (test_class + ".java")]
     assert all(inputs[p.relative_to(ROOT).as_posix()] == sha(p) for p in dependencies), filename + " reuse source drift"

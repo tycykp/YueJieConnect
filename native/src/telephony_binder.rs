@@ -59,7 +59,7 @@ mod android {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_qiangjian_connect_TelephonySyncSystemBinder_phoneBinderNative(
+pub extern "system" fn Java_io_github_yuejie_connect_TelephonySyncSystemBinder_phoneBinderNative(
     env: JNIEnv<'_>, _class: JClass<'_>,
 ) -> jobject {
     #[cfg(target_os = "android")]

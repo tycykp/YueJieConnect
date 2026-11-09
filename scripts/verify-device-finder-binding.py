@@ -8,7 +8,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/device-finder-repair/binding'
-MAIN=ROOT/'android/module/src/main/java/io/github/qiangjian/connect'
+MAIN=ROOT/'android/module/src/main/java/io/github/yuejie/connect'
 JAVA=Path('C:/Program Files/Android/Android Studio/jbr/bin')
 ANDROID=Path(os.environ['LOCALAPPDATA'])/'Android/Sdk/platforms/android-37.0/android.jar'
 API=ROOT/'build/device-finder-validation/libxposed-api.jar'
@@ -20,13 +20,13 @@ sources={
  'android/content/Context.java':'''package android.content; public abstract class Context {}''',
  'io/github/libxposed/api/XposedModule.java':'''package io.github.libxposed.api; public abstract class XposedModule {}''',
  'android/util/Log.java':'''package android.util; public final class Log {public static int w(String tag,String message){return 0;}}''',
- 'io/github/qiangjian/connect/OplusFinderChannelAdapter.java':'''package io.github.qiangjian.connect;
+ 'io/github/yuejie/connect/OplusFinderChannelAdapter.java':'''package io.github.yuejie.connect;
  final class OplusFinderChannelAdapter {static OplusFinderChannelAdapter last; static boolean failCreate,failClose;
  boolean closed; final java.util.function.BooleanSupplier allowed;
  OplusFinderChannelAdapter(io.github.libxposed.api.XposedModule module,BridgeClient client,
  ClassLoader loader,java.util.function.BooleanSupplier allowed){if(failCreate)throw new IllegalStateException();this.allowed=allowed;last=this;}
  void close(){closed=true;if(failClose)throw new IllegalStateException();}}''',
- 'io/github/qiangjian/connect/BridgeClient.java':'''package io.github.qiangjian.connect;
+ 'io/github/yuejie/connect/BridgeClient.java':'''package io.github.yuejie.connect;
  import org.json.JSONObject; import java.util.function.Consumer;
  final class BridgeClient {
  interface Subscription {void close();} interface TaskCompletion {void success(JSONObject data);void fail(String code);}
@@ -37,7 +37,7 @@ sources={
  Subscription addProjectionListener(Consumer<JSONObject> value){listener=value; return ()->listener=null;}
  void update(JSONObject value){selected=value;if(listener!=null)listener.accept(value);}
  }''',
- 'io/github/qiangjian/connect/DeviceFinderEndpoint.java':'''package io.github.qiangjian.connect;
+ 'io/github/yuejie/connect/DeviceFinderEndpoint.java':'''package io.github.yuejie.connect;
  import org.json.JSONObject; import java.util.function.Consumer;
  final class DeviceFinderEndpoint implements AutoCloseable {
  static DeviceFinderEndpoint last; String session; int executions,cancels; Consumer<JSONObject> pending; boolean closed;
@@ -46,7 +46,7 @@ sources={
  void execute(String session,String request,long deadline,JSONObject payload,Consumer<JSONObject> completion){executions++;pending=completion;}
  void cancel(){cancels++;} void cancel(String session,String request){cancels++;} public void close(){closed=true;}
  }''',
- 'io/github/qiangjian/connect/DeviceFinderBindingCheck.java':'''package io.github.qiangjian.connect;
+ 'io/github/yuejie/connect/DeviceFinderBindingCheck.java':'''package io.github.yuejie.connect;
  import org.json.*;
  public final class DeviceFinderBindingCheck {
  static int count; static void check(boolean ok,String why){count++;if(!ok)throw new AssertionError(why);}
@@ -100,7 +100,7 @@ for name,content in sources.items():
 production=MAIN/'DeviceFinderBinding.java'
 commands=[
  [JAVA/'javac.exe','--release','17','-encoding','UTF-8','-d',OUT/'jvm',production,*generated,*sorted(JSON.glob('*.java'))],
- [JAVA/'java.exe','-cp',OUT/'jvm','io.github.qiangjian.connect.DeviceFinderBindingCheck'],
+ [JAVA/'java.exe','-cp',OUT/'jvm','io.github.yuejie.connect.DeviceFinderBindingCheck'],
  [JAVA/'javac.exe','--release','17','-encoding','UTF-8','-cp',str(ANDROID)+os.pathsep+str(API),'-d',OUT/'android',
   production,*[MAIN/name for name in ('DeviceFinderController.java','DeviceFinderEndpoint.java','XiaomiFinderEndpoint.java',
                                      'OplusFinderNativeEndpoint.java','OplusFinderSender.java','OplusFinderChannelAdapter.java','OplusFinderUiAdapter.java',

@@ -9,7 +9,7 @@ from datetime import datetime
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/camera-validation" / ("native-lifecycle-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
-MAIN = ROOT / "android/module/src/main/java/io/github/qiangjian/connect"
+MAIN = ROOT / "android/module/src/main/java/io/github/yuejie/connect"
 JAVA = Path(r"C:\Program Files\Android\Android Studio\jbr\bin")
 STUBS = {
 "android/os/IBinder.java": """package android.os;
@@ -48,9 +48,9 @@ catch(Throwable t){throw new RuntimeException(t);}} public void close(){closed=t
 public android.content.pm.PackageManager getPackageManager(){return new android.content.pm.PackageManager();}}""",
 "android/content/pm/PackageManager.java": """package android.content.pm; public class PackageManager {
 public String[] getPackagesForUid(int uid){return new String[]{"native.client"};}}""",
-"io/github/qiangjian/connect/CameraShareStillSource.java": """package io.github.qiangjian.connect;
+"io/github/yuejie/connect/CameraShareStillSource.java": """package io.github.yuejie.connect;
 final class CameraShareStillSource { interface Permit {boolean valid(CameraShareStillRequest r);} }""",
-"io/github/qiangjian/connect/XiaomiCameraHardwareBinding.java": """package io.github.qiangjian.connect;
+"io/github/yuejie/connect/XiaomiCameraHardwareBinding.java": """package io.github.yuejie.connect;
 final class XiaomiCameraHardwareBinding {
 interface PeerPermit {boolean valid(String s,String p,String n,String d,int c,String id);}
 record Source(String id){} record Selection(String nativeDeviceId,String dhId,int nativeCameraId,Source source){
@@ -106,7 +106,7 @@ test = ROOT / "scripts/camera-sharing/CameraShareNativeLifecycleChecks.java"
 sources = production + [test] + generated
 commands = [
     [JAVA / "javac.exe", "--release", "17", "-encoding", "UTF-8", "-d", OUT / "classes", *sources],
-    [JAVA / "java.exe", "-cp", OUT / "classes", "io.github.qiangjian.connect.CameraShareNativeLifecycleChecks"],
+    [JAVA / "java.exe", "-cp", OUT / "classes", "io.github.yuejie.connect.CameraShareNativeLifecycleChecks"],
 ]
 results = []
 for command in commands:

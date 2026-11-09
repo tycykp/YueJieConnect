@@ -1,5 +1,5 @@
 [package]
-name = "qj-core"
+name = "yj-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

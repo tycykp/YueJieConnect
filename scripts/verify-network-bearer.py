@@ -15,8 +15,8 @@ java = Path(r"C:\Program Files\Android\Android Studio\jbr\bin")
 cache = Path.home() / ".gradle/caches/modules-2/files-2.1"
 junit = next((cache / "junit/junit/4.13.2").rglob("*.jar"))
 hamcrest = next((cache / "org.hamcrest/hamcrest-core/1.3").rglob("*.jar"))
-main = ROOT / "android/module/src/main/java/io/github/qiangjian/connect/NetworkShareBluetoothBearer.java"
-test = ROOT / "android/module/src/test/java/io/github/qiangjian/connect/NetworkShareBluetoothBearerTest.java"
+main = ROOT / "android/module/src/main/java/io/github/yuejie/connect/NetworkShareBluetoothBearer.java"
+test = ROOT / "android/module/src/test/java/io/github/yuejie/connect/NetworkShareBluetoothBearerTest.java"
 rust = ROOT / "transport/src/stable_channel.rs"
 manifest = ROOT / "build/network-sharing/stable-channel/Cargo.toml"
 target = ROOT / "build/network-sharing/stable-channel/target"
@@ -34,7 +34,7 @@ record = {"utc": datetime.now(timezone.utc).isoformat(), "sources": hashes(), "r
 classpath = os.pathsep.join(map(str, [sdk, junit, hamcrest]))
 commands = [
     [str(java / "javac.exe"), "--release", "17", "-encoding", "UTF-8", "-cp", classpath, "-d", str(OUT / "classes"), str(main), str(test)],
-    [str(java / "java.exe"), "-cp", os.pathsep.join([str(OUT / "classes"), classpath]), "org.junit.runner.JUnitCore", "io.github.qiangjian.connect.NetworkShareBluetoothBearerTest"],
+    [str(java / "java.exe"), "-cp", os.pathsep.join([str(OUT / "classes"), classpath]), "org.junit.runner.JUnitCore", "io.github.yuejie.connect.NetworkShareBluetoothBearerTest"],
     ["cargo", "test", "--offline", "--manifest-path", str(manifest), "--target-dir", str(target), "authenticated"],
     ["cargo", "check", "--offline", "--manifest-path", str(manifest), "--target-dir", str(target), "--target", "aarch64-linux-android"],
 ]

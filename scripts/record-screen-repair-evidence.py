@@ -29,8 +29,8 @@ def read_manifest(folder):
     return list(rows(json.loads((folder / "source-sha256.json").read_text(encoding="utf-8-sig"))))
 
 
-java = "android/module/src/main/java/io/github/qiangjian/connect/"
-test = "android/module/src/test/java/io/github/qiangjian/connect/"
+java = "android/module/src/main/java/io/github/yuejie/connect/"
+test = "android/module/src/test/java/io/github/yuejie/connect/"
 checks = [
     ("native-session-final", "build/screen-repair-consent-assembly-validation", 17,
      [java + name + ".java" for name in ["ScreenCastNativeSession", "ScreenCastSession", "ScreenCastFormat", "ScreenCastPacket", "ScreenCastFrameQueue"]]

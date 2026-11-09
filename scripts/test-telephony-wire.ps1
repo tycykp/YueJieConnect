@@ -7,7 +7,7 @@ $manifest = Join-Path $output 'Cargo.toml'
 $portable = $source.Replace([char]92,[char]47)
 $content = @"
 [package]
-name = "qj-telephony-wire-validation"
+name = "yj-telephony-wire-validation"
 version = "0.0.0"
 edition = "2021"
 [workspace]

@@ -4,7 +4,7 @@ use crate::{
     executor::file_operation,
     file_transfer::{self, Command, Offer},
 };
-use qj_core::gateway::Operation;
+use yj_core::gateway::Operation;
 use serde_json::Value;
 use std::collections::BTreeMap;
 type Result<T> = std::result::Result<T, &'static str>;

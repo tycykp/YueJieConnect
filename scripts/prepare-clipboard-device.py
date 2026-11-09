@@ -88,7 +88,7 @@ def main():
             adb(DEVICES[1], 'shell', 'am', 'force-stop', 'com.oplus.linker')
         for serial in DEVICES:
             if args.installed:
-                path = adb(serial, 'shell', 'pm', 'path', 'io.github.qiangjian.connect').strip()
+                path = adb(serial, 'shell', 'pm', 'path', 'io.github.yuejie.connect').strip()
                 if not re.fullmatch(r'package:/data/app/[A-Za-z0-9_=+./~-]+\.apk', path):
                     raise RuntimeError('Unexpected APK path')
                 if adb(serial, 'shell', 'sha256sum', path[8:]).split()[0] != expected_hash:

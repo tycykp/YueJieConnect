@@ -18,7 +18,9 @@ required = {
                    'y0(ILandroid/content/ClipData;Z)Lcom/xiaomi/mirror/message/ClipDataMessage;'},
         'LV3/d0;': {'m(Landroid/net/Uri;)Landroid/net/Uri;', 'o(Landroid/net/Uri;)Landroid/net/Uri;'},
         'Lcom/xiaomi/mirror/d0;': {'onDragStart(Landroid/content/ClipData;III)V'},
-        'Lk4/R0;': {'onDrag(Landroid/view/View;Landroid/view/DragEvent;)Z'},
+        'Lk4/R0;': {'onDrag(Landroid/view/View;Landroid/view/DragEvent;)Z',
+                    'a(Lcom/xiaomi/mirror/message/DragMessage;J)V', 'e()V'},
+        'Lcom/xiaomi/mirror/sink/SinkView;': {'m1(Lcom/xiaomi/mirror/message/Message;J)V'},
     }),
     'coloros17/com.oplus.linker/OPSynergy.apk': ('dfac6057390248180adf559b80cb9521c44c952a7c63a4069ba48fbcc902f20b', {
         C+'FileServiceConsumer;': {f'onConnectionStateChanged({P}ILvu1;)V', 'getChannel()Lvu1;'},
@@ -37,6 +39,7 @@ required = {
     }),
 }
 fields = {
+    'Lk4/R0;': {'a': 'Lcom/xiaomi/mirror/sink/SinkView;', 'b': 'J'},
     C+'FileServiceConsumer;': {'mPeerAgent': P},
     C+'FileServiceConsumerImpl;': {'mFileConsumer': C+'FileServiceConsumer;'},
     C+'FileServiceConsumerImpl$FileHandler;': {

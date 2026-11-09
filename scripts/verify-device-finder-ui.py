@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib,json,subprocess
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/device-finder-repair/ui-host'
-MAIN=ROOT/'android/module/src/main/java/io/github/qiangjian/connect'
+MAIN=ROOT/'android/module/src/main/java/io/github/yuejie/connect'
 JAVA=Path('C:/Program Files/Android/Android Studio/jbr/bin')
 JSON=ROOT/'build/file-transfer-validation/json-src/org/json'
 fixtures={
@@ -62,7 +62,7 @@ fixtures={
  public void n(DeviceListItem item){selected=item;detail=new t();detail.m.h=item.a;detail.m.i=item.d;}}''',
 'com/oplus/findphone/client/map/N.java':'''package com.oplus.findphone.client.map;import io.github.libxposed.api.XposedModule;import android.view.View;public class N {public int a=4;public Object b,c;public int cloudClicks;public N(Object adapter,Object item){b=adapter;c=item;}
  public void onClick(View v){XposedModule.call(N.class,"onClick",new Class[]{View.class},this,new Object[]{v},args->{cloudClicks++;return null;});}}''',
-'io/github/qiangjian/connect/BridgeClient.java':'''package io.github.qiangjian.connect;import java.util.*;import java.util.function.*;import org.json.*;
+'io/github/yuejie/connect/BridgeClient.java':'''package io.github.yuejie.connect;import java.util.*;import java.util.function.*;import org.json.*;
  public class BridgeClient {public interface Subscription{void close();}public JSONObject selected;public List<Consumer<JSONObject>> listeners=new ArrayList<>();public List<Call> calls=new ArrayList<>();public List<String> cancels=new ArrayList<>();
  public record Call(String id,String session,String op,String request,JSONObject payload,Consumer<JSONObject> callback){}public android.content.Context context(){return com.oplus.FindMyPhoneApplication.a();}public JSONObject projection(){return selected;}
  public Subscription addProjectionListener(Consumer<JSONObject> c){listeners.add(c);return ()->listeners.remove(c);}public void update(JSONObject value){selected=value;for(var c:List.copyOf(listeners))c.accept(value);}
@@ -76,7 +76,7 @@ source=MAIN/'OplusFinderUiAdapter.java'
 inputs=[source,MAIN/'OplusFinderSender.java',test,*generated,*sorted(JSON.glob('*.java'))]
 commands=[
  [JAVA/'javac.exe','--release','17','-encoding','UTF-8','-d',OUT/'classes',*inputs],
- [JAVA/'java.exe','-cp',OUT/'classes','io.github.qiangjian.connect.OplusFinderUiCheck'],
+ [JAVA/'java.exe','-cp',OUT/'classes','io.github.yuejie.connect.OplusFinderUiCheck'],
 ]
 results=[]
 for command in commands:

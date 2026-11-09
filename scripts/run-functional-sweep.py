@@ -23,7 +23,7 @@ INPUTS = ROOT / 'build/native-pairing-validation/v19-round2-release-candidate-in
 DEVICES = ['b59f8656', '3B161Q00YN200000']
 OWNER = '01a1bbcf-5271-7900-bb0d-bee38aff77b9'
 EXPECTED = '2bac018151aab2c48c2e76681d6f4ee43034bbc375e2880288264913cff112e7'
-PKG = 'io.github.qiangjian.connect'
+PKG = 'io.github.yuejie.connect'
 
 
 def digest(path):
@@ -156,11 +156,11 @@ def profiles(record):
     require_lock()
     record['native_api'] = {}
     for serial, package, action, tag in [
-        (DEVICES[0], 'com.milink.service', 'XIAOMI_PROFILE_PROBE', 'QiangJianXiaomiTest'),
-        (DEVICES[1], 'com.oplus.linker', 'OPLUS_PROFILE_PROBE', 'QiangJianOplusTest')]:
+        (DEVICES[0], 'com.milink.service', 'XIAOMI_PROFILE_PROBE', 'YueJieXiaomiTest'),
+        (DEVICES[1], 'com.oplus.linker', 'OPLUS_PROFILE_PROBE', 'YueJieOplusTest')]:
         row = record['native_api'][serial] = {}
         before = adb(serial, 'shell', 'logcat', '-d', '-v', 'epoch', '-s', tag + ':I', '*:S').splitlines()
-        row['trigger_once'] = adb(serial, 'shell', 'am', 'broadcast', '-a', 'io.github.qiangjian.connect.' + action, '-p', package)
+        row['trigger_once'] = adb(serial, 'shell', 'am', 'broadcast', '-a', 'io.github.yuejie.connect.' + action, '-p', package)
         deadline = time.monotonic() + 15
         while True:
             lines = [v for v in adb(serial, 'shell', 'logcat', '-d', '-v', 'epoch', '-s', tag + ':I', '*:S').splitlines() if v not in before]
@@ -253,7 +253,7 @@ def notifications(record, actions=False):
                     row['source_action_count_before'] = fixture(source, 'state').get('action_count', 0)
                     adb(target, 'shell', 'cmd', 'statusbar', 'expand-notifications')
                     time.sleep(0.7)
-                    temporary = '/data/local/tmp/qj-synthetic-actions.xml'
+                    temporary = '/data/local/tmp/yj-synthetic-actions.xml'
                     def hierarchy():
                         adb(target, 'shell', 'uiautomator', 'dump', temporary)
                         data = adb(target, 'shell', 'cat', temporary)
@@ -341,7 +341,7 @@ def finder_readiness(record):
 def rich_and_disconnect(record):
     require_lock()
     probe = OUT / 'html-probe/probe.jar'
-    remote = '/data/local/tmp/qj-functional-html-probe.jar'
+    remote = '/data/local/tmp/yj-functional-html-probe.jar'
     run = uuid.uuid4().hex
     record.update(run=run, probe_sha256=digest(probe), helpers={}, directions=[], cleanup={})
     processes = {}
@@ -369,7 +369,7 @@ def rich_and_disconnect(record):
     try:
         for serial in DEVICES:
             adb(serial, 'push', str(probe), remote)
-            proc = subprocess.Popen(['adb', '-s', serial, 'shell', 'CLASSPATH=' + remote, 'app_process', '/system/bin', 'QjHtmlClipboard', run], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(['adb', '-s', serial, 'shell', 'CLASSPATH=' + remote, 'app_process', '/system/bin', 'YjHtmlClipboard', run], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             processes[serial] = proc
             streams[serial] = queue.Queue()
             def reader(process=proc, output=streams[serial]):
@@ -430,7 +430,7 @@ def cleanup_ui(record):
     record['cleanup'] = {}
     for serial in DEVICES:
         record['cleanup'][serial] = {'collapse_test_shade': adb(serial, 'shell', 'cmd', 'statusbar', 'collapse')}
-        adb(serial, 'shell', 'rm', '-f', '/data/local/tmp/qj-synthetic-actions.xml')
+        adb(serial, 'shell', 'rm', '-f', '/data/local/tmp/yj-synthetic-actions.xml')
     adb(DEVICES[0], 'shell', 'am', 'start', '-W', '-n', 'com.milink.service/com.miui.circulate.world.CirculateWorldActivity')
     time.sleep(1)
     (OUT / 'xiaomi-final-device-center.png').write_bytes(subprocess.check_output(['adb', '-s', DEVICES[0], 'exec-out', 'screencap', '-p'], timeout=20))
@@ -439,7 +439,7 @@ def cleanup_ui(record):
 
 def final_observation(record):
     require_lock()
-    temporary = '/data/local/tmp/qj-functional-final.xml'
+    temporary = '/data/local/tmp/yj-functional-final.xml'
     adb(DEVICES[0], 'shell', 'uiautomator', 'dump', temporary)
     tree = ET.fromstring(adb(DEVICES[0], 'shell', 'cat', temporary))
     adb(DEVICES[0], 'shell', 'rm', '-f', temporary)

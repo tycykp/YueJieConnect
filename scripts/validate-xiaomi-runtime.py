@@ -24,12 +24,12 @@ if args.probe:
  if state['phase']!='active' or state['projection'] is None:
   result['native_probe']='blocked_not_confirmed_or_offline'
  else:
-  before=adb('shell','logcat','-d','-v','epoch','-s','QiangJianXiaomiTest:I','*:S')
-  adb('shell','am','broadcast','-a','io.github.qiangjian.connect.XIAOMI_PROFILE_PROBE','-p','com.milink.service')
+  before=adb('shell','logcat','-d','-v','epoch','-s','YueJieXiaomiTest:I','*:S')
+  adb('shell','am','broadcast','-a','io.github.yuejie.connect.XIAOMI_PROFILE_PROBE','-p','com.milink.service')
   deadline=time.monotonic()+15
   result['native_probe']='no_terminal_callback'
   while time.monotonic()<deadline:
-   after=adb('shell','logcat','-d','-v','epoch','-s','QiangJianXiaomiTest:I','*:S')
+   after=adb('shell','logcat','-d','-v','epoch','-s','YueJieXiaomiTest:I','*:S')
    lines=[line for line in after.splitlines() if line not in before.splitlines()]
    terminal=[line for line in lines if any(marker in line for marker in ('native_onResponse','native_onSyncFail','native_timeout','probe_error','peer_offline'))]
    if terminal:

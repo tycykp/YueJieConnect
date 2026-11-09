@@ -15,6 +15,8 @@ pub mod media_runtime;
 pub mod notification;
 pub mod relay;
 pub mod screen_control;
+pub mod screen_input;
+pub mod screen_drag;
 pub mod stable_channel;
 pub mod telephony;
 pub mod telephony_audio;

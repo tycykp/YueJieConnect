@@ -9,17 +9,17 @@ $cache = Join-Path $env:USERPROFILE '.gradle/caches/modules-2/files-2.1'
 $junit = Get-ChildItem -LiteralPath (Join-Path $cache 'junit/junit/4.13.2') -Recurse -Filter '*.jar' | Select-Object -First 1 -ExpandProperty FullName
 $hamcrest = Get-ChildItem -LiteralPath (Join-Path $cache 'org.hamcrest/hamcrest-core/1.3') -Recurse -Filter '*.jar' | Select-Object -First 1 -ExpandProperty FullName
 $android = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platforms/android-37.0/android.jar'
-$source = Join-Path $repo 'android/module/src/main/java/io/github/qiangjian/connect'
+$source = Join-Path $repo 'android/module/src/main/java/io/github/yuejie/connect'
 $sources = @('NotificationSyncCodec', 'NotificationSyncLedger', 'NotificationSyncRuntime', 'NotificationSyncListener', 'NotificationSyncActionReceiver', 'NotificationSyncActionPolicy', 'NotificationSyncBridgeTransport', 'NotificationSyncFragments', 'NotificationSyncIngress', 'NotificationSyncEndpoint', 'XiaomiNotificationCodec', 'XiaomiNotificationAdapter', 'OplusNotificationPolicy', 'BridgeClient', 'IBridge', 'NativeLogicalSessions') | ForEach-Object { Join-Path $source "$_.java" }
-$sources += Join-Path $repo 'android/module/src/debug/java/io/github/qiangjian/connect/NotificationSyncFixture.java'
+$sources += Join-Path $repo 'android/module/src/debug/java/io/github/yuejie/connect/NotificationSyncFixture.java'
 $testClasses = @('NotificationSyncActionPolicyTest', 'XiaomiNotificationCodecTest', 'NotificationSyncBridgeTransportTest')
 if (-not $NativeOnly) { $testClasses += 'NotificationSyncCodecTest' }
 if ($CarrierOnly) { $testClasses = @('NotificationSyncFragmentsTest', 'NotificationSyncIngressTest', 'NotificationSyncBridgeTransportTest') }
 elseif (-not $NativeOnly) { $testClasses += @('NotificationSyncFragmentsTest', 'NotificationSyncIngressTest') }
-$tests = @($testClasses | ForEach-Object { Join-Path $repo "android/module/src/test/java/io/github/qiangjian/connect/$_.java" })
+$tests = @($testClasses | ForEach-Object { Join-Path $repo "android/module/src/test/java/io/github/yuejie/connect/$_.java" })
 if ($NativeOnly -and -not $CarrierOnly) {
     # Carrier helpers are compile dependencies of BridgeTransportTest; do not rerun their suites here.
-    $tests += @('NotificationSyncFragmentsTest', 'NotificationSyncIngressTest') | ForEach-Object { Join-Path $repo "android/module/src/test/java/io/github/qiangjian/connect/$_.java" }
+    $tests += @('NotificationSyncFragmentsTest', 'NotificationSyncIngressTest') | ForEach-Object { Join-Path $repo "android/module/src/test/java/io/github/yuejie/connect/$_.java" }
 }
 $tests += @(Get-ChildItem -LiteralPath (Join-Path $repo 'android/module/src/test/java/com/xiaomi/mirror/message') -Filter '*.java' | ForEach-Object FullName)
 python (Join-Path $repo 'scripts/prepare-notification-test-dependencies.py')
@@ -29,7 +29,7 @@ $api = Join-Path $out 'xposed-api.jar'
 $suffix = if ($CarrierOnly) { '-carrier-round2' } elseif ($NativeOnly) { '-native' } else { '' }
 & (Join-Path $jdk 'javac.exe') --release 17 -encoding UTF-8 -cp "$android;$api;$junit" -d $classes @sources @tests @json 2>&1 | Tee-Object -FilePath (Join-Path $out "compile$suffix.log")
 if ($LASTEXITCODE -ne 0) { throw 'Notification source compilation failed' }
-$qualified = @($testClasses | ForEach-Object { "io.github.qiangjian.connect.$_" })
+$qualified = @($testClasses | ForEach-Object { "io.github.yuejie.connect.$_" })
 & (Join-Path $jdk 'java.exe') -cp "$classes;$android;$api;$junit;$hamcrest" org.junit.runner.JUnitCore @qualified 2>&1 | Tee-Object -FilePath (Join-Path $out "tests$suffix.log")
 $testExit = $LASTEXITCODE
 $hashes = @($sources + $tests + $PSCommandPath + (Join-Path $repo 'scripts/prepare-notification-test-dependencies.py')) | ForEach-Object { [ordered]@{ path = $_.Substring($repo.Length + 1).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } }

@@ -8,14 +8,14 @@ import subprocess
 root = Path(__file__).resolve().parents[1]
 out = root / "build/device-finder-rebind"
 out.mkdir(parents=True, exist_ok=True)
-controller = root / "android/module/src/main/java/io/github/qiangjian/connect/DeviceFinderController.java"
-test = root / "android/module/src/test/java/io/github/qiangjian/connect/DeviceFinderRebindRaceCheck.java"
+controller = root / "android/module/src/main/java/io/github/yuejie/connect/DeviceFinderController.java"
+test = root / "android/module/src/test/java/io/github/yuejie/connect/DeviceFinderRebindRaceCheck.java"
 java = Path(os.environ.get("JAVA_HOME", "")) / "bin"
 if not (java / "javac.exe").exists():
     java = Path(r"C:\Program Files\Android\Android Studio\jbr\bin")
 commands = [
     [java / "javac.exe", "--release", "17", "-encoding", "UTF-8", "-d", out / "classes", controller, test],
-    [java / "java.exe", "-cp", out / "classes", "io.github.qiangjian.connect.DeviceFinderRebindRaceCheck"],
+    [java / "java.exe", "-cp", out / "classes", "io.github.yuejie.connect.DeviceFinderRebindRaceCheck"],
 ]
 results = []
 for command in commands:

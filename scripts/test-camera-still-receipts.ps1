@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $run = Join-Path $project ('build/camera-validation/still-receipts-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $run -Force | Out-Null
-$main = Join-Path $project 'android/module/src/main/java/io/github/qiangjian/connect'
+$main = Join-Path $project 'android/module/src/main/java/io/github/yuejie/connect'
 $names = @('CameraShareStillReceipt','XiaomiCameraStillConsumer','XiaomiCameraStillResultHooks','XiaomiCameraStillLifecycleHooks','XiaomiCameraNativeRequests',
     'CameraShareStillRequest','CameraShareJpeg','CameraShareStillSource','XiaomiCameraHardwareBinding',
     'CameraShareConfig','CameraShareLease')
@@ -26,7 +26,7 @@ $output = 'camera-still-receipt-compile-only: PASS'
 $command = 'powershell -NoProfile -File scripts/test-camera-still-receipts.ps1 -CompileOnly'
 if (-not $CompileOnly) {
     $ErrorActionPreference = 'Continue'
-    $output = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.qiangjian.connect.CameraShareStillReceiptChecks 2>&1
+    $output = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.yuejie.connect.CameraShareStillReceiptChecks 2>&1
     $testExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $output | Out-File (Join-Path $run 'test.txt') -Encoding utf8

@@ -22,13 +22,13 @@ foreach ($item in $fixtures.GetEnumerator()) {
     [IO.File]::WriteAllText($file, $item.Value, [Text.UTF8Encoding]::new($false))
     $sources += $file
 }
-$sourceDir = Join-Path $root 'android/module/src/main/java/io/github/qiangjian/connect'
+$sourceDir = Join-Path $root 'android/module/src/main/java/io/github/yuejie/connect'
 $sources += Join-Path $sourceDir 'RemoteInputSession.java'
 $sources += Join-Path $sourceDir 'RemoteInputImeTarget.java'
 $sources += Join-Path $root 'android/module/src/test/screen-ime/RemoteInputImeTargetCheck.java'
 $java = 'C:\Program Files\Android\Android Studio\jbr\bin'
 & (Join-Path $java 'javac.exe') --release 17 -encoding UTF-8 -d $classes @sources 2>&1 | Tee-Object -FilePath (Join-Path $out 'compile.log')
 if ($LASTEXITCODE -ne 0) { throw 'IME focus fixture compile failed' }
-& (Join-Path $java 'java.exe') -cp $classes io.github.qiangjian.connect.RemoteInputImeTargetCheck 2>&1 | Tee-Object -FilePath (Join-Path $out 'tests.log')
+& (Join-Path $java 'java.exe') -cp $classes io.github.yuejie.connect.RemoteInputImeTargetCheck 2>&1 | Tee-Object -FilePath (Join-Path $out 'tests.log')
 if ($LASTEXITCODE -ne 0) { throw 'IME focus fixture tests failed' }
 @($sources + $PSCommandPath) | ForEach-Object { Get-FileHash -LiteralPath $_ -Algorithm SHA256 } | Select-Object Path,Hash | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out 'source-sha256.json') -Encoding utf8

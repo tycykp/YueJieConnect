@@ -86,7 +86,7 @@ evidence['scope'] = ('Original OEM DEX and switch-provider signatures only. Mirr
 evidence['script_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 evidence['module_sources'] = [{ 'path': str(path.relative_to(root)).replace('\\', '/'),
                               'sha256': hashlib.sha256(path.read_bytes()).hexdigest() }
-                            for path in [root / 'android/module/src/main/java/io/github/qiangjian/connect/OplusNotificationPolicy.java']]
+                            for path in [root / 'android/module/src/main/java/io/github/yuejie/connect/OplusNotificationPolicy.java']]
 output = root / 'build/notifications-validation/native-routes-round2.json'
 output.write_text(json.dumps(evidence, indent=2, ensure_ascii=False), encoding='utf-8')
 print('PASS Mirror PC-only terminal/Android sink boundary and Oplus real phone/pad switch-provider descriptors.')

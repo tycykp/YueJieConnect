@@ -1,6 +1,6 @@
 //! Bounded authenticated vendor-process mailbox. The socket thread never runs OEM code.
 use crate::bridge::OperationResult;
-use qj_core::gateway::Operation;
+use yj_core::gateway::Operation;
 use serde::Serialize;
 use serde_json::Value;
 use std::{
@@ -179,8 +179,10 @@ pub fn supported(operation: Operation) -> bool {
             | Operation::TelephonyCallState
             | Operation::TelephonyCallControl
             | Operation::TelephonySmsStatus
+            | Operation::ScreenInput
             | Operation::ScreenControl
             | Operation::ScreenRequest
+            | Operation::ScreenDrag
     )
 }
 pub fn valid_channel(value: &str) -> bool {
@@ -204,8 +206,10 @@ pub fn logical_business(operation: Operation) -> bool {
                 | Operation::TelephonyCallState
                 | Operation::TelephonyCallControl
                 | Operation::TelephonySmsStatus
-                | Operation::ScreenControl
+                | Operation::ScreenInput
+            | Operation::ScreenControl
                 | Operation::ScreenRequest
+                | Operation::ScreenDrag
         )
 }
 pub fn telephony_operation(operation: Operation) -> Option<&'static str> {
@@ -273,8 +277,12 @@ fn uri_file_payload(payload: &Value) -> Result<Value> {
 
 /// Only this typed operation is enabled; adding a name does not grant a generic RPC channel.
 pub fn validate_payload(operation: Operation, payload: &Value) -> Result<()> {
+    if operation == Operation::ScreenDrag { return if crate::screen_drag::valid(payload) {Ok(())} else {Err("invalid_payload")}; }
     if operation == Operation::ScreenRequest {
         return if crate::screen_control::request(payload) { Ok(()) } else { Err("invalid_payload") };
+    }
+    if operation == Operation::ScreenInput {
+        return if crate::screen_input::valid(payload) { Ok(()) } else { Err("invalid_payload") };
     }
     if operation == Operation::ScreenControl {
         return if crate::screen_control::valid(payload) {
@@ -452,6 +460,8 @@ pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) 
             return crate::screen_control::request(payload) && crate::screen_control::request_receipt(result)
                 && payload["stream_id"] == result["stream_id"];
         }
+        OperationResult::ScreenInput(result) => { return crate::screen_input::matches(payload, result) }
+        OperationResult::ScreenDrag(result) => { return crate::screen_drag::matches(payload, result) }
         OperationResult::ScreenControl(result) => {
             return crate::screen_control::matches(payload, result)
         }
@@ -891,7 +901,7 @@ mod tests {
         VendorTask {
             session_id: "a".repeat(64),
             request_id: request.into(),
-            projection_id: "qj:peer".into(),
+            projection_id: "yj:peer".into(),
             operation: Operation::ClipboardWrite,
             payload: json!({"mime":"text/plain","utf8_b64":"aGk="}),
             remaining_ms: 5000,

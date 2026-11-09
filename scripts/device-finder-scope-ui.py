@@ -32,8 +32,8 @@ def adb(*command):
         raise RuntimeError(result.stderr.decode('utf-8', 'replace'))
     return result.stdout
 def dump():
-    adb('shell', 'uiautomator dump /data/local/tmp/qj-finder-scope.xml')
-    return adb('exec-out', 'cat /data/local/tmp/qj-finder-scope.xml').decode('utf-8', 'replace')
+    adb('shell', 'uiautomator dump /data/local/tmp/yj-finder-scope.xml')
+    return adb('exec-out', 'cat /data/local/tmp/yj-finder-scope.xml').decode('utf-8', 'replace')
 def matches(reference_path):
     reference = Image.open(reference_path).convert('RGB')
     current = Image.open(io.BytesIO(adb('exec-out', 'screencap -p'))).convert('RGB')
@@ -86,7 +86,7 @@ try:
 finally:
     if owned:
         try:
-            adb('shell', 'rm -f /data/local/tmp/qj-finder-scope.xml')
+            adb('shell', 'rm -f /data/local/tmp/yj-finder-scope.xml')
         finally:
             if json.loads(LOCK.read_text()).get('lease') == lease['lease']:
                 LOCK.unlink()

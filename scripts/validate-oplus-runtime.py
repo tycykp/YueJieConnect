@@ -25,12 +25,12 @@ summary['probe_invoked'] = False
 if args.probe:
     if status['phase'] != 'active' or not summary['projection_present']:
         raise SystemExit('No active, bilaterally confirmed real peer; refusing native probe.')
-    before = set(adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'QiangJianOplusTest:I', '*:S').splitlines())
-    adb('shell', 'am', 'broadcast', '-a', 'io.github.qiangjian.connect.OPLUS_PROFILE_PROBE', '-p', 'com.oplus.linker')
+    before = set(adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'YueJieOplusTest:I', '*:S').splitlines())
+    adb('shell', 'am', 'broadcast', '-a', 'io.github.yuejie.connect.OPLUS_PROFILE_PROBE', '-p', 'com.oplus.linker')
     summary['probe_invoked'] = True
     deadline = time.monotonic() + 12
     while time.monotonic() < deadline:
-        current = adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'QiangJianOplusTest:I', '*:S').splitlines()
+        current = adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'YueJieOplusTest:I', '*:S').splitlines()
         new = [line for line in current if line not in before]
         if any('native_battery_received' in line or 'native_query_error' in line or 'probe_error' in line for line in new):
             summary['this_probe_log'] = new
@@ -39,7 +39,7 @@ if args.probe:
     else:
         summary['this_probe_log'] = new
         summary['probe_timed_out'] = True
-summary['probe_log'] = adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'QiangJianOplusTest:I', '*:S').splitlines()[-20:]
+summary['probe_log'] = adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'YueJieOplusTest:I', '*:S').splitlines()[-20:]
 summary['scope'] = 'Native API probe is diagnostic stimulus, not proof of a normal UI click or full native connection.'
 apk = ROOT / 'build/oplus-validation/module-oplus.apk'
 if apk.exists():

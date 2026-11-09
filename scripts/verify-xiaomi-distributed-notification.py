@@ -60,7 +60,7 @@ xml=__import__('xml.etree.ElementTree',fromlist=['ElementTree']).parse(apk_manif
 android='{http://schemas.android.com/apk/res/android}'
 listener=next(n for n in xml.iter('service') if n.get(android+'name')=='com.xiaomi.dist.notification.listener.NotifTransListenerService')
 assert listener.get(android+'enabled')=='false' and listener.get(android+'process')=='com.milink.crossdeviceservice'
-sources={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (root/'android/module/src/main/java/io/github/qiangjian/connect').glob('XiaomiNotificationDistributed*.java')}
+sources={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (root/'android/module/src/main/java/io/github/yuejie/connect').glob('XiaomiNotificationDistributed*.java')}
 out=root/'build/notifications-validation/repair-round3/distributed/native-signatures.json'
 out.parent.mkdir(parents=True,exist_ok=True)
 out.write_text(json.dumps({'utc':datetime.now(timezone.utc).isoformat(),'command':'python scripts/verify-xiaomi-distributed-notification.py','result':'passed',

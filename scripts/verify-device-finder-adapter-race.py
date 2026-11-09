@@ -12,8 +12,8 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build/device-finder-adapter-race"
-MAIN = ROOT / "android/module/src/main/java/io/github/qiangjian/connect"
-TEST = ROOT / "android/module/src/test/java/io/github/qiangjian/connect/DeviceFinderAdapterRaceCheck.java"
+MAIN = ROOT / "android/module/src/main/java/io/github/yuejie/connect"
+TEST = ROOT / "android/module/src/test/java/io/github/yuejie/connect/DeviceFinderAdapterRaceCheck.java"
 JDK = Path(r"C:\Program Files\Android\Android Studio\jbr\bin")
 ANDROID = Path(os.environ["LOCALAPPDATA"]) / "Android/Sdk/platforms/android-37.0/android.jar"
 JSON = ROOT / "build/file-transfer-validation/json-src/org/json"
@@ -58,7 +58,7 @@ commands = [
     [JDK / "javac.exe", "--release", "17", "-encoding", "UTF-8", "-cp", ANDROID,
      "-d", OUT / "android", MAIN / "XiaomiFinderAdapter.java", MAIN / "XiaomiFinderCodec.java", TEST],
     [JDK / "javac.exe", "--release", "17", "-encoding", "UTF-8", "-d", OUT / "classes", *sources],
-    [JDK / "java.exe", "-cp", OUT / "classes", "io.github.qiangjian.connect.DeviceFinderAdapterRaceCheck"],
+    [JDK / "java.exe", "-cp", OUT / "classes", "io.github.yuejie.connect.DeviceFinderAdapterRaceCheck"],
 ]
 results = []
 for command in commands:

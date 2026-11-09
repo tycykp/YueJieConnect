@@ -15,7 +15,7 @@ import sys
 root = Path(__file__).resolve().parents[1]
 bridge_only = '--bridge-only' in sys.argv
 method = next((arg.split('=',1)[1] for arg in sys.argv if arg.startswith('--method=')),None)
-suffix = '-'+method if method else ''
+suffix = ('-screen' if '--screen' in sys.argv else '') + ('-'+method if method else '')
 out = root / (('build/file-transfer-validation/bridge' if bridge_only else 'build/file-transfer-validation/xiaomi-send-hooks')+suffix)
 out.mkdir(parents=True, exist_ok=True)
 jdk = Path('C:/Program Files/Android/Android Studio/jbr/bin')
@@ -29,8 +29,8 @@ fixtures = sorted((root / 'scripts/file-transfer-fixtures').rglob('*.java'))
 classes = out / 'classes'
 classes.mkdir(exist_ok=True)
 cp = os.pathsep.join(map(str, [production, android, xposed, junit, hamcrest]))
-test_class = 'io.github.qiangjian.connect.FileTransferBridgeCheck' if bridge_only else 'io.github.qiangjian.connect.FileTransferXiaomiSendHooksCheck'
-runner = ['io.github.qiangjian.connect.FileTransferMethodCheck',test_class,method] if method else ['org.junit.runner.JUnitCore',test_class]
+test_class = 'io.github.yuejie.connect.FileTransferBridgeCheck' if bridge_only else ('io.github.yuejie.connect.FileTransferScreenSendHooksCheck' if '--screen' in sys.argv else 'io.github.yuejie.connect.FileTransferXiaomiSendHooksCheck')
+runner = ['io.github.yuejie.connect.FileTransferMethodCheck',test_class,method] if method else ['org.junit.runner.JUnitCore',test_class]
 commands = [
     [str(jdk / 'javac.exe'), '--release', '17', '-encoding', 'UTF-8', '-cp', cp, '-d', str(classes), *map(str, fixtures)],
     [str(jdk / 'java.exe'), '-cp', os.pathsep.join([str(classes), cp]), *runner],
@@ -44,7 +44,7 @@ for command in commands:
         print(run.stderr, file=sys.stderr, end='')
     if run.returncode:
         break
-sources = sorted((root / 'android/module/src/main/java/io/github/qiangjian/connect').glob('*File*.java'))
+sources = sorted((root / 'android/module/src/main/java/io/github/yuejie/connect').glob('*File*.java'))
 inputs = sources + fixtures + [Path(__file__)]
 ledger = dict(utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
               scope='Host production hooks/client/engine with isolated call fixtures; no APK/device claim',

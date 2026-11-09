@@ -34,8 +34,8 @@ def validate_scene(scene):
     assert scene["controller_serial"] in DEVICES and scene["fixture_serial"] in DEVICES
     assert scene["controller_serial"] != scene["fixture_serial"]
     assert scene["controller_package"] == DEVICES[scene["controller_serial"]]
-    assert re.fullmatch(r"qiangjian-remote-control-[0-9a-f]{32}", scene["native_session_tag"])
-    assert scene["target_package"] == "io.github.qiangjian.connect", "Only the fixed synthetic fixture target is permitted"
+    assert re.fullmatch(r"yuejie-remote-control-[0-9a-f]{32}", scene["native_session_tag"])
+    assert scene["target_package"] == "io.github.yuejie.connect", "Only the fixed synthetic fixture target is permitted"
     assert scene["fixture_active"] is True and scene["fixture_playback"] == 2
     assert type(scene["fixture_callbacks"]) is int and scene["fixture_callbacks"] >= 0
     assert scene["screen_rendered"] is True and scene["media_granted"] is True and scene["runtime_verified"] is True
@@ -48,7 +48,7 @@ def validate_scene(scene):
 
 
 def installed_hash(serial):
-    command = ["adb", "-s", serial, "shell", "pm", "path", "io.github.qiangjian.connect"]
+    command = ["adb", "-s", serial, "shell", "pm", "path", "io.github.yuejie.connect"]
     result = subprocess.run(command, capture_output=True, timeout=10, text=True)
     assert result.returncode == 0
     path = result.stdout.strip()

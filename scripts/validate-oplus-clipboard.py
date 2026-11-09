@@ -19,10 +19,10 @@ def adb(*args):
 assert adb('shell', 'getprop', 'ro.product.model').strip() == 'PLQ110', 'Wrong device'
 
 def logs():
-    return adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'QiangJianOplusTest:I', '*:S').splitlines()
+    return adb('shell', 'logcat', '-d', '-v', 'threadtime', '-s', 'YueJieOplusTest:I', '*:S').splitlines()
 
 before = set(logs())
-adb('shell', 'am', 'broadcast', '-a', 'io.github.qiangjian.connect.OPLUS_CLIPBOARD_PROBE', '-p', 'com.oplus.linker')
+adb('shell', 'am', 'broadcast', '-a', 'io.github.yuejie.connect.OPLUS_CLIPBOARD_PROBE', '-p', 'com.oplus.linker')
 deadline = time.monotonic() + 8
 found = []
 while time.monotonic() < deadline:

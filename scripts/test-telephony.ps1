@@ -12,8 +12,8 @@ if ($Suite -eq 'audio') { $output = Join-Path $output 'repair\audio' }
 if ($Suite -eq 'endpoint') { $output = Join-Path $output 'usable\endpoint' }
 $classes = Join-Path $output 'classes'
 New-Item -ItemType Directory -Force $classes | Out-Null
-$source = Join-Path $root 'android\module\src\main\java\io\github\qiangjian\connect'
-$tests = Join-Path $root 'android\module\src\test\java\io\github\qiangjian\connect'
+$source = Join-Path $root 'android\module\src\main\java\io\github\yuejie\connect'
+$tests = Join-Path $root 'android\module\src\test\java\io\github\yuejie\connect'
 $cache = Join-Path $env:USERPROFILE '.gradle\caches'
 $junit = (Get-ChildItem -LiteralPath (Join-Path $cache 'modules-2\files-2.1\junit\junit\4.13.2') -Recurse -Filter 'junit-4.13.2.jar' | Select-Object -First 1).FullName
 $hamcrest = (Get-ChildItem -LiteralPath (Join-Path $cache 'modules-2\files-2.1\org.hamcrest\hamcrest-core\1.3') -Recurse -Filter 'hamcrest-core-1.3.jar' | Select-Object -First 1).FullName
@@ -29,14 +29,14 @@ $compileExit = $LASTEXITCODE
 $ErrorActionPreference = 'Stop'
 $compile | Set-Content -LiteralPath (Join-Path $output 'compile.txt') -Encoding utf8
 if ($compileExit -ne 0) { $compile | Write-Output; throw 'Telephony targeted compilation failed' }
-$testClasses = @('io.github.qiangjian.connect.TelephonySyncRelayTest')
-if ($Suite -eq 'all') { $testClasses += @('io.github.qiangjian.connect.TelephonySyncControllerTest', 'io.github.qiangjian.connect.TelephonySyncSmsTest', 'io.github.qiangjian.connect.TelephonySyncSmsStateTest') }
-if ($Suite -eq 'all') { $testClasses += 'io.github.qiangjian.connect.TelephonySyncSmsNativeTest' }
-if ($Suite -eq 'all') { $testClasses += 'io.github.qiangjian.connect.TelephonySyncAudioSessionTest' }
-if ($Suite -eq 'sms-native') { $testClasses = @('io.github.qiangjian.connect.TelephonySyncSmsNativeTest') }
-if ($Suite -eq 'audio') { $testClasses = @('io.github.qiangjian.connect.TelephonySyncAudioSessionTest') }
-if ($Suite -eq 'endpoint') { $testClasses = @('io.github.qiangjian.connect.TelephonySyncEndpointTest') }
-if ($Suite -eq 'all') { $testClasses += 'io.github.qiangjian.connect.TelephonySyncEndpointTest' }
+$testClasses = @('io.github.yuejie.connect.TelephonySyncRelayTest')
+if ($Suite -eq 'all') { $testClasses += @('io.github.yuejie.connect.TelephonySyncControllerTest', 'io.github.yuejie.connect.TelephonySyncSmsTest', 'io.github.yuejie.connect.TelephonySyncSmsStateTest') }
+if ($Suite -eq 'all') { $testClasses += 'io.github.yuejie.connect.TelephonySyncSmsNativeTest' }
+if ($Suite -eq 'all') { $testClasses += 'io.github.yuejie.connect.TelephonySyncAudioSessionTest' }
+if ($Suite -eq 'sms-native') { $testClasses = @('io.github.yuejie.connect.TelephonySyncSmsNativeTest') }
+if ($Suite -eq 'audio') { $testClasses = @('io.github.yuejie.connect.TelephonySyncAudioSessionTest') }
+if ($Suite -eq 'endpoint') { $testClasses = @('io.github.yuejie.connect.TelephonySyncEndpointTest') }
+if ($Suite -eq 'all') { $testClasses += 'io.github.yuejie.connect.TelephonySyncEndpointTest' }
 if ($Suite -eq 'compile') { $testClasses = @(); Write-Output 'PASS: owned Android sources compile; no tests rerun.' }
 else {
     $result = & (Join-Path $Jdk 'bin\java.exe') -cp "$classes;$junit;$hamcrest" org.junit.runner.JUnitCore @testClasses 2>&1

@@ -12,8 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/clipboard-validation'
-MAIN = ROOT / 'android/module/src/main/java/io/github/qiangjian/connect'
-TEST = ROOT / 'android/module/src/test/java/io/github/qiangjian/connect/ClipboardWireCodecTest.java'
+MAIN = ROOT / 'android/module/src/main/java/io/github/yuejie/connect'
+TEST = ROOT / 'android/module/src/test/java/io/github/yuejie/connect/ClipboardWireCodecTest.java'
 JDK = Path(os.environ.get('CLIPBOARD_JDK', r'C:\Program Files\Android\Android Studio\jbr')) / 'bin'
 CACHE = Path.home() / '.gradle/caches'
 ANDROID = Path(os.environ['LOCALAPPDATA']) / 'Android/Sdk/platforms/android-37.0/android.jar'
@@ -34,7 +34,7 @@ classes = OUT / 'classes'
 classes.mkdir(exist_ok=True)
 api = next(CACHE.glob('9.7.1/transforms/*/transformed/api-102.0.0-api.jar'))
 sources = sorted(p for p in MAIN.glob('*Clipboard*.java') if p.name != 'OplusClipboardSelfTest.java')
-sources += sorted((ROOT / 'android/module/src/debug/java/io/github/qiangjian/connect').glob('*Clipboard*.java'))
+sources += sorted((ROOT / 'android/module/src/debug/java/io/github/yuejie/connect').glob('*Clipboard*.java'))
 dependencies = [MAIN / 'BridgeClient.java', MAIN / 'IBridge.java']
 if (MAIN / 'NativeLogicalSessions.java').exists():
     dependencies.append(MAIN / 'NativeLogicalSessions.java')
@@ -55,7 +55,7 @@ hamcrest = next(CACHE.glob('modules-2/files-2.1/org.hamcrest/hamcrest-core/1.3/*
 run('compile-wire-tests', JDK / 'javac.exe', '-encoding', 'UTF-8', '--release', '17', '-cp',
     os.pathsep.join(map(str, [classes, junit])), '-d', classes, TEST)
 run('wire-tests', JDK / 'java.exe', '-cp', os.pathsep.join(map(str, [classes, junit, hamcrest])),
-    'org.junit.runner.JUnitCore', 'io.github.qiangjian.connect.ClipboardWireCodecTest')
+    'org.junit.runner.JUnitCore', 'io.github.yuejie.connect.ClipboardWireCodecTest')
 
 stubs = {
 'android/content/Context.java': 'package android.content; public class Context {}',
@@ -78,14 +78,14 @@ public class JSONObject {
  public String optString(String key) { return session; }
  public String optString(String key, String fallback) { return session==null ? fallback : session; }
 }''',
-'io/github/qiangjian/connect/OplusClipboardEndpoint.java': '''package io.github.qiangjian.connect;
+'io/github/yuejie/connect/OplusClipboardEndpoint.java': '''package io.github.yuejie.connect;
 class OplusClipboardEndpoint {
  OplusClipboardEndpoint(ClassLoader ignored) throws ReflectiveOperationException {}
  void writeText(android.content.Context context, String text) throws ReflectiveOperationException {
   ClipboardReceiverHarness.write(text);
  }
 }''',
-'io/github/qiangjian/connect/XiaomiClipboardEndpoint.java': '''package io.github.qiangjian.connect;
+'io/github/yuejie/connect/XiaomiClipboardEndpoint.java': '''package io.github.yuejie.connect;
 class XiaomiClipboardEndpoint {
  XiaomiClipboardEndpoint(ClassLoader ignored) throws ReflectiveOperationException {}
  void writeText(android.content.Context context, String text) throws ReflectiveOperationException {
@@ -94,7 +94,7 @@ class XiaomiClipboardEndpoint {
 }''',
 }
 
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.os.Handler;
 import android.os.SystemClock;
 import java.util.concurrent.CompletableFuture;
@@ -188,7 +188,7 @@ public final class ClipboardReceiverHarness {
   test(false); test(true); System.out.println("PASS: "+checks+" receiver assertions; OEM sinks mocked, no devices accessed.");
  }
 }'''
-stubs['io/github/qiangjian/connect/ClipboardReceiverHarness.java'] = harness
+stubs['io/github/yuejie/connect/ClipboardReceiverHarness.java'] = harness
 stub_dir = OUT / 'receiver-harness-src'
 stub_paths = []
 for relative, source in stubs.items():
@@ -202,7 +202,7 @@ receiver_sources = [MAIN / (n + '.java') for n in
                     ('OplusClipboardReceiver', 'XiaomiClipboardReceiver', 'OplusClipboardTasks', 'OplusClipboardCodec')]
 run('compile-receiver-tests', JDK / 'javac.exe', '-encoding', 'UTF-8', '--release', '17',
     '-d', receiver_classes, *stub_paths, *receiver_sources)
-run('receiver-tests', JDK / 'java.exe', '-cp', receiver_classes, 'io.github.qiangjian.connect.ClipboardReceiverHarness')
+run('receiver-tests', JDK / 'java.exe', '-cp', receiver_classes, 'io.github.yuejie.connect.ClipboardReceiverHarness')
 hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [*sources, TEST, Path(__file__)]}
 (OUT / 'host-validation.json').write_text(json.dumps(dict(source_sha256=hashes,
     wire_tests=6, receiver_test_output=(OUT / 'receiver-tests.txt').read_text(encoding='utf-8').strip(),

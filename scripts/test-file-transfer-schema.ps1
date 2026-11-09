@@ -13,7 +13,7 @@ try {
     # Isolated crate/target/lockfile: shared Cargo entry points are owned by native-pairing.
     @'
 [package]
-name = "qj-file-transfer-schema-check"
+name = "yj-file-transfer-schema-check"
 version = "0.0.0"
 edition = "2021"
 [workspace]

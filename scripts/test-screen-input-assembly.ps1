@@ -16,7 +16,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $fixture) | Out-Nu
 [IO.File]::WriteAllText($fixture, 'package android.os; public final class Looper { private static final Looper MAIN=new Looper(); public static Looper myLooper(){return MAIN;} public static Looper getMainLooper(){return MAIN;} }', [Text.UTF8Encoding]::new($false))
 & (Join-Path $java 'javac.exe') --release 17 -encoding UTF-8 -d $classes $fixture 2>&1 | Tee-Object -FilePath (Join-Path $out 'fixture-compile.log')
 if ($LASTEXITCODE -ne 0) { throw 'assembly fixture compile failed' }
-$qualified = @($TestClasses | ForEach-Object { "io.github.qiangjian.connect.$_" })
+$qualified = @($TestClasses | ForEach-Object { "io.github.yuejie.connect.$_" })
 & (Join-Path $java 'java.exe') -cp "$classes;$sdk;$(Join-Path $out 'xposed-api.jar');$junit;$hamcrest" org.junit.runner.JUnitCore @qualified 2>&1 | Tee-Object -FilePath (Join-Path $out 'tests.log')
 if ($LASTEXITCODE -ne 0) { throw 'input assembly tests failed' }
 $ledger = @(Get-Content -Raw -LiteralPath (Join-Path $out 'source-sha256.json') | ConvertFrom-Json | ForEach-Object { $_ })

@@ -54,7 +54,7 @@ try:
         record['apk_paths'] = paths
         record['apk_sha256'] = [adb('shell', 'sha256sum ' + p.removeprefix('package:')).strip() for p in paths]
     record['process'] = adb('shell', 'pidof com.coloros.findmyphone', absent_ok=True).strip()
-    logs = adb('logcat', '-d', '-v', 'threadtime', '-s', 'QiangJian:I', 'QiangJianFinder:I', '*:S')
+    logs = adb('logcat', '-d', '-v', 'threadtime', '-s', 'YueJie:I', 'YueJieFinder:I', '*:S')
     # Only implementation diagnostics, no raw OEM/account/clipboard/notification objects.
     record['module_logs'] = [line for line in logs.splitlines() if re.search(
         r'finder_|process=com.coloros.findmyphone|unsupported_package_identity|caller_verified|unsupported_hook_signature', line)]

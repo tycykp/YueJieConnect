@@ -1,4 +1,4 @@
-package io.github.qiangjian.connect;
+package io.github.yuejie.connect;
 import java.util.*;
 import org.json.*;
 import android.os.Handler;
@@ -10,7 +10,7 @@ import com.oplus.findphone.client.map.*;
 import io.github.libxposed.api.XposedModule;
 
 public final class OplusFinderUiCheck {
-    static final String ID="qj:"+"a".repeat(64);
+    static final String ID="yj:"+"a".repeat(64);
     static int checks;
     static void check(boolean value,String message){checks++;if(!value)throw new AssertionError(message);}
     static JSONObject selected(String session,boolean allowed)throws Exception{return new JSONObject().put("id",ID).put("session_id",session)

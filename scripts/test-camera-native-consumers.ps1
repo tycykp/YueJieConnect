@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $run = Join-Path $project ('build/camera-validation/native-consumers-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $run -Force | Out-Null
-$main = Join-Path $project 'android/module/src/main/java/io/github/qiangjian/connect'
+$main = Join-Path $project 'android/module/src/main/java/io/github/yuejie/connect'
 $own = @('CameraShareStillRequest','CameraShareJpeg','CameraShareStillReceipt','CameraShareStillSource','XiaomiCameraHardwareBinding','XiaomiCameraStillConsumer','XiaomiCameraNativeRequests')
 $dependencies = @('CameraShareConfig','CameraShareLease')
 $sources = @($own + $dependencies | ForEach-Object { Join-Path $main ($_ + '.java') })
@@ -23,7 +23,7 @@ $command = 'powershell -NoProfile -File scripts/test-camera-native-consumers.ps1
 $scope = 'New native consumers API37 compile only; unchanged model checks not rerun. No Camera2 exposure, native Surface write, preview render or APK claim.'
 if (-not $CompileOnly) {
     $ErrorActionPreference = 'Continue'
-    $testOutput = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.qiangjian.connect.CameraShareNativeConsumerChecks 2>&1
+    $testOutput = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.yuejie.connect.CameraShareNativeConsumerChecks 2>&1
     $testExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $testOutput | Out-File (Join-Path $run 'test.txt') -Encoding utf8

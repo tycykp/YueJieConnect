@@ -7,9 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/clipboard-validation'
-FILES = ['android/module/src/main/java/io/github/qiangjian/connect/' + name for name in
+FILES = ['android/module/src/main/java/io/github/yuejie/connect/' + name for name in
          ['ClipboardBridge.java', 'ClipboardUriReceiver.java', 'ClipboardUriRoutes.java', 'ClipboardUriCodec.java']]
-FILES += ['android/module/src/debug/java/io/github/qiangjian/connect/ClipboardNativeProbe.java']
+FILES += ['android/module/src/debug/java/io/github/yuejie/connect/ClipboardNativeProbe.java']
 FILES += ['scripts/' + name for name in ['test-clipboard-native.ps1', 'validate-clipboard-native.py',
     'validate-clipboard-probe.py', 'validate-clipboard-html-probe.py', 'validate-clipboard-uri-routes.py', 'record-clipboard-repair.py']]
 

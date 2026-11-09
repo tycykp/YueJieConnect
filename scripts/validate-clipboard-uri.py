@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/clipboard-validation/uri-host'
-MAIN = ROOT / 'android/module/src/main/java/io/github/qiangjian/connect'
+MAIN = ROOT / 'android/module/src/main/java/io/github/yuejie/connect'
 JDK = Path(os.environ.get('CLIPBOARD_JDK', r'C:\Program Files\Android\Android Studio\jbr')) / 'bin'
-PKG = 'io/github/qiangjian/connect'
+PKG = 'io/github/yuejie/connect'
 stubs = {
 'android/os/Looper.java': '''package android.os;
 public class Looper {static final Looper main=new Looper();public static boolean onMain;
@@ -29,13 +29,13 @@ public Item(CharSequence t,String h,android.net.Uri u,Object i){text=t;html=h;ur
 public CharSequence getText(){return text;}public String getHtmlText(){return html;}public android.net.Uri getUri(){return uri;}public Object getIntent(){return intent;}}
 final java.util.List<Item> items=new java.util.ArrayList<>();public ClipData(Item i){items.add(i);}public int getItemCount(){return items.size();}public Item getItemAt(int i){return items.get(i);}public void add(Item i){items.add(i);}}
 ''',
-PKG+'/FileTransferUris.java': '''package io.github.qiangjian.connect;
+PKG+'/FileTransferUris.java': '''package io.github.yuejie.connect;
 public class FileTransferUris {static java.io.File root;static byte[] bytes={0,1,2,(byte)255};static int reads;static boolean deny;
 public static FileTransferSource snapshot(android.content.Context c,android.net.Uri uri,String name,String mime,long size)throws java.io.IOException {
  reads++;if(deny)throw new SecurityException("private content://secret must not escape");
  return FileTransferSource.snapshot(root,new java.io.ByteArrayInputStream(bytes),name,mime,size);
 }}''',
-PKG+'/FileTransferClient.java': '''package io.github.qiangjian.connect;
+PKG+'/FileTransferClient.java': '''package io.github.yuejie.connect;
 public class FileTransferClient {public int sends;public FileTransferEngine.Key key;public FileTransferSource source;
 public java.util.concurrent.CompletableFuture<FileTransferEngine.Receipt> result=new java.util.concurrent.CompletableFuture<>();
 public boolean throwBeforeOwnership;
@@ -45,7 +45,7 @@ public java.util.concurrent.CompletableFuture<FileTransferEngine.Receipt> send(F
 }}
 ''',
 }
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.net.Uri;
 import java.io.*;import java.nio.file.*;import java.util.concurrent.*;import java.util.concurrent.atomic.*;
 public class ClipboardUriHarness {
@@ -60,11 +60,11 @@ public class ClipboardUriHarness {
  static void failed(CompletableFuture<?> f,String code){try{f.join();throw new AssertionError("accepted receipt");}catch(CompletionException e){check(code.equals(e.getCause().getMessage()),"future error "+code);}}
  static long files()throws Exception{try(var files=Files.list(FileTransferUris.root.toPath())){return files.count();}}
  public static void main(String[] args)throws Exception {
-  FileTransferUris.root=Files.createTempDirectory("qj-uri-test-").toFile();
+  FileTransferUris.root=Files.createTempDirectory("yj-uri-test-").toFile();
   try {
    android.os.Looper.onMain=true;rejects(()->prepare(clip()),"clipboard_uri_requires_worker");android.os.Looper.onMain=false;
    check(FileTransferUris.reads==0,"No I/O on main thread");
-   context.name="io.github.qiangjian.connect";rejects(()->prepare(clip()),"invalid_executor_context");context.name="com.oplus.linker";
+   context.name="io.github.yuejie.connect";rejects(()->prepare(clip()),"invalid_executor_context");context.name="com.oplus.linker";
    live.set(false);rejects(()->prepare(clip()),"stale_session");live.set(true);
    rejects(()->prepare(new ClipData(new ClipData.Item("caption",null,Uri.parse("content://synthetic/item"),null))),"unsupported_clipboard_format");
    rejects(()->prepare(new ClipData(new ClipData.Item(null,"<b>html</b>",Uri.parse("content://synthetic/item"),null))),"unsupported_clipboard_format");
@@ -121,7 +121,7 @@ def main():
     actual = [MAIN / name for name in ['ClipboardUriTransfer.java', 'FileTransferSource.java', 'FileTransferEngine.java']]
     for name, cmd in [
         ('compile', [JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes, *actual, *sources.rglob('*.java')]),
-        ('uri-tests', [JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardUriHarness'])]:
+        ('uri-tests', [JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardUriHarness'])]:
         result = subprocess.run([str(a) for a in cmd], cwd=ROOT, capture_output=True)
         output = result.stdout.decode('utf-8', 'replace') + result.stderr.decode('utf-8', 'replace')
         (OUT / (name + '.txt')).write_text(output, encoding='utf-8')

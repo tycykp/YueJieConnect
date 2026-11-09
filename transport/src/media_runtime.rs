@@ -249,7 +249,7 @@ impl MediaRuntime {
         let offer = MediaOffer::from_authenticated_control(self.inner.session, slot.id, slot.purpose, port, key.for_authenticated_control(), lifetime)?;
         let ticket = self.inner.authorization.authorize_stream(slot.id, slot.purpose, Role::Sender, key, lifetime).map_err(|_| "media_authorization_failed")?;
         let inner = self.inner.clone();
-        thread::Builder::new().name("qj-media-listen".into()).spawn(move || {
+        thread::Builder::new().name("yj-media-listen".into()).spawn(move || {
             let deadline = Instant::now() + OPEN_TIMEOUT;
             while slot.live() && !inner.ended.load(Ordering::SeqCst) {
                 if Instant::now() >= deadline { inner.close_slot(&slot, RuntimeCloseReason::OpenTimeout); return; }
@@ -279,7 +279,7 @@ impl MediaRuntime {
         let ticket = self.inner.authorization.authorize_stream(slot.id, slot.purpose, Role::Receiver, key, lifetime).map_err(|_| "media_authorization_failed")?;
         let mut address = self.inner.peer; address.set_port(offer.port);
         let inner = self.inner.clone();
-        thread::Builder::new().name("qj-media-connect".into()).spawn(move || {
+        thread::Builder::new().name("yj-media-connect".into()).spawn(move || {
             if !slot.live() { inner.close_slot(&slot, RuntimeCloseReason::Expired); return; }
             match TcpStream::connect_timeout(&address, OPEN_TIMEOUT.min(lifetime)) {
                 Ok(socket) => inner.ready(slot, socket, ticket),
@@ -355,7 +355,7 @@ impl MediaRuntime {
         if slot.role == Role::Receiver {
             let mut monitor = pipe.try_clone().map_err(|_| "media_pipe_invalid")?;
             let inner = self.inner.clone(); let observed = slot.clone();
-            thread::Builder::new().name("qj-media-pfd-death".into()).spawn(move || {
+            thread::Builder::new().name("yj-media-pfd-death".into()).spawn(move || {
                 let mut byte = [0; 1];
                 while observed.live() {
                     match monitor.read(&mut byte) {
@@ -368,7 +368,7 @@ impl MediaRuntime {
             }).map_err(|_| { self.inner.close_slot(&slot, RuntimeCloseReason::LocalPipeFailed); "media_worker_failed" })?;
         }
         let inner = self.inner.clone(); let selected = slot.clone();
-        thread::Builder::new().name("qj-media-pfd".into()).spawn(move || pump(inner, selected, pipe)).map_err(|_| {
+        thread::Builder::new().name("yj-media-pfd".into()).spawn(move || pump(inner, selected, pipe)).map_err(|_| {
             self.inner.close_slot(&slot, RuntimeCloseReason::LocalPipeFailed); "media_worker_failed"
         })?;
         Ok(())
@@ -539,7 +539,7 @@ mod tests {
     }
     fn packet(stream: u64, sequence: u64, size: usize) -> VideoPacket {
         let mut wire = Vec::with_capacity(40 + size);
-        wire.extend_from_slice(b"QJV1"); wire.extend_from_slice(&[0, 1, 0, 1]);
+        wire.extend_from_slice(b"YJV1"); wire.extend_from_slice(&[0, 1, 0, 1]);
         wire.extend_from_slice(&stream.to_be_bytes()); wire.extend_from_slice(&sequence.to_be_bytes());
         wire.extend_from_slice(&(sequence * 100).to_be_bytes()); wire.extend_from_slice(&(size as u32).to_be_bytes());
         wire.extend_from_slice(&[0; 4]); wire.resize(40 + size, 0x5a); VideoPacket::from_wire(wire).unwrap()
@@ -621,7 +621,7 @@ mod tests {
         assert!(runtime.listen_offer(7).is_err());
     }
     #[test]
-    fn real_pumps_round_trip_little_endian_length_and_one_mib_qjv1_without_json() {
+    fn real_pumps_round_trip_little_endian_length_and_one_mib_yjv1_without_json() {
         let (sender, _, receiver, _) = pair(); let (source_pipe, mut source) = local_pipe(); let (sink_pipe, mut sink) = local_pipe();
         sender.attach_pipe(7, source_pipe).unwrap(); receiver.attach_pipe(7, sink_pipe).unwrap();
         assert!(!sender.offer(7, packet(7, 1, 1))); assert_eq!(receiver.poll_packet(7).err(), Some("media_pipe_attached"));

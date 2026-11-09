@@ -8,7 +8,7 @@ $project = Split-Path $PSScriptRoot -Parent
 $output = Join-Path $project 'build/camera-validation'
 $run = Join-Path $output (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
 New-Item -ItemType Directory -Path $run -Force | Out-Null
-$main = Join-Path $project 'android/module/src/main/java/io/github/qiangjian/connect'
+$main = Join-Path $project 'android/module/src/main/java/io/github/yuejie/connect'
 $own = @(Get-ChildItem -LiteralPath $main -Filter 'CameraShare*.java') + @(Get-ChildItem -LiteralPath $main -Filter 'XiaomiCamera*.java') + @(Get-ChildItem -LiteralPath $main -Filter 'OplusCamera*.java')
 $dependencies = @('ScreenCastVideoEncoder','ScreenCastVideoDecoder','ScreenCastFormat','ScreenCastPacket','ScreenCastFrameQueue') | ForEach-Object { Get-Item -LiteralPath (Join-Path $main ($_ + '.java')) }
 $sources = @($own + $dependencies | ForEach-Object { $_.FullName })
@@ -31,7 +31,7 @@ if (-not $CompileOnly) {
     $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw "Camera checks compilation failed; see $run/test-compile.txt" }
     $ErrorActionPreference = 'Continue'
-    $testOutput = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.qiangjian.connect.CameraShareModelChecks 2>&1
+    $testOutput = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.yuejie.connect.CameraShareModelChecks 2>&1
     $testExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $testOutput | Out-File -LiteralPath (Join-Path $run 'test.txt') -Encoding utf8

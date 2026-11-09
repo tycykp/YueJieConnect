@@ -1,8 +1,8 @@
 //! File-scoped stop-and-wait ledger. Chunk RPCs do not consume the generic 256-request map.
 //! Exactly four active files and 256 non-evictable transfer identities per actual Noise session.
 use super::AsyncRequest;
-use qj_core::gateway::Operation;
-use qj_transport::{
+use yj_core::gateway::Operation;
+use yj_transport::{
     executor::file_operation,
     file_transfer::{self, Command, Offer},
 };

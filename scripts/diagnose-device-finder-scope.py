@@ -16,14 +16,14 @@ lease = dict(task='device-finder-scope-diagnosis', threadId='01a1bbe4-f070-7731-
              utc=datetime.datetime.now(datetime.timezone.utc).isoformat(), lease=uuid.uuid4().hex)
 record = dict(command='python scripts/diagnose-device-finder-scope.py', utc=lease['utc'],
               script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-              scope='Read-only LSPosed configuration for io.github.qiangjian.connect only; no UI or restart')
+              scope='Read-only LSPosed configuration for io.github.yuejie.connect only; no UI or restart')
 owned = False
 try:
     fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     owned = True
     with os.fdopen(fd, 'w', encoding='utf-8') as handle:
         json.dump(lease, handle)
-    with tempfile.TemporaryDirectory(prefix='qj-finder-scope-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='yj-finder-scope-') as temporary:
         db = Path(temporary) / 'modules_config.db'
         for suffix in ('', '-wal', '-shm'):
             result = subprocess.run(['C:/adb/adb.exe', '-s', '3B161Q00YN200000', 'exec-out',
@@ -36,14 +36,14 @@ try:
         try:
             record['schema'] = connection.execute("SELECT name,sql FROM sqlite_master WHERE type='table'").fetchall()
             columns = [r[1] for r in connection.execute('PRAGMA table_info(modules)')]
-            rows = connection.execute('SELECT * FROM modules WHERE module_pkg_name=?', ('io.github.qiangjian.connect',)).fetchall()
+            rows = connection.execute('SELECT * FROM modules WHERE module_pkg_name=?', ('io.github.yuejie.connect',)).fetchall()
             record['module'] = [dict(zip(columns, row)) for row in rows]
             scope_columns = [r[1] for r in connection.execute('PRAGMA table_info(scope)')]
             record['module_scope'] = [dict(zip(scope_columns, row)) for row in connection.execute(
-                'SELECT * FROM scope WHERE module_pkg_name=?', ('io.github.qiangjian.connect',))]
+                'SELECT * FROM scope WHERE module_pkg_name=?', ('io.github.yuejie.connect',))]
             state_columns = [r[1] for r in connection.execute('PRAGMA table_info(modules_state)')]
             record['module_state'] = [dict(zip(state_columns, row)) for row in connection.execute(
-                'SELECT * FROM modules_state WHERE module_pkg_name=?', ('io.github.qiangjian.connect',))]
+                'SELECT * FROM modules_state WHERE module_pkg_name=?', ('io.github.yuejie.connect',))]
         finally:
             connection.close()
     record['result'] = 'collected'

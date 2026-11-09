@@ -40,7 +40,9 @@ pub enum Operation {
     MediaControl,
     ScreenVideo,
     ScreenControl,
+    ScreenInput,
     ScreenRequest,
+    ScreenDrag,
     CameraVideo,
     TelephonyCallState,
     TelephonyCallControl,
@@ -243,13 +245,13 @@ pub fn validate(real: &RealDevice) -> Result<(), GatewayError> {
 
 fn alias(target: Source, key: &[u8; 32]) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"qiangjian/projection/v1\0");
+    digest.update(b"yuejie/projection/v1\0");
     digest.update([match target {
         Source::HyperOs4 => 1,
         Source::ColorOs17 => 2,
     }]);
     digest.update(key);
-    format!("qj:{}", hex(&digest.finalize()))
+    format!("yj:{}", hex(&digest.finalize()))
 }
 
 /// Based on the sampled DeviceTypeV2 and Pantaconnect DeviceType enum, not brand strings.
@@ -360,7 +362,7 @@ mod tests {
         assert_eq!(
             gateway.route(
                 Source::ColorOs17,
-                "qj:forged",
+                "yj:forged",
                 Operation::DeviceProfile,
                 1,
                 1

@@ -9,8 +9,8 @@ $javaBin = 'C:\Program Files\Android\Android Studio\jbr\bin'
 $sdk = Join-Path $env:LOCALAPPDATA 'Android/Sdk'
 $androidJar = Join-Path $sdk 'platforms/android-37.0/android.jar'
 $adb = Join-Path $sdk 'platform-tools/adb.exe'
-$source = Join-Path $project 'android/module/src/debug/java/io/github/qiangjian/connect/CameraShareCapabilityProbe.java'
-$main = Join-Path $project 'android/module/src/main/java/io/github/qiangjian/connect'
+$source = Join-Path $project 'android/module/src/debug/java/io/github/yuejie/connect/CameraShareCapabilityProbe.java'
+$main = Join-Path $project 'android/module/src/main/java/io/github/yuejie/connect'
 $sources = @($source) + @('CameraShareConfig','CameraShareLease','CameraShareSource','CameraShareStillSession','CameraShareStillRequest','CameraShareStillSource','CameraShareJpeg' | ForEach-Object { Join-Path $main ($_ + '.java') })
 $ErrorActionPreference = 'Continue'
 & (Join-Path $javaBin 'javac.exe') '-J-Duser.language=en' --release 17 -encoding UTF-8 -cp $androidJar -d $classes @sources 2>&1 | Out-File (Join-Path $out 'compile.log') -Encoding utf8
@@ -26,7 +26,7 @@ try {
     & (Join-Path $sdk 'build-tools/37.0.0/d8.bat') --min-api 37 --lib $androidJar --output $dex $classJar
     if ($LASTEXITCODE -ne 0) { throw 'Camera metadata probe dex failed' }
 } finally { $env:JAVA_HOME = $oldJava }
-$probe = Join-Path $out 'qj-camera-metadata.jar'
+$probe = Join-Path $out 'yj-camera-metadata.jar'
 & (Join-Path $javaBin 'jar.exe') cf $probe -C $dex classes.dex
 if ($LASTEXITCODE -ne 0) { throw 'Camera metadata dex jar failed' }
 $lockDir = Join-Path $project 'build/coordination-locks'
@@ -40,19 +40,19 @@ try {
     $lock.Flush()
     foreach ($serial in $Serials) {
         if ($serial -notin @('b59f8656','3B161Q00YN200000')) { throw 'Unknown camera test device' }
-        & $adb -s $serial push $probe /data/local/tmp/qj-camera-metadata.jar
+        & $adb -s $serial push $probe /data/local/tmp/yj-camera-metadata.jar
         if ($LASTEXITCODE -ne 0) { throw "Metadata probe push failed $serial" }
         try {
             $ErrorActionPreference = 'Continue'
-            $lines = & $adb -s $serial shell 'CLASSPATH=/data/local/tmp/qj-camera-metadata.jar timeout 12 app_process /system/bin io.github.qiangjian.connect.CameraShareCapabilityProbe 2>&1' 2>&1
+            $lines = & $adb -s $serial shell 'CLASSPATH=/data/local/tmp/yj-camera-metadata.jar timeout 12 app_process /system/bin io.github.yuejie.connect.CameraShareCapabilityProbe 2>&1' 2>&1
             $probeExit = $LASTEXITCODE
             $ErrorActionPreference = 'Stop'
             $lines | Out-File (Join-Path $out "$serial.log") -Encoding utf8
             if ($probeExit -ne 0) { throw "Camera metadata probe failed $serial" }
-            $metadata = @($lines | Where-Object { $_ -like 'QJ_CAMERA_METADATA *' })
+            $metadata = @($lines | Where-Object { $_ -like 'YJ_CAMERA_METADATA *' })
             if ($metadata.Count -ne 1) { throw "Camera metadata result missing $serial" }
             $metadata[0].Substring(19) | Out-File (Join-Path $out "$serial.json") -Encoding utf8
-        } finally { & $adb -s $serial shell rm /data/local/tmp/qj-camera-metadata.jar }
+        } finally { & $adb -s $serial shell rm /data/local/tmp/yj-camera-metadata.jar }
     }
     @($sources + @($probe,$PSCommandPath)) | ForEach-Object { Get-FileHash -LiteralPath $_ -Algorithm SHA256 } | Select-Object Path,Hash | ConvertTo-Json | Out-File (Join-Path $out 'source-sha256.json') -Encoding utf8
     Write-Output "PASS camera metadata only; no open/capture/permission changes. Evidence: $out"

@@ -20,7 +20,7 @@ def sha(path):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     manifest = OUT / "Cargo.toml"
-    manifest.write_text('[package]\nname = "qj-media-control-validation"\nversion = "0.0.0"\nedition = "2021"\n'
+    manifest.write_text('[package]\nname = "yj-media-control-validation"\nversion = "0.0.0"\nedition = "2021"\n'
                         '[workspace]\n[lib]\npath = "lib.rs"\n'
                         '[dependencies]\nserde = { version = "=1.0.228", features = ["derive"] }\n'
                         'serde_json = "=1.0.145"\n', encoding="utf-8")

@@ -18,7 +18,7 @@ from debug_control import command
 ROOT = Path(__file__).resolve().parents[1]
 DEVICES = {"b59f8656": "com.milink.service", "3B161Q00YN200000": "com.oplus.linker"}
 TASK = "01a1bbe4-e840-7143-bb3f-9684d9fcea49"
-PKG = "io.github.qiangjian.connect"
+PKG = "io.github.yuejie.connect"
 ACTION = PKG + ".NETWORK_READINESS"
 parser = argparse.ArgumentParser()
 parser.add_argument("--apk", type=Path, required=True)
@@ -54,12 +54,12 @@ def adb(serial, *parts, binary=False):
 
 
 def events(serial):
-    log = adb(serial, "shell", "logcat", "-d", "-v", "brief", "-s", "QiangJianNetworkTest:I", "*:S")
+    log = adb(serial, "shell", "logcat", "-d", "-v", "brief", "-s", "YueJieNetworkTest:I", "*:S")
     parsed = []
     for line in log.splitlines():
         offset = line.find('{"event":')
         if offset < 0: continue
-        logger = re.search(r"QiangJianNetworkTest\(\s*(\d+)\)", line[:offset])
+        logger = re.search(r"YueJieNetworkTest\(\s*(\d+)\)", line[:offset])
         if not logger: continue
         try: value = json.loads(line[offset:])
         except json.JSONDecodeError: continue
@@ -103,12 +103,12 @@ def verify_candidate():
     if metadata["sha256"] != digest: raise RuntimeError("Stable candidate APK digest mismatch")
     revision = metadata["runtime_input_sha"]
     if not re.fullmatch("[a-f0-9]{64}", revision): raise RuntimeError("Runtime input proof required")
-    required = list((ROOT / "android/module/src/main/java/io/github/qiangjian/connect").glob("NetworkShare*.java"))
-    required += [ROOT / "android/module/src/main/java/io/github/qiangjian/connect" / name for name in ("XiaomiNetworkAdapter.java", "OplusNetworkAdapter.java")]
-    required += [ROOT / "android/module/src/debug/java/io/github/qiangjian/connect/NetworkShareNativeProbe.java"]
+    required = list((ROOT / "android/module/src/main/java/io/github/yuejie/connect").glob("NetworkShare*.java"))
+    required += [ROOT / "android/module/src/main/java/io/github/yuejie/connect" / name for name in ("XiaomiNetworkAdapter.java", "OplusNetworkAdapter.java")]
+    required += [ROOT / "android/module/src/debug/java/io/github/yuejie/connect/NetworkShareNativeProbe.java"]
     required += [ROOT / p for p in ["transport/src/stable_channel.rs", "transport/src/bridge.rs",
                  "native/src/lib.rs", "core/src/gateway.rs", "android/module/src/main/AndroidManifest.xml",
-                 *["android/module/src/main/java/io/github/qiangjian/connect/" + p + ".java"
+                 *["android/module/src/main/java/io/github/yuejie/connect/" + p + ".java"
                    for p in ("BridgeClient", "BridgeService", "DiscoveryModule", "MainActivity")]]]
     for source in required:
         if inputs.get(source.relative_to(ROOT).as_posix()) != hashlib.sha256(source.read_bytes()).hexdigest():
@@ -118,7 +118,7 @@ def verify_candidate():
                   network_source_sha256={s.relative_to(ROOT).as_posix(): hashlib.sha256(s.read_bytes()).hexdigest() for s in required})
     aapt = Path.home() / "AppData/Local/Android/Sdk/build-tools/37.0.0/aapt2.exe"
     badging = subprocess.check_output([str(aapt), "dump", "badging", str(args.apk)], timeout=20).decode("utf-8", "replace").splitlines()[0]
-    version = re.search(r"name='io.github.qiangjian.connect' versionCode='(\d+)' versionName='([^']+)'", badging)
+    version = re.search(r"name='io.github.yuejie.connect' versionCode='(\d+)' versionName='([^']+)'", badging)
     if not version: raise RuntimeError("Unexpected candidate package/version")
     record.update(apk_version_code=int(version[1]), apk_version_name=version[2])
     for serial in DEVICES:

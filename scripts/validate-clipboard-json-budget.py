@@ -90,10 +90,10 @@ def worst_pair():
     return worst, split, witness(split[0]), witness(split[1])
 
 
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import org.json.*;import java.nio.charset.StandardCharsets;import java.nio.file.*;
 public class ClipboardJsonBudgetHarness {
- static int cases,max;static final String ID="qj:"+"f".repeat(64),SESSION="a".repeat(64);
+ static int cases,max;static final String ID="yj:"+"f".repeat(64),SESSION="a".repeat(64);
  static JSONObject envelope(ClipboardRichContent.Html html)throws Exception {return new JSONObject().put("op","bridge_submit").put("projection_id",ID)
  .put("session_id",SESSION).put("request_id","r".repeat(128)).put("operation","clipboard_rich_write")
  .put("payload",ClipboardRichCodec.encode(html)).put("token","f".repeat(128)).put("sequence",Long.MAX_VALUE);}
@@ -136,12 +136,12 @@ def main():
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
         *actual, *json_sources, *sorted(sources.rglob('*.java')))
-    rich.run('json-budget-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardJsonBudgetHarness', p, h, worst)
+    rich.run('json-budget-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardJsonBudgetHarness', p, h, worst)
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-json-budget.py',
         source_sha256={str(f.relative_to(ROOT)):hashlib.sha256(f.read_bytes()).hexdigest() for f in [*actual,Path(__file__),ROOT/'scripts/validate-clipboard-rich.py']},
         android_json_sha256={str(f.relative_to(ROOT)):hashlib.sha256(f.read_bytes()).hexdigest() for f in json_sources},
         escaped_base64_chars_exact_upper_bound=worst,worst_raw_split=split,
-        scope='all valid UTF8 <=4096 bytes split into plain+nonempty HTML; current qj:64-hex ID, conservative 128-byte token/request',
+        scope='all valid UTF8 <=4096 bytes split into plain+nonempty HTML; current yj:64-hex ID, conservative 128-byte token/request',
         result='passed',apk=None,device_operations=False),indent=2),encoding='utf-8')
 
 

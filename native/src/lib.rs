@@ -4,10 +4,10 @@ use jni::{
     sys::{jboolean, jint, jlong, jstring},
     JNIEnv,
 };
-use qj_core::gateway::{Operation, RealDevice};
-use qj_core::{Caller, Engine, Source};
-use qj_transport::bridge::{BatteryReader, Bridge, Identity, OperationResult};
-use qj_transport::executor::{execution_error, ExecutorOwner};
+use yj_core::gateway::{Operation, RealDevice};
+use yj_core::{Caller, Engine, Source};
+use yj_transport::bridge::{BatteryReader, Bridge, Identity, OperationResult};
+use yj_transport::executor::{execution_error, ExecutorOwner};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -33,11 +33,55 @@ struct AsyncRequest {
 }
 static REQUESTS: OnceLock<Mutex<BTreeMap<AsyncKey, AsyncRequest>>> = OnceLock::new();
 static FILE_REQUESTS: OnceLock<Mutex<file_requests::FileRequests>> = OnceLock::new();
+
+fn consume_request_result(requests: &mut BTreeMap<AsyncKey, AsyncRequest>, key: AsyncKey) -> Value {
+    let entry = requests.get(&key).expect("request checked before consumption");
+    let response = request_response(entry.result.as_ref(), &key.3, &key.2);
+    // Screen input is a sequenced stream, not a business mutation needing a session-long
+    // tombstone per RPC. Android rejects old sequence numbers before injecting, and rejects
+    // retired stream IDs. Keep pending receipts, but retire completed ones after delivery.
+    // Otherwise a few seconds of dragging exhaust the shared 256-entry request budget.
+    if entry.result.is_some() && (entry.read_only || entry.operation == Operation::ScreenInput) {
+        requests.remove(&key);
+    }
+    response
+}
+
+#[cfg(test)]
+mod input_request_tests {
+    use super::*;
+    #[test]
+    fn continuous_input_releases_receipts_but_preserves_pending_and_mutations() {
+        let mut requests = BTreeMap::new();
+        for sequence in 1..=10_000 {
+            let key = (10, 20, "session".to_owned(), format!("input:1:{sequence}"));
+            let (_send, receive) = std::sync::mpsc::channel();
+            requests.insert(key.clone(), AsyncRequest {
+                wire_id: sequence, operation: Operation::ScreenInput, payload_hash: [0; 32],
+                read_only: false, receive, result: None,
+            });
+            assert_eq!(consume_request_result(&mut requests, key.clone())["status"], "pending");
+            assert_eq!(requests.len(), 1);
+            requests.get_mut(&key).unwrap().result = Some(Err("replay"));
+            assert_ne!(consume_request_result(&mut requests, key)["status"], "pending");
+            assert!(requests.is_empty());
+        }
+        let key = (10, 20, "session".to_owned(), "business".to_owned());
+        let (_send, receive) = std::sync::mpsc::channel();
+        requests.insert(key.clone(), AsyncRequest {
+            wire_id: 10_001, operation: Operation::ScreenControl, payload_hash: [0; 32],
+            read_only: false, receive, result: Some(Err("native_unavailable")),
+        });
+        let first = consume_request_result(&mut requests, key.clone());
+        assert_eq!(first, consume_request_result(&mut requests, key));
+        assert_eq!(requests.len(), 1);
+    }
+}
 type MediaOwner = (
     u32,
     u32,
-    qj_transport::media_channel::Purpose,
-    qj_transport::media_channel::Role,
+    yj_transport::media_channel::Purpose,
+    yj_transport::media_channel::Role,
 );
 static MEDIA_OWNERS: OnceLock<Mutex<BTreeMap<(String, u64), MediaOwner>>> = OnceLock::new();
 
@@ -51,8 +95,8 @@ enum BridgeCommand {
         session_id: String,
         projection_id: String,
         stream_id: u64,
-        purpose: qj_transport::media_channel::Purpose,
-        role: qj_transport::media_channel::Role,
+        purpose: yj_transport::media_channel::Purpose,
+        role: yj_transport::media_channel::Role,
         lifetime_ms: u64,
     },
     BridgeMediaStatus {
@@ -61,8 +105,8 @@ enum BridgeCommand {
         session_id: String,
         projection_id: String,
         stream_id: u64,
-        purpose: qj_transport::media_channel::Purpose,
-        role: qj_transport::media_channel::Role,
+        purpose: yj_transport::media_channel::Purpose,
+        role: yj_transport::media_channel::Role,
     },
     BridgeMediaClose {
         token: String,
@@ -196,8 +240,8 @@ fn require_media_owner(
     pid: u32,
     session: &str,
     stream: u64,
-    purpose: qj_transport::media_channel::Purpose,
-    role: qj_transport::media_channel::Role,
+    purpose: yj_transport::media_channel::Purpose,
+    role: yj_transport::media_channel::Role,
 ) -> Result<(), &'static str> {
     let owners = MEDIA_OWNERS
         .get_or_init(|| Mutex::new(BTreeMap::new()))
@@ -219,11 +263,11 @@ struct MediaAttach {
     session_id: String,
     projection_id: String,
     stream_id: u64,
-    purpose: qj_transport::media_channel::Purpose,
-    role: qj_transport::media_channel::Role,
+    purpose: yj_transport::media_channel::Purpose,
+    role: yj_transport::media_channel::Role,
 }
 #[no_mangle]
-pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_attachMedia(
+pub extern "system" fn Java_io_github_yuejie_connect_NativeCore_attachMedia(
     mut env: JNIEnv,
     _: JClass,
     uid: jint,
@@ -281,7 +325,7 @@ pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_attachMedia(
             if bridge
                 .media_status(&request.session_id, request.stream_id)?
                 .phase
-                != qj_transport::media_runtime::Phase::Ready
+                != yj_transport::media_runtime::Phase::Ready
             {
                 return Err("media_not_ready");
             }
@@ -347,7 +391,7 @@ fn file_result(
 }
 
 fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
-    if text.len() > qj_core::MAX_INPUT {
+    if text.len() > yj_core::MAX_INPUT {
         return Err("payload_too_large");
     }
     let value: Value = serde_json::from_str(text).map_err(|_| "invalid_request")?;
@@ -424,10 +468,10 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
             )?;
             let state = bridge.media_status(&session_id, stream_id)?;
             let phase = match state.phase {
-                qj_transport::media_runtime::Phase::Registered => "registered",
-                qj_transport::media_runtime::Phase::Opening => "opening",
-                qj_transport::media_runtime::Phase::Ready => "ready",
-                qj_transport::media_runtime::Phase::Closed => "closed",
+                yj_transport::media_runtime::Phase::Registered => "registered",
+                yj_transport::media_runtime::Phase::Opening => "opening",
+                yj_transport::media_runtime::Phase::Ready => "ready",
+                yj_transport::media_runtime::Phase::Closed => "closed",
             };
             Ok(
                 json!({"status":"ok","session_id":session_id,"stream_id":stream_id,"purpose":purpose,"role":role,"phase":phase}),
@@ -504,7 +548,7 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
                 return Err("stale_session");
             }
             if caller.source != Some(snapshot.local.platform)
-                || !qj_transport::executor::valid_channel(&transfer)
+                || !yj_transport::executor::valid_channel(&transfer)
             {
                 return Err("forbidden");
             }
@@ -583,7 +627,7 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
                 return Err("forbidden");
             }
             let payload_hash: [u8; 32] = Sha256::digest(payload.to_string()).into();
-            if qj_transport::executor::file_operation(operation).is_some() {
+            if yj_transport::executor::file_operation(operation).is_some() {
                 let mut files = FILE_REQUESTS
                     .get_or_init(|| Mutex::new(file_requests::FileRequests::default()))
                     .lock()
@@ -729,11 +773,7 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
                     bridge.cancel_operation(&session_id, entry.wire_id)?;
                 }
             }
-            let response = request_response(entry.result.as_ref(), &request_id, &session_id);
-            if entry.result.is_some() && entry.read_only {
-                requests.remove(&(caller.uid, caller.pid, session_id, request_id));
-            }
-            Ok(response)
+            Ok(consume_request_result(&mut requests, (caller.uid, caller.pid, session_id, request_id)))
         }
         BridgeCommand::BridgeOperation {
             token,
@@ -877,7 +917,7 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_initialize(
+pub extern "system" fn Java_io_github_yuejie_connect_NativeCore_initialize(
     mut env: JNIEnv,
     class: JClass,
     path: JString,
@@ -937,8 +977,8 @@ pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_initialize(
     }));
     let result = match result {
         Ok(Ok(v)) => v,
-        Ok(Err(e)) => qj_core::error(e),
-        Err(_) => qj_core::error("core_panic"),
+        Ok(Err(e)) => yj_core::error(e),
+        Err(_) => yj_core::error("core_panic"),
     };
     match env.new_string(result.to_string()) {
         Ok(s) => s.into_raw(),
@@ -947,7 +987,7 @@ pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_initialize(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_dispatch(
+pub extern "system" fn Java_io_github_yuejie_connect_NativeCore_dispatch(
     mut env: JNIEnv,
     _: JClass,
     uid: jint,
@@ -976,8 +1016,8 @@ pub extern "system" fn Java_io_github_qiangjian_connect_NativeCore_dispatch(
     }));
     let output = match result {
         Ok(Ok(text)) => text,
-        Ok(Err(code)) => qj_core::error(code).to_string(),
-        Err(_) => qj_core::error("core_panic").to_string(),
+        Ok(Err(code)) => yj_core::error(code).to_string(),
+        Err(_) => yj_core::error("core_panic").to_string(),
     };
     match env.new_string(output) {
         Ok(s) => s.into_raw(),

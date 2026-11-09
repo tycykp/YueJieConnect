@@ -18,18 +18,18 @@ val runtimeInputDigest = MessageDigest.getInstance("SHA-256").apply {
     }
 }.digest().joinToString("") { "%02x".format(it) }
 android {
-    namespace = "io.github.qiangjian.connect"
+    namespace = "io.github.yuejie.connect"
     compileSdk = 37
     buildToolsVersion = "37.0.0"
     ndkVersion = "29.0.14206865"
     enableKotlin = false
     defaultConfig {
-        applicationId = "io.github.qiangjian.connect"
+        applicationId = "io.github.yuejie.connect"
         // This build is limited to the two Android 17 samples under review.
         minSdk = 37
         targetSdk = 37
-        versionCode = 28
-        versionName = "0.6.7-screen-close"
+        versionCode = 31
+        versionName = "0.7.0-screen-files"
         buildConfigField("String", "RUNTIME_INPUT_SHA", "\"$runtimeInputDigest\"")
         ndk { abiFilters += "arm64-v8a" }
     }

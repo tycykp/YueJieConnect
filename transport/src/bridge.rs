@@ -1,8 +1,8 @@
-//! QiangJian's own authenticated bridge, not an emulation of Lyra/SCP wire protocol.
+//! YueJie's own authenticated bridge, not an emulation of Lyra/SCP wire protocol.
 //! Noise XX + human comparison of a 48-bit transcript code on BOTH devices.
 use crate::battery::BatteryStatus;
 use crate::executor::{validate_payload, ExecutorOwner, VendorMailbox, VendorTask};
-use qj_core::{
+use yj_core::{
     gateway::{ConfirmedLink, Gateway, GatewayError, Operation, Projection, RealDevice},
     Source,
 };
@@ -24,7 +24,7 @@ use std::{
 };
 
 const PATTERN: &str = "Noise_XX_25519_ChaChaPoly_SHA256";
-const PROLOGUE: &[u8] = b"qiangjian-connect/bridge/v8";
+const PROLOGUE: &[u8] = b"yuejie-connect/bridge/v8";
 const MAX_FRAME: usize = 16_384;
 const SESSION_MS: u64 = 900_000;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -185,7 +185,9 @@ pub enum OperationResult {
     TelephonyCallControl(Value),
     TelephonySmsStatus(Value),
     ScreenControl(Value),
+    ScreenInput(Value),
     ScreenRequest(Value),
+    ScreenDrag(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,6 +225,8 @@ pub struct RichClipboardReceipt {
 impl OperationResult {
     pub(crate) fn matches(&self, operation: Operation, peer: &[u8; 32]) -> bool {
         match (operation, self) {
+            (Operation::ScreenDrag, Self::ScreenDrag(r)) => crate::screen_drag::receipt(r),
+            (Operation::ScreenInput, Self::ScreenInput(r)) => crate::screen_input::receipt(r),
             (Operation::ScreenControl, Self::ScreenControl(r)) => crate::screen_control::receipt(r),
             (Operation::ScreenRequest, Self::ScreenRequest(r)) => crate::screen_control::request_receipt(r),
             (Operation::TelephonyCallState, Self::TelephonyCallState(r))
@@ -232,7 +236,7 @@ impl OperationResult {
                     .is_some_and(|op| crate::telephony::valid_receipt(op, r))
             }
             (Operation::DeviceProfile, Self::DeviceProfile(p)) => {
-                &p.peer_key == peer && qj_core::gateway::validate(p).is_ok()
+                &p.peer_key == peer && yj_core::gateway::validate(p).is_ok()
             }
             (Operation::BatteryStatus, Self::BatteryStatus(b)) => b.validate().is_ok(),
             (Operation::AppRelay, Self::AppRelay(r)) => r.valid(),
@@ -305,7 +309,7 @@ impl Bridge {
         if battery_reader.is_some() {
             profile.operations.insert(Operation::BatteryStatus);
         }
-        qj_core::gateway::validate(&profile).map_err(|_| "invalid_local_profile")?;
+        yj_core::gateway::validate(&profile).map_err(|_| "invalid_local_profile")?;
         let view = Snapshot {
             phase: "stopped",
             session: String::new(),
@@ -663,6 +667,7 @@ impl Bridge {
                     | Operation::FileTransfer
                     | Operation::ClipboardUriWrite
                     | Operation::MediaControl
+                    | Operation::ScreenInput
                     | Operation::ScreenVideo
                     | Operation::CameraVideo
                     | Operation::TelephonyCallState
@@ -676,6 +681,7 @@ impl Bridge {
         if granted.contains(&Operation::ScreenVideo) {
             granted.insert(Operation::ScreenControl);
             granted.insert(Operation::ScreenRequest);
+            if granted.contains(&Operation::FileTransfer) { granted.insert(Operation::ScreenDrag); }
         }
         if granted.contains(&Operation::FileTransfer) {
             granted.extend([
@@ -975,7 +981,7 @@ impl Bridge {
             .try_into()
             .map_err(|_| "invalid_handshake")?;
         let session = hex(&transcript);
-        let code_hash = Sha256::digest([b"qj-compare-v1".as_slice(), &transcript].concat());
+        let code_hash = Sha256::digest([b"yj-compare-v1".as_slice(), &transcript].concat());
         let code = format!("{}-{}", hex(&code_hash[..3]), hex(&code_hash[3..6]));
         let mut noise = hs.into_transport_mode().map_err(|_| "handshake_failed")?;
         let (tx, rx) = mpsc::sync_channel(32);
@@ -1427,7 +1433,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use qj_core::gateway::DeviceKind;
+    use yj_core::gateway::DeviceKind;
     fn profile(platform: Source) -> RealDevice {
         RealDevice {
             peer_key: [0; 32],
@@ -1617,7 +1623,7 @@ mod tests {
                     transfer_id: "00000000-2222-3333-4444-555555555555".into(),
                     index: 0,
                     sha256: "a".repeat(64),
-                    data: "UUpOMQQAAAABawAAAAAAAAABAAAABnBvc3RlZA==".into(),
+                    data: "WUpOMQQAAAABawAAAAAAAAABAAAABnBvc3RlZA==".into(),
                 };
                 assert_eq!(
                     b.complete_executor(
@@ -2153,7 +2159,7 @@ mod tests {
         assert_eq!(
             a.request_operation(
                 Source::HyperOs4,
-                "qj:unregistered",
+                "yj:unregistered",
                 &next.session_id,
                 Operation::BatteryStatus
             ),

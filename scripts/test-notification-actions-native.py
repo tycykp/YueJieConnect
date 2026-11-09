@@ -14,12 +14,12 @@ from debug_control import command
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = 'notifications 01a1bbe4-dde6-7732-9ead-763df753f644'
-PKG = 'io.github.qiangjian.connect'
+PKG = 'io.github.yuejie.connect'
 DEVICES = ['b59f8656', '3B161Q00YN200000']
 OPS = ['device_profile', 'battery_status', 'notification_post', 'notification_remove', 'notification_action']
 COMPONENT = PKG + '/.NotificationSyncListener'
 HELPER = ROOT / 'build/notifications-validation/repair-round3/ui-probe/probe.jar'
-REMOTE_HELPER = '/data/local/tmp/qj-notification-ui-repair.jar'
+REMOTE_HELPER = '/data/local/tmp/yj-notification-ui-repair.jar'
 
 
 def sha(path):
@@ -73,7 +73,7 @@ def hierarchy(serial, identifier):
         data = helper(serial, identifier, 'snapshot')
     begin = data.find('<?xml')
     if begin < 0:
-        temporary = '/data/local/tmp/qj-notification-actions-repair.xml'
+        temporary = '/data/local/tmp/yj-notification-actions-repair.xml'
         try:
             adb(serial, 'shell', 'uiautomator', 'dump', '--compressed', temporary)
             data = adb(serial, 'shell', 'cat', temporary)
@@ -121,7 +121,7 @@ def card(tree, identifier):
 
 def safe_tree(tree, identifier):
     selected = card(tree, identifier)
-    allowed = ['越界合成通知 ' + str(identifier), '测试动作', '测试回复', '在来源设备移除', '展开', 'Expand', '收起', 'Collapse', 'QJ-test-reply']
+    allowed = ['越界合成通知 ' + str(identifier), '测试动作', '测试回复', '在来源设备移除', '展开', 'Expand', '收起', 'Collapse', 'YJ-test-reply']
     return {'synthetic_card_found': selected is not None, 'nodes': [
         {'text': n.get('text') if n.get('text') in allowed else '',
          'resource_id': n.get('resource-id', ''), 'class': n.get('class', ''),
@@ -196,7 +196,7 @@ def native_action(serial, identifier, kind, record):
         if len(inputs) != 1:
             raise RuntimeError('Unique native RemoteInput field unavailable')
         if 'synthetic_actions' in record['mirror_observed']:
-            adb(serial, 'shell', 'input', 'text', 'QJ-test-reply')
+            adb(serial, 'shell', 'input', 'text', 'YJ-test-reply')
             record['reply_input'] = 'fixed_ascii_platform_keyboard'
         elif 'reply_text_set' in helper(serial, identifier, 'reply-text'):
             record['reply_input'] = 'fixed_chinese_native_edit_text'

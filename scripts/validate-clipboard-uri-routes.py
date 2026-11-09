@@ -11,7 +11,7 @@ spec.loader.exec_module(receive)
 rich = receive.rich
 OUT = ROOT / 'build/clipboard-validation/uri-routes-host'
 rich.OUT = OUT
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.os.*;import java.util.*;import java.util.concurrent.*;import org.json.*;
 public class ClipboardUriRoutesHarness extends ClipboardUriReceiverHarness {
  static ClipboardUriRoutes routes(){return new ClipboardUriRoutes(endpoint,echoes,()->allowed,()->projection);}
@@ -94,7 +94,7 @@ def main():
     inputs = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
         *actual, *json_sources, *sorted(sources.rglob('*.java')))
-    rich.run('uri-routes-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardUriRoutesHarness')
+    rich.run('uri-routes-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardUriRoutesHarness')
     races = [p for p, digest in inputs.items() if hashlib.sha256((ROOT / p).read_bytes()).hexdigest() != digest]
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-routes.py',
         result='passed' if not races else 'source_changed', apk=None, device_operations=False,

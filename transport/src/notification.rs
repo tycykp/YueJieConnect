@@ -163,7 +163,7 @@ fn valid_native_receipt(bytes: &[u8]) -> bool {
         *rest = rest.get(size..)?;
         Some(value)
     }
-    if bytes.get(..5) != Some(b"QJN1\x04") {
+    if bytes.get(..5) != Some(b"YJN1\x04") {
         return false;
     }
     let mut rest = &bytes[5..];
@@ -233,7 +233,7 @@ mod tests {
             transfer_id: payload["transfer_id"].as_str().unwrap().into(),
             index: 0,
             sha256: "a".repeat(64),
-            data: "UUpOMQQAAAABawAAAAAAAAABAAAABnBvc3RlZA==".into(),
+            data: "WUpOMQQAAAABawAAAAAAAAABAAAABnBvc3RlZA==".into(),
         };
         assert!(receipt.matches_payload(&payload));
         let buffered = Receipt::Buffered {

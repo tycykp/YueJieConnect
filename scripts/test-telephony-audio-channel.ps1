@@ -6,7 +6,7 @@ $source=Join-Path $root 'transport\src\telephony_audio.rs'
 $manifest=Join-Path $output 'Cargo.toml';$portable=$source.Replace([char]92,[char]47)
 $content=@"
 [package]
-name = "qj-telephony-audio-validation"
+name = "yj-telephony-audio-validation"
 version = "0.0.0"
 edition = "2021"
 [workspace]

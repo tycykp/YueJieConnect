@@ -9,8 +9,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/device-finder-repair/sender'
 OUT.mkdir(parents=True, exist_ok=True)
-MAIN = ROOT / 'android/module/src/main/java/io/github/qiangjian/connect'
-TEST = ROOT / 'android/module/src/test/java/io/github/qiangjian/connect/OplusFinderSenderCheck.java'
+MAIN = ROOT / 'android/module/src/main/java/io/github/yuejie/connect'
+TEST = ROOT / 'android/module/src/test/java/io/github/yuejie/connect/OplusFinderSenderCheck.java'
 JAVA = Path('C:/Program Files/Android/Android Studio/jbr/bin')
 ANDROID = Path(os.environ['LOCALAPPDATA']) / 'Android/Sdk/platforms/android-37.0/android.jar'
 API = ROOT / 'build/device-finder-validation/libxposed-api.jar'
@@ -42,7 +42,7 @@ def run(command, inputs):
 
 pure = [SOURCES[0], TEST, *sorted(JSON.glob('*.java'))]
 run([JAVA/'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', OUT/'jvm', *pure], pure)
-run([JAVA/'java.exe', '-cp', OUT/'jvm', 'io.github.qiangjian.connect.OplusFinderSenderCheck'],
+run([JAVA/'java.exe', '-cp', OUT/'jvm', 'io.github.yuejie.connect.OplusFinderSenderCheck'],
     [*pure, *sorted((OUT/'jvm').rglob('*.class'))])
 run([JAVA/'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-cp', str(ANDROID)+os.pathsep+str(API),
      '-d', OUT/'android', *SOURCES, *SHARED, TEST], [*SOURCES,*SHARED,TEST,ANDROID,API])

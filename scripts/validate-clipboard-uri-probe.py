@@ -15,15 +15,15 @@ stubs['org/json/JSONArray.java'] = 'package org.json;public class JSONArray{publ
 stubs['androidx/core/content/FileProvider.java'] = '''package androidx.core.content;public class FileProvider{
  public static java.util.Map<android.net.Uri,java.io.File> files=new java.util.HashMap<>();
  public static android.net.Uri getUriForFile(android.content.Context c,String authority,java.io.File file,String name){var u=android.net.Uri.parse("content://"+authority+"/"+file.getName());files.put(u,file);return u;}}'''
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.net.*;import android.os.*;import android.util.Log;import java.nio.file.*;import java.util.*;import java.util.concurrent.*;import java.util.concurrent.atomic.*;import java.util.function.*;
 public class ClipboardUriProbeHarness{
  static int checks;static final String RUN="b".repeat(32),SESSION="a".repeat(64),PRIVATE="PRIVATE test snapshot";
  static void check(boolean b,String why){if(!b)throw new AssertionError(why);checks++;}
  static void waitFor(BooleanSupplier b)throws Exception{long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);while(!b.getAsBoolean()){Handler.drain();if(System.nanoTime()>end)throw new AssertionError("wait");Thread.sleep(2);}Handler.drain();}
- static void command(Context c,String op,int leg){Intent i=new Intent("io.github.qiangjian.connect.CLIPBOARD_NATIVE_PROBE");i.args.put("run",RUN);i.args.put("op",op);i.args.put("leg",leg);i.args.put("format","uri");c.receiver.onReceive(c,i);Handler.drain();}
+ static void command(Context c,String op,int leg){Intent i=new Intent("io.github.yuejie.connect.CLIPBOARD_NATIVE_PROBE");i.args.put("run",RUN);i.args.put("op",op);i.args.put("leg",leg);i.args.put("format","uri");c.receiver.onReceive(c,i);Handler.drain();}
  static boolean event(String result){return Log.events.stream().anyMatch(s->s.contains("result="+result+"}"));}
- static String name(int leg){return "QJ_URI_"+RUN+"_"+leg+".bin";}
+ static String name(int leg){return "YJ_URI_"+RUN+"_"+leg+".bin";}
  static String hash(byte[] b)throws Exception{var out=new StringBuilder();for(byte x:java.security.MessageDigest.getInstance("SHA-256").digest(b))out.append(String.format(java.util.Locale.ROOT,"%02x",x&255));return out.toString();}
  static void observer(){Handler.delayed.remove(Handler.delayed.size()-1).run();Handler.drain();}
  public static void main(String[] args)throws Exception{
@@ -34,7 +34,7 @@ public class ClipboardUriProbeHarness{
    ClipboardBridge.Probe p=ClipboardNativeProbe.install(c,new io.github.libxposed.api.XposedModule(),ClipboardUriProbeHarness.class.getClassLoader(),client,brand,()->null,()->null);
    command(c,"prepare",0);check(event("uri_probe_unavailable")&&c.clipboard.writes==0,"URI bridge observer must actually attach before preparation");
    AtomicReference<CompletableFuture<ClipboardUriBridge.Receipt>> future=new AtomicReference<>();p.attachUriTransfers(future::get);Log.events.clear();command(c,"prepare",0);
-   check(c.actions.contains("io.github.qiangjian.connect.CLIPBOARD_URI_NATIVE_PROBE"),"URI action attaches only when a real URI bridge observer exists");
+   check(c.actions.contains("io.github.yuejie.connect.CLIPBOARD_URI_NATIVE_PROBE"),"URI action attaches only when a real URI bridge observer exists");
    check(event("armed_uri"),"URI mode handshake");check(!p.permitOutbound(PRIVATE)&&!p.permitInbound("text"),"plain/HTML privacy guard also applies to URI tests");
    check(!p.permitUriOutbound(original),"original URI cannot leave native process");check(!p.permitUriInbound("private.bin",8193,"a".repeat(64)),"unrelated incoming cannot overwrite snapshot");
    command(c,"copy",1);waitFor(()->event("platform_copy"));Uri local=c.clipboard.clip.getItemAt(0).getUri();var file=androidx.core.content.FileProvider.files.get(local);byte[] bytes=Files.readAllBytes(file.toPath());
@@ -58,12 +58,12 @@ public class ClipboardUriProbeHarness{
    command(c,"finish",0);check(event("failed_retry_pending")&&retained.exists(),"failed native restore retains snapshot and synthetic source ownership");c.clipboard.failWrite=false;command(c,"finish",0);waitFor(()->event("deleted"));check(!retained.exists(),"safe restore retry releases exact fixture");
    check(Log.events.stream().noneMatch(s->s.contains(PRIVATE)||s.contains("content://private")||s.contains("<b>")),"no private content in URI probe evidence");p.close();
    Log.events.clear();p=ClipboardNativeProbe.install(c,new io.github.libxposed.api.XposedModule(),ClipboardUriProbeHarness.class.getClassLoader(),client,brand,()->null,()->null);
-   Intent guard=new Intent("io.github.qiangjian.connect.CLIPBOARD_NATIVE_PROBE");guard.args.put("run",RUN);guard.args.put("op","prepare");guard.args.put("format","uri_guard");c.receiver.onReceive(c,guard);Handler.drain();
+   Intent guard=new Intent("io.github.yuejie.connect.CLIPBOARD_NATIVE_PROBE");guard.args.put("run",RUN);guard.args.put("op","prepare");guard.args.put("format","uri_guard");c.receiver.onReceive(c,guard);Handler.drain();
    check(event("armed_uri_guard")&&!p.permitOutbound(PRIVATE)&&!p.permitInbound("other"),"separate-process plain/HTML guard requires no URI executor and blocks private events");
    int before=c.clipboard.writes;command(c,"copy",1);check(event("guard_only")&&c.clipboard.writes==before,"cross-process privacy guard cannot generate a copy");
    command(c,"finish",0);check(event("unchanged")&&!p.permitOutbound(PRIVATE),"guard snapshots current original even when it did not perform the native restoration");p.close();
    p=ClipboardNativeProbe.installUri(c,new io.github.libxposed.api.XposedModule(),ClipboardUriProbeHarness.class.getClassLoader(),client,brand);
-   check(c.actions.equals(java.util.List.of("io.github.qiangjian.connect.CLIPBOARD_URI_NATIVE_PROBE")),"default provider process does not receive the app-process plain/HTML probe action");p.close();
+   check(c.actions.equals(java.util.List.of("io.github.yuejie.connect.CLIPBOARD_URI_NATIVE_PROBE")),"default provider process does not receive the app-process plain/HTML probe action");p.close();
   }
   System.out.println("PASS "+checks+" URI-probe privacy/fixture/real-future assertions; Android/OEM doubles, no device proof");
  }
@@ -80,7 +80,7 @@ def main():
         path.write_text(body, encoding='utf-8')
     actual = [probe.PROBE, probe.CODEC, probe.NATIVE_CLOCK]
     probe.run('compile',probe.JDK/'javac.exe','--release','17','-encoding','UTF-8','-d',classes,*actual,*sorted(sources.rglob('*.java')))
-    probe.run('uri-probe-tests',probe.JDK/'java.exe','-cp',classes,'io.github.qiangjian.connect.ClipboardUriProbeHarness')
+    probe.run('uri-probe-tests',probe.JDK/'java.exe','-cp',classes,'io.github.yuejie.connect.ClipboardUriProbeHarness')
     files = [*actual,Path(__file__),Path(probe.__file__)]
     (OUT/'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-probe.py',result='passed',
         source_sha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},apk=None,device_operations=False),indent=2),encoding='utf-8')

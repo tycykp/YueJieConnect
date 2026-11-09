@@ -9,13 +9,13 @@ $cache = "$env:USERPROFILE/.gradle/caches"
 $api = Get-ChildItem "$cache/9.7.1/transforms/*/transformed/api-102.0.0/jars/classes.jar" | Select-Object -First 1 -ExpandProperty FullName
 $junit = Get-ChildItem "$cache/modules-2/files-2.1/junit/junit/4.13.2/*/junit-4.13.2.jar" | Select-Object -First 1 -ExpandProperty FullName
 $hamcrest = Get-ChildItem "$cache/modules-2/files-2.1/org.hamcrest/hamcrest-core/1.3/*/hamcrest-core-1.3.jar" | Select-Object -First 1 -ExpandProperty FullName
-$sources = @(Get-ChildItem "$root/android/module/src/main/java/io/github/qiangjian/connect/*Relay*.java" | Where-Object Name -Match '^(AppRelay|XiaomiRelay|OplusRelay)' | Select-Object -ExpandProperty FullName)
-$sources += Join-Path $root 'android/module/src/debug/java/io/github/qiangjian/connect/AppRelayNativeProbe.java'
-$dependencies = @('BridgeClient.java','IBridge.java','NativeLogicalSessions.java','NativeLogicalClient.java','FileTransferClient.java','FileTransferEngine.java','FileTransferProtocol.java','FileTransferSource.java','FileTransferUris.java','FileTransferEndpoint.java') | ForEach-Object { Join-Path $root "android/module/src/main/java/io/github/qiangjian/connect/$_" }
-$dependencies += @('FileTransferReceiveDocuments.java','FileTransferReceiveLease.java','FileTransferNegotiation.java','FileTransferBridge.java') | ForEach-Object { Join-Path $root "android/module/src/main/java/io/github/qiangjian/connect/$_" }
-$tests = @(Get-ChildItem "$root/android/module/src/test/java/io/github/qiangjian/connect/AppRelay*Test.java" | Select-Object -ExpandProperty FullName)
-$tests += Join-Path $root 'android/module/src/test/java/io/github/qiangjian/connect/OplusRelayPayloadTest.java'
-$tests += Join-Path $root 'android/module/src/test/java/io/github/qiangjian/connect/OplusRelayControlTest.java'
+$sources = @(Get-ChildItem "$root/android/module/src/main/java/io/github/yuejie/connect/*Relay*.java" | Where-Object Name -Match '^(AppRelay|XiaomiRelay|OplusRelay)' | Select-Object -ExpandProperty FullName)
+$sources += Join-Path $root 'android/module/src/debug/java/io/github/yuejie/connect/AppRelayNativeProbe.java'
+$dependencies = @('BridgeClient.java','IBridge.java','NativeLogicalSessions.java','NativeLogicalClient.java','FileTransferClient.java','FileTransferEngine.java','FileTransferProtocol.java','FileTransferSource.java','FileTransferUris.java','FileTransferEndpoint.java') | ForEach-Object { Join-Path $root "android/module/src/main/java/io/github/yuejie/connect/$_" }
+$dependencies += @('FileTransferReceiveDocuments.java','FileTransferReceiveLease.java','FileTransferNegotiation.java','FileTransferBridge.java') | ForEach-Object { Join-Path $root "android/module/src/main/java/io/github/yuejie/connect/$_" }
+$tests = @(Get-ChildItem "$root/android/module/src/test/java/io/github/yuejie/connect/AppRelay*Test.java" | Select-Object -ExpandProperty FullName)
+$tests += Join-Path $root 'android/module/src/test/java/io/github/yuejie/connect/OplusRelayPayloadTest.java'
+$tests += Join-Path $root 'android/module/src/test/java/io/github/yuejie/connect/OplusRelayControlTest.java'
 $fixtures = @('com/xiaomi/mirror/message/RelayAppMessage.java','com/xiaomi/mirror/message/RecentAppsMessage.java','com/oplus/synergy/bean/RelayInfo.java','com/oplus/synergy/bean/AbilityProfile.java') | ForEach-Object { Join-Path $root "android/module/src/test/java/$_" }
 # Reuse the already prepared Android JSON source without writing another task's build directory.
 $jsonSources = @(Get-ChildItem "$root/build/file-transfer-validation/json-src/org/json/*.java" | Select-Object -ExpandProperty FullName)
@@ -35,16 +35,16 @@ if ($races.Count) { throw 'Relay compile inputs changed while javac was reading;
 $hashes | ConvertTo-Json | Set-Content "$out/compile-source-sha256.json" -Encoding utf8
 $selected = @()
 if (!$CompileOnly) {
-    $selected = @('io.github.qiangjian.connect.AppRelayCatalogTest','io.github.qiangjian.connect.AppRelayCodecTest','io.github.qiangjian.connect.AppRelayFileTokensTest')
-    if (!$IntegrationOnly) { $selected += @('io.github.qiangjian.connect.AppRelayRequestTest','io.github.qiangjian.connect.AppRelayTasksTest',
-        'io.github.qiangjian.connect.OplusRelayPayloadTest','io.github.qiangjian.connect.AppRelaySenderTest','io.github.qiangjian.connect.AppRelayDirectoryTest','io.github.qiangjian.connect.AppRelayReceiveTokensTest') }
-    if ($Round2Only) { $selected = @('io.github.qiangjian.connect.AppRelayRequestTest','io.github.qiangjian.connect.AppRelayTasksTest','io.github.qiangjian.connect.AppRelayCodecTest','io.github.qiangjian.connect.OplusRelayPayloadTest','io.github.qiangjian.connect.AppRelaySenderTest','io.github.qiangjian.connect.AppRelayDirectoryTest') }
-    if ($ReceiveOnly) { $selected = @('io.github.qiangjian.connect.AppRelayReceiveTokensTest') }
-    if ($ReceiptsOnly) { $selected = @('io.github.qiangjian.connect.AppRelayCodecTest','io.github.qiangjian.connect.AppRelaySenderTest') }
-    if ($PayloadOnly) { $selected = @('io.github.qiangjian.connect.OplusRelayPayloadTest') }
-    if ($RepairOnly) { $selected = @('io.github.qiangjian.connect.AppRelaySyncTest','io.github.qiangjian.connect.OplusRelayControlTest') }
-    if ($SyncOnly) { $selected = @('io.github.qiangjian.connect.AppRelaySyncTest') }
-    if ($ContinuationOnly) { $selected = @('io.github.qiangjian.connect.AppRelaySyncTest','io.github.qiangjian.connect.AppRelaySyncClientTest','io.github.qiangjian.connect.AppRelayDocumentDecisionsTest','io.github.qiangjian.connect.AppRelayCodecTest') }
+    $selected = @('io.github.yuejie.connect.AppRelayCatalogTest','io.github.yuejie.connect.AppRelayCodecTest','io.github.yuejie.connect.AppRelayFileTokensTest')
+    if (!$IntegrationOnly) { $selected += @('io.github.yuejie.connect.AppRelayRequestTest','io.github.yuejie.connect.AppRelayTasksTest',
+        'io.github.yuejie.connect.OplusRelayPayloadTest','io.github.yuejie.connect.AppRelaySenderTest','io.github.yuejie.connect.AppRelayDirectoryTest','io.github.yuejie.connect.AppRelayReceiveTokensTest') }
+    if ($Round2Only) { $selected = @('io.github.yuejie.connect.AppRelayRequestTest','io.github.yuejie.connect.AppRelayTasksTest','io.github.yuejie.connect.AppRelayCodecTest','io.github.yuejie.connect.OplusRelayPayloadTest','io.github.yuejie.connect.AppRelaySenderTest','io.github.yuejie.connect.AppRelayDirectoryTest') }
+    if ($ReceiveOnly) { $selected = @('io.github.yuejie.connect.AppRelayReceiveTokensTest') }
+    if ($ReceiptsOnly) { $selected = @('io.github.yuejie.connect.AppRelayCodecTest','io.github.yuejie.connect.AppRelaySenderTest') }
+    if ($PayloadOnly) { $selected = @('io.github.yuejie.connect.OplusRelayPayloadTest') }
+    if ($RepairOnly) { $selected = @('io.github.yuejie.connect.AppRelaySyncTest','io.github.yuejie.connect.OplusRelayControlTest') }
+    if ($SyncOnly) { $selected = @('io.github.yuejie.connect.AppRelaySyncTest') }
+    if ($ContinuationOnly) { $selected = @('io.github.yuejie.connect.AppRelaySyncTest','io.github.yuejie.connect.AppRelaySyncClientTest','io.github.yuejie.connect.AppRelayDocumentDecisionsTest','io.github.yuejie.connect.AppRelayCodecTest') }
     $testLog = if ($ContinuationOnly) { 'tests-continuation.log' } elseif ($SyncOnly) { 'tests-sync.log' } elseif ($RepairOnly) { 'tests-repair.log' } elseif ($Round2Only) { 'tests-round2.log' } elseif ($ReceiveOnly) { 'tests-receive.log' } elseif ($ReceiptsOnly) { 'tests-receipts.log' } elseif ($PayloadOnly) { 'tests-payload.log' } else { 'tests-integration.log' }
     & "$java/java.exe" -classpath "$out/classes;$junit;$hamcrest" org.junit.runner.JUnitCore @selected 2>&1 | Tee-Object "$out/$testLog"
     if ($LASTEXITCODE -ne 0) { throw 'Relay unit tests failed' }

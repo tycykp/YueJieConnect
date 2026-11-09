@@ -331,7 +331,7 @@ pub struct StillTicket {
 }
 impl StillTicket {
     fn prologue(&self) -> Vec<u8> {
-        let mut bytes = b"qiangjian-connect/camera-jpeg/v1\0".to_vec();
+        let mut bytes = b"yuejie-connect/camera-jpeg/v1\0".to_vec();
         bytes.extend_from_slice(&self.lease.auth.session);
         let (sender, receiver) = match self.role {
             Role::Sender => (self.lease.auth.local_peer, self.lease.auth.remote_peer),

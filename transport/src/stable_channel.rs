@@ -132,7 +132,7 @@ impl Authority {
 pub struct ControlTicket { authority: Arc<Authority>, epoch: u64, generation: u64, stream_id: u64, role: Role, key: OneTimeKey, deadline: Instant }
 impl ControlTicket {
     fn prologue(&self) -> Vec<u8> {
-        let mut out = b"qiangjian-connect/stable-control/v1\0".to_vec();
+        let mut out = b"yuejie-connect/stable-control/v1\0".to_vec();
         out.extend_from_slice(&self.authority.session); out.extend_from_slice(&self.generation.to_be_bytes()); out.extend_from_slice(&self.stream_id.to_be_bytes());
         let (initiator, responder) = if self.role == Role::Initiator { (self.authority.local, self.authority.remote) } else { (self.authority.remote, self.authority.local) };
         out.extend_from_slice(&initiator); out.extend_from_slice(&responder); out
@@ -184,22 +184,22 @@ impl ChildControl {
             let mut noise = hs.into_transport_mode().map_err(|_| auth())?;
             // The responder also requires the initiator's authenticated ACK of its ready message.
             if ticket.role == Role::Initiator {
-                send(&mut noise, socket.as_mut(), b"QJC_READY", &shared, until)?;
-                expect(&mut noise, socket.as_mut(), &mut reader, b"QJC_READY_ACK", &shared, until)?;
-                send(&mut noise, socket.as_mut(), b"QJC_COMMIT", &shared, until)?;
-                expect(&mut noise, socket.as_mut(), &mut reader, b"QJC_COMMIT_ACK", &shared, until)?;
+                send(&mut noise, socket.as_mut(), b"YJC_READY", &shared, until)?;
+                expect(&mut noise, socket.as_mut(), &mut reader, b"YJC_READY_ACK", &shared, until)?;
+                send(&mut noise, socket.as_mut(), b"YJC_COMMIT", &shared, until)?;
+                expect(&mut noise, socket.as_mut(), &mut reader, b"YJC_COMMIT_ACK", &shared, until)?;
             } else {
-                expect(&mut noise, socket.as_mut(), &mut reader, b"QJC_READY", &shared, until)?;
-                send(&mut noise, socket.as_mut(), b"QJC_READY_ACK", &shared, until)?;
-                expect(&mut noise, socket.as_mut(), &mut reader, b"QJC_COMMIT", &shared, until)?;
-                send(&mut noise, socket.as_mut(), b"QJC_COMMIT_ACK", &shared, until)?;
+                expect(&mut noise, socket.as_mut(), &mut reader, b"YJC_READY", &shared, until)?;
+                send(&mut noise, socket.as_mut(), b"YJC_READY_ACK", &shared, until)?;
+                expect(&mut noise, socket.as_mut(), &mut reader, b"YJC_COMMIT", &shared, until)?;
+                send(&mut noise, socket.as_mut(), b"YJC_COMMIT_ACK", &shared, until)?;
             }
             shared.check()?; ticket.authority.check_ticket(ticket.epoch, ticket.generation)?; Ok(noise)
         })();
         let mut noise = match setup { Ok(noise) => noise, Err(error) => { shared.close(reason(error)); return Err(error); } };
         let role = ticket.role; drop(ticket);
         let work = shared.clone();
-        let worker = thread::Builder::new().name("qj-stable-control".into()).spawn(move || {
+        let worker = thread::Builder::new().name("yj-stable-control".into()).spawn(move || {
             let result = run(socket.as_mut(), &mut noise, &work, role);
             work.close(result.err().map(reason).unwrap_or(CloseReason::PeerClosed));
         }).map_err(|_| { shared.close(CloseReason::TransportFailed); Error::Closed(CloseReason::TransportFailed) })?;
@@ -437,7 +437,7 @@ mod tests {
         let mut buf = [0; 256]; hs.read_message(&raw_read(&mut socket), &mut buf).unwrap();
         let n = hs.write_message(&[], &mut buf).unwrap(); raw_write(&mut socket, &buf[..n]);
         let mut noise = hs.into_transport_mode().unwrap();
-        for (expected, reply) in [(b"QJC_READY".as_slice(), b"QJC_READY_ACK".as_slice()), (b"QJC_COMMIT".as_slice(), b"QJC_COMMIT_ACK".as_slice())] {
+        for (expected, reply) in [(b"YJC_READY".as_slice(), b"YJC_READY_ACK".as_slice()), (b"YJC_COMMIT".as_slice(), b"YJC_COMMIT_ACK".as_slice())] {
             let n = noise.read_message(&raw_read(&mut socket), &mut buf).unwrap(); assert_eq!(&buf[..n], expected);
             let n = noise.write_message(reply, &mut buf).unwrap(); raw_write(&mut socket, &buf[..n]);
         }

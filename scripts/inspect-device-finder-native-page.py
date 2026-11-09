@@ -15,7 +15,7 @@ try:
  raw=adb('shell','dumpsys window').decode('utf8','replace');focus=[l for l in raw.splitlines()if'mCurrentFocus=Window{'in l]
  record['native_find_foreground']=len(focus)==1 and 'com.coloros.findmyphone/'in focus[0]
  if record['native_find_foreground']:
-  path='/data/local/tmp/qj-finder-native-prerequisite.xml'
+  path='/data/local/tmp/yj-finder-native-prerequisite.xml'
   try:
    adb('shell','uiautomator dump '+path);tree=ET.fromstring(adb('exec-out','cat',path))
   finally:adb('shell','rm -f '+path)

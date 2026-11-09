@@ -10,13 +10,13 @@ root = Path(__file__).resolve().parents[1]
 apk = root / 'android/module/build/outputs/apk/debug/module-debug.apk'
 with zipfile.ZipFile(apk) as z:
     assert z.testzip() is None
-    assert z.read('META-INF/xposed/java_init.list').decode().strip() == 'io.github.qiangjian.connect.DiscoveryModule'
+    assert z.read('META-INF/xposed/java_init.list').decode().strip() == 'io.github.yuejie.connect.DiscoveryModule'
     prop = dict(line.split('=', 1) for line in z.read('META-INF/xposed/module.prop').decode().splitlines() if '=' in line)
     assert prop['minApiVersion'] == prop['targetApiVersion'] == '102'
     assert prop['autoHotReload'] == 'false'
     assert set(z.read('META-INF/xposed/scope.list').decode().splitlines()) == {'com.milink.service', 'com.oplus.linker', 'com.xiaomi.mirror', 'com.coloros.findmyphone', 'com.oplus.cast', 'com.heytap.accessory'}
     libs = [n for n in z.namelist() if n.endswith('.so')]
-    assert libs == ['lib/arm64-v8a/libqj_jni.so'], libs
+    assert libs == ['lib/arm64-v8a/libyj_jni.so'], libs
     info = z.getinfo(libs[0])
     assert info.compress_type == zipfile.ZIP_STORED
     elf = z.read(libs[0])
@@ -32,7 +32,7 @@ with zipfile.ZipFile(apk) as z:
             assert align >= 16384
             aligns.append(align)
     assert aligns
-    assert b'Java_io_github_qiangjian_connect_NativeCore_dispatch\0' in elf
+    assert b'Java_io_github_yuejie_connect_NativeCore_dispatch\0' in elf
     # ZIP local-header data offset, not central-directory extra size.
     data = apk.read_bytes()
     name_len, extra_len = struct.unpack_from('<HH', data, info.header_offset + 26)
@@ -50,7 +50,7 @@ with zipfile.ZipFile(apk) as z:
         runtime_digest.update(path.read_bytes())
         runtime_digest.update(b'\0')
     runtime_sha = runtime_digest.hexdigest()
-    generated = (root / 'android/module/build/generated/source/buildConfig/debug/io/github/qiangjian/connect/BuildConfig.java').read_text()
+    generated = (root / 'android/module/build/generated/source/buildConfig/debug/io/github/yuejie/connect/BuildConfig.java').read_text()
     assert re.search(r'RUNTIME_INPUT_SHA = "([a-f0-9]{64})"', generated).group(1) == runtime_sha, 'Production inputs changed after Gradle configuration'
     assert any(runtime_sha.encode() in z.read(name) for name in z.namelist() if name.endswith('.dex')), 'Runtime revision absent from APK DEX'
 result = dict(apk=str(apk.relative_to(root)), bytes=apk.stat().st_size,

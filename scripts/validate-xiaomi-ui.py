@@ -22,8 +22,8 @@ state=command(serial,{'op':'bridge_status'})['bridge']
 assert state['phase']=='active' and state['local_confirmed'] and state['remote_confirmed'],'No active confirmed session'
 name=state['remote']['name']
 adb('shell','am','start','-W','-n','com.milink.service/com.miui.circulate.world.CirculateWorldActivity')
-adb('shell','uiautomator','dump','/sdcard/qj-ui.xml')
-xml=adb('shell','cat','/sdcard/qj-ui.xml')
+adb('shell','uiautomator','dump','/sdcard/yj-ui.xml')
+xml=adb('shell','cat','/sdcard/yj-ui.xml')
 tree=ElementTree.fromstring(xml)
 matches=[n for n in tree.iter('node') if n.get('text')==name]
 assert len(matches)==1,{'expected_peer_cards':1,'actual':len(matches)}

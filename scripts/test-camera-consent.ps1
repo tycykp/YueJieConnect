@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $run = Join-Path $project ('build/camera-validation/consent-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 New-Item -ItemType Directory -Path $run -Force | Out-Null
-$main = Join-Path $project 'android/module/src/main/java/io/github/qiangjian/connect'
+$main = Join-Path $project 'android/module/src/main/java/io/github/yuejie/connect'
 $sources = @('CameraShareConsentRegistry','CameraShareConsentActivity','CameraShareSourceService',
     'CameraShareConfig','CameraShareLease','CameraShareSource','CameraShareSender','CameraShareStillSession',
     'CameraShareStillRequest','CameraShareStillSource','CameraShareJpeg','ScreenCastVideoEncoder',
@@ -20,7 +20,7 @@ $compileExit = $LASTEXITCODE
 $ErrorActionPreference = 'Stop'
 if ($compileExit -ne 0) { throw "Camera consent compilation failed: $run/compile.txt" }
 $ErrorActionPreference = 'Continue'
-$output = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.qiangjian.connect.CameraShareConsentChecks 2>&1
+$output = & (Join-Path $JavaRoot 'bin/java.exe') -cp $run io.github.yuejie.connect.CameraShareConsentChecks 2>&1
 $testExit = $LASTEXITCODE
 $ErrorActionPreference = 'Stop'
 $output | Out-File (Join-Path $run 'test.txt') -Encoding utf8

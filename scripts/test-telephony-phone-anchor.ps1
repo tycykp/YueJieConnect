@@ -6,7 +6,7 @@ $source=Join-Path $root 'native\src\telephony_binder.rs'
 $manifest=Join-Path $output 'Cargo.toml';$portable=$source.Replace([char]92,[char]47)
 $content=@"
 [package]
-name = "qj-telephony-phone-anchor-validation"
+name = "yj-telephony-phone-anchor-validation"
 version = "0.0.0"
 edition = "2021"
 [workspace]

@@ -13,8 +13,8 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 def compiled_map(record):
     return {str(Path(e['path'])).lower(): e['sha256'] for e in record['sources']}
-source = root / 'android/module/src/main/java/io/github/qiangjian/connect'
-test = root / 'android/module/src/test/java/io/github/qiangjian/connect'
+source = root / 'android/module/src/main/java/io/github/yuejie/connect'
+test = root / 'android/module/src/test/java/io/github/yuejie/connect'
 checks = []
 for evidence, pairs, count in [
     ('repair/audio/validation.json', [(source, 'TelephonySyncAudioSession.java'), (test, 'TelephonySyncAudioSessionTest.java')], 14),

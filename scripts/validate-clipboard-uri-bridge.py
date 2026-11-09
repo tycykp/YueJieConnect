@@ -13,7 +13,7 @@ OUT = ROOT / 'build/clipboard-validation/uri-bridge-host'
 rich.OUT = OUT
 PKG = paste.PKG
 stubs = dict(paste.stubs)
-stubs[PKG+'ClipboardBridge.java'] = '''package io.github.qiangjian.connect;class ClipboardBridge{interface Probe{
+stubs[PKG+'ClipboardBridge.java'] = '''package io.github.yuejie.connect;class ClipboardBridge{interface Probe{
  boolean permitUriOutbound(android.content.ClipData c);boolean permitUriInbound(String n,long z,String h);
  void attachUriTransfers(java.util.function.Supplier<? extends java.util.concurrent.CompletableFuture<?>> s);
  void uriStaged(String s,String n,android.content.ClipData c);void uriApplied(String s,String n,android.content.ClipData c);void uriConsumed(String s,String n);}
@@ -28,14 +28,14 @@ stubs['android/content/Context.java'] = stubs['android/content/Context.java'].re
 stubs['android/content/ContentResolver.java'] = stubs['android/content/ContentResolver.java'].replace('public int opens;', '''public String getType(android.net.Uri u){return "application/octet-stream";}public android.database.Cursor query(android.net.Uri u,String[] p,String s,String[] a,String sort){var c=new android.database.MatrixCursor(p);c.addRow(new Object[]{"synthetic.bin",(long)data.get(u).length});return c;}public int opens;''')
 stubs['android/util/Log.java'] = 'package android.util;public class Log{public static final int WARN=5;}'
 stubs['io/github/libxposed/api/XposedModule.java'] = stubs['io/github/libxposed/api/XposedModule.java'].replace('public boolean deoptimize', 'public void log(int priority,String tag,String message){}public boolean deoptimize')
-stubs[PKG+'OplusClipboardEndpoint.java'] = 'package io.github.qiangjian.connect;class OplusClipboardEndpoint{OplusClipboardEndpoint(ClassLoader l){}boolean enabled(android.content.Context c){return true;}}'
-stubs[PKG+'XiaomiClipboardEndpoint.java'] = 'package io.github.qiangjian.connect;class XiaomiClipboardEndpoint{XiaomiClipboardEndpoint(ClassLoader l){}boolean available(){return true;}}'
-stubs[PKG+'FileTransferUris.java'] = '''package io.github.qiangjian.connect;class FileTransferUris{
+stubs[PKG+'OplusClipboardEndpoint.java'] = 'package io.github.yuejie.connect;class OplusClipboardEndpoint{OplusClipboardEndpoint(ClassLoader l){}boolean enabled(android.content.Context c){return true;}}'
+stubs[PKG+'XiaomiClipboardEndpoint.java'] = 'package io.github.yuejie.connect;class XiaomiClipboardEndpoint{XiaomiClipboardEndpoint(ClassLoader l){}boolean available(){return true;}}'
+stubs[PKG+'FileTransferUris.java'] = '''package io.github.yuejie.connect;class FileTransferUris{
  static void requireContent(android.net.Uri uri){if(uri==null||!"content".equals(uri.getScheme()))throw new IllegalArgumentException();}
  static FileTransferSource snapshot(android.content.Context c,android.net.Uri uri,String name,String mime,long size,FileTransferEngine.SessionGate gate,FileTransferEngine.Key key)throws java.io.IOException{
  if(!gate.current(key))throw new java.io.IOException("stale_session");var result=FileTransferSource.snapshot(c.cache,new java.io.ByteArrayInputStream(c.resolver.data.get(uri)),name,mime,size);
  if(!gate.current(key)){result.close();throw new java.io.IOException("stale_session");}return result;}}'''
-stubs[PKG+'BridgeClient.java'] = '''package io.github.qiangjian.connect;import org.json.*;import java.util.*;import java.util.function.*;
+stubs[PKG+'BridgeClient.java'] = '''package io.github.yuejie.connect;import org.json.*;import java.util.*;import java.util.function.*;
 class BridgeClient{interface Subscription{void close();}interface TaskCompletion{void success(JSONObject d);void fail(String e);}interface VendorExecutor{void execute(JSONObject t,TaskCompletion c);void cancel(String s,String r);void sessionChanged();}
  JSONObject p,payload;String peer,session,op,request;Consumer<JSONObject> response,listener;int requests,cancels;Map<String,VendorExecutor> executors=new HashMap<>();
  JSONObject projection(){return p;}Subscription addProjectionListener(Consumer<JSONObject> l){listener=l;return ()->listener=null;}
@@ -43,10 +43,10 @@ class BridgeClient{interface Subscription{void close();}interface TaskCompletion
  void request(String peer,String session,String op,String id,JSONObject data,Consumer<JSONObject> callback){this.peer=peer;this.session=session;this.op=op;request=id;payload=data;response=callback;requests++;}
  void cancel(String s,String r,Consumer<JSONObject> c){cancels++;c.accept(new JSONObject());}}
 '''
-stubs[PKG+'FileTransferClient.java'] = '''package io.github.qiangjian.connect;class FileTransferClient{int sends;FileTransferSource source;FileTransferEngine.Key key;java.util.concurrent.CompletableFuture<FileTransferEngine.Receipt> result;
+stubs[PKG+'FileTransferClient.java'] = '''package io.github.yuejie.connect;class FileTransferClient{int sends;FileTransferSource source;FileTransferEngine.Key key;java.util.concurrent.CompletableFuture<FileTransferEngine.Receipt> result;
  java.util.concurrent.CompletableFuture<FileTransferEngine.Receipt> send(FileTransferEngine.Key k,FileTransferSource s){sends++;source=s;key=k;result=new java.util.concurrent.CompletableFuture<>();result.whenComplete((r,e)->{try{s.close();}catch(java.io.IOException x){}});return result;}}'''
-stubs[PKG+'FileTransferEndpoint.java'] = 'package io.github.qiangjian.connect;public class FileTransferEndpoint{final FileTransferEngine engine;FileTransferEndpoint(FileTransferEngine e){engine=e;}}'
-stubs[PKG+'FileTransferBridge.java'] = '''package io.github.qiangjian.connect;import java.util.concurrent.*;import org.json.*;
+stubs[PKG+'FileTransferEndpoint.java'] = 'package io.github.yuejie.connect;public class FileTransferEndpoint{final FileTransferEngine engine;FileTransferEndpoint(FileTransferEngine e){engine=e;}}'
+stubs[PKG+'FileTransferBridge.java'] = '''package io.github.yuejie.connect;import java.util.concurrent.*;import org.json.*;
 public class FileTransferBridge{public interface Registration{void close();}public interface NativeReceiver{void prepared(FileTransferNegotiation.Prepared p,FileTransferEndpoint e,FileTransferNegotiation n);default void revoked(FileTransferNegotiation.Prepared p){}default void sessionChanged(){}default void close(){}}
  final BridgeClient client;final FileTransferEngine engine;final FileTransferEndpoint endpoint;final FileTransferNegotiation negotiation;final FileTransferClient fileClient=new FileTransferClient();NativeReceiver receiver;int allocations,decisions,releases;CompletableFuture<Void> decision;boolean live=true;
  FileTransferBridge(BridgeClient c,FileTransferEngine e){client=c;engine=e;endpoint=new FileTransferEndpoint(e);negotiation=new FileTransferNegotiation(this::current,()->android.os.SystemClock.now);}
@@ -56,7 +56,7 @@ public class FileTransferBridge{public interface Registration{void close();}publ
  public CompletableFuture<Void> awaitReceiver(FileTransferEngine.Key k,FileTransferEngine.Offer o){decisions++;decision=new CompletableFuture<>();return decision;}
  public CompletableFuture<Boolean> release(FileTransferEngine.Key k){releases++;return CompletableFuture.completedFuture(true);}}
 '''
-stubs[PKG+'FileTransferReceiveDocuments.java'] = '''package io.github.qiangjian.connect;import android.content.*;import android.net.*;import java.util.concurrent.*;import java.io.*;import java.nio.file.*;
+stubs[PKG+'FileTransferReceiveDocuments.java'] = '''package io.github.yuejie.connect;import android.content.*;import android.net.*;import java.util.concurrent.*;import java.io.*;import java.nio.file.*;
 public class FileTransferReceiveDocuments{static int created;static FileTransferReceiveLease<Uri> last;
  public static FileTransferReceiveLease<Uri> createTemporary(Context c,FileTransferEndpoint endpoint,FileTransferEngine.Key key,FileTransferEngine.Offer offer,FileTransferEngine.SessionGate gate)throws IOException{
  created++;Uri uri=Uri.parse("content://private-target/"+key.transfer());var lease=new FileTransferReceiveLease<Uri>(key,offer,gate,new FileTransferReceiveLease.Destination<Uri>(){
@@ -66,7 +66,7 @@ public class FileTransferReceiveDocuments{static int created;static FileTransfer
  public CompletableFuture<FileTransferEngine.Authorization> authorize(FileTransferEngine.Key k,FileTransferEngine.Offer o,FileTransferEngine.Sink s){try{return CompletableFuture.completedFuture(endpoint.engine.authorizeTracked(k,o,s));}catch(Exception e){return CompletableFuture.failedFuture(e);}}
  public CompletableFuture<Void> revoke(FileTransferEngine.Key k){try{endpoint.engine.cancel(k);return CompletableFuture.completedFuture(null);}catch(Exception e){return CompletableFuture.failedFuture(e);}}},()->android.os.SystemClock.now);last=lease;lease.authorize();return lease;}}
 '''
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.net.*;import android.os.*;import io.github.libxposed.api.XposedModule;
 import java.io.*;import java.nio.file.*;import java.util.*;import java.util.concurrent.*;import java.util.function.*;import org.json.*;
 public class ClipboardUriBridgeHarness{
@@ -77,7 +77,7 @@ public class ClipboardUriBridgeHarness{
  static class Fixture implements AutoCloseable{
   final Context c;final File root;final BridgeClient client=new BridgeClient();final FileTransferEngine engine;final FileTransferBridge files;final ClipboardUriBridge bridge;final Uri local=Uri.parse("content://synthetic-source/item");
   Fixture(int brand)throws Exception{
-   SystemClock.now=1000;c=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");root=Files.createTempDirectory("qj-uri-glue").toFile();c.cache=new File(root,"snapshots");c.resolver.data.put(local,BYTES);V3.V.context=c;V3.V.manager.clock=0;
+   SystemClock.now=1000;c=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");root=Files.createTempDirectory("yj-uri-glue").toFile();c.cache=new File(root,"snapshots");c.resolver.data.put(local,BYTES);V3.V.context=c;V3.V.manager.clock=0;
    client.p=new JSONObject().put("id","peer").put("session_id",A).put("operations",new JSONArray().put("clipboard_uri_write"));
    engine=new FileTransferEngine(new File(root,"engine"),k->true,()->SystemClock.now);files=new FileTransferBridge(client,engine);
    bridge=new ClipboardUriBridge(new XposedModule(),c,getClass().getClassLoader(),client,()->true,brand,files);Handler.drain();
@@ -146,7 +146,7 @@ def main():
     inputs = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     rich.run('compile',rich.JDK/'javac.exe','--release','17','-encoding','UTF-8','-d',classes,*actual,*json_sources,*sorted(sources.rglob('*.java')))
-    rich.run('bridge-tests',rich.JDK/'java.exe','-cp',classes,'io.github.qiangjian.connect.ClipboardUriBridgeHarness')
+    rich.run('bridge-tests',rich.JDK/'java.exe','-cp',classes,'io.github.yuejie.connect.ClipboardUriBridgeHarness')
     races = [p for p,sha in inputs.items() if hashlib.sha256((ROOT/p).read_bytes()).hexdigest()!=sha]
     (OUT/'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-bridge.py',result='passed' if not races else 'source_changed',
         source_sha256=inputs,source_races=races,apk=None,device_operations=False),indent=2),encoding='utf-8')

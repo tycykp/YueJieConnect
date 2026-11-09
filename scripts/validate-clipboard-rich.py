@@ -9,9 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/clipboard-validation/rich-host'
-MAIN = ROOT / 'android/module/src/main/java/io/github/qiangjian/connect'
+MAIN = ROOT / 'android/module/src/main/java/io/github/yuejie/connect'
 JDK = Path(os.environ.get('CLIPBOARD_JDK', r'C:\Program Files\Android\Android Studio\jbr')) / 'bin'
-PKG = 'io/github/qiangjian/connect/'
+PKG = 'io/github/yuejie/connect/'
 stubs = {
 'android/os/Looper.java': '''package android.os; public class Looper {static final Looper main=new Looper();static final Thread mainThread=Thread.currentThread();
 public static boolean worker;public static Looper getMainLooper(){return main;}public static Looper myLooper(){return !worker&&Thread.currentThread()==mainThread?main:null;}}''',
@@ -69,10 +69,10 @@ public Object proceed(){return z0(msg.data,true);}});converted++;context.cm.setP
 public class ClipBoardServiceHelper {public static int calls;public static android.content.ClipData previous;
 public static void copyCompleteDataToClip(android.content.ClipData clip,android.content.Context c){calls++;previous=clip;c.cm.setPrimaryClip(clip);}}
 ''',
-PKG+'FileTransferUris.java': '''package io.github.qiangjian.connect;class FileTransferUris {static void requireContent(android.net.Uri u){
+PKG+'FileTransferUris.java': '''package io.github.yuejie.connect;class FileTransferUris {static void requireContent(android.net.Uri u){
 if(u==null||!"content".equals(u.getScheme())||u.getAuthority()==null)throw new IllegalArgumentException("local_content_uri_required");}}''',
 }
-harness = r'''package io.github.qiangjian.connect;
+harness = r'''package io.github.yuejie.connect;
 import android.content.*;import android.net.Uri;import android.os.*;import io.github.libxposed.api.XposedModule;
 import java.util.*;import java.util.concurrent.*;import org.json.*;
 public class ClipboardRichHarness {
@@ -164,7 +164,7 @@ def main():
     assert len(json_sources) >= 6, 'Prepare Android JSON sources with scripts/prepare-file-transfer-json.py first'
     run('compile', JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
         *actual, *json_sources, *sorted(sources.rglob('*.java')))
-    run('rich-tests', JDK / 'java.exe', '-cp', classes, 'io.github.qiangjian.connect.ClipboardRichHarness')
+    run('rich-tests', JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardRichHarness')
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-rich.py',
         source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [*actual, Path(__file__)]},
         generated_test_sha256={str(p.relative_to(OUT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources.rglob('*.java')},
