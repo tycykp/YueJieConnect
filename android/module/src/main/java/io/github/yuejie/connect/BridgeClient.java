@@ -83,6 +83,17 @@ final class BridgeClient implements AutoCloseable {
     }
     JSONObject projection(){return projection;}
     NativePairingClient nativePairing(){if(nativePairing==null)nativePairing=new NativePairingClient(this);return nativePairing;}
+    void browserRelay(JSONObject command, Consumer<JSONObject> completion) {
+        browserRelay(command).thenAccept(result -> deliver(completion, result));
+    }
+    java.util.concurrent.CompletableFuture<JSONObject> browserRelay(JSONObject command) {
+        var result = new java.util.concurrent.CompletableFuture<JSONObject>();
+        if (!enqueue(() -> {
+            try { result.complete(authenticated(command)); }
+            catch (org.json.JSONException | RemoteException | RuntimeException failure) { result.complete(null); }
+        })) result.complete(null);
+        return result;
+    }
     void pairing(JSONObject command,Consumer<JSONObject> completion){
         String copied=command.toString();
         if(!enqueue(()->{

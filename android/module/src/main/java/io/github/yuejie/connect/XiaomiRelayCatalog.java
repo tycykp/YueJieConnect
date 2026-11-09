@@ -6,7 +6,13 @@ import java.util.List;
 
 /** Original Mirror message fields, including package-private RecentAppsInfo fields. */
 final class XiaomiRelayCatalog {
+    static final String BILI_PACKAGE = "tv.danmaku.bili";
     static AppRelayCatalog.Update relay(Object message) throws ReflectiveOperationException {
+        return relay(message, false);
+    }
+    // At the native source, the app's local capability can be checked even when
+    // Mirror did not set supportHandoff because its own transport was unavailable.
+    static AppRelayCatalog.Update relay(Object message, boolean localHandoff) throws ReflectiveOperationException {
         AppRelayCatalog.requireClass(message, "com.xiaomi.mirror.message.RelayAppMessage");
         int type = (Integer) field(message, "type"), destination = (Integer) field(message, "mDstDeviceType");
         AppRelayCatalog.Kind kind = switch (type) {
@@ -18,7 +24,7 @@ final class XiaomiRelayCatalog {
         };
         boolean visible = !(Boolean) field(message, "isHideIcon") && !(Boolean) field(message, "unregisterRelay");
         boolean advertised = visible && destination == 2 && type != 0
-                && (Boolean) field(message, "isRelay") && (Boolean) field(message, "supportHandoff");
+                && (Boolean) field(message, "isRelay") && (localHandoff || (Boolean) field(message, "supportHandoff"));
         // description can contain a browser/document title; never copy it to the directory.
         return new AppRelayCatalog.Update(false, List.of(new AppRelayCatalog.Candidate(
                 packageOfProcess((String) field(message, "processName")), (String) field(message, "appName"), kind,

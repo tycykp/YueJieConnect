@@ -1,4 +1,16 @@
 <resources>
+    <string name="browser_relay">接力网页</string>
+    <string name="browser_relay_confirm">发送到 %1$s\n\n%2$s</string>
+    <string name="browser_relay_send">发送</string>
+    <string name="browser_relay_waiting">正在发送网页…</string>
+    <string name="browser_relay_invalid">请选择一条网页链接</string>
+    <string name="browser_relay_unavailable">请先连接支持网页接力的设备</string>
+    <string name="browser_relay_failed">未能确认对端收到网页，请检查连接后重试</string>
+    <string name="browser_relay_delivered">网页已送达，请在对端点开接力网页通知</string>
+    <string name="browser_relay_received">点击打开 %1$s 分享的网页</string>
+    <string name="browser_relay_expired">接力已过期，请从原设备重试</string>
+    <string name="app_relay_notice">应用接力</string>
+    <string name="app_relay_received">继续使用 %1$s 上的 %2$s</string>
     <string name="app_name">越界互联</string>
     <string name="module_description">API 102 + Rust 双向设备代理</string>
     <string name="gateway_intro">设备代理 · 0.5\n\n两台设备连接同一局域网。一端等待连接，另一端输入它的地址。核对两端校验码并分别确认后，才交换真实资料并发布代理。\n\n本版接入资料、电池查询和纯文本剪贴板；剪贴板仅在两端原生执行器均已就绪时启用。完整原生连接、文件、投屏等功能仍在集成。</string>

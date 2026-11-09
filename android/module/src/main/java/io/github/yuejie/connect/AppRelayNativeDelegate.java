@@ -53,11 +53,20 @@ final class AppRelayNativeDelegate implements AutoCloseable {
         return peer != null && peer.projectionId().equals(intent.getStringExtra(OplusRelayDirectory.EXTRA_PROJECTION))
                 && peer.sessionId().equals(intent.getStringExtra(OplusRelayDirectory.EXTRA_SESSION)) ? peer : null;
     }
+    AppRelayCatalog.Candidate candidate(AppRelayPeer peer, String pkg) {
+        return documentDecisions == null ? null : documentDecisions.candidate(peer, pkg);
+    }
     CompletableFuture<JSONObject> xiaomiCatalog(String nativePeer, Object message) {
         try {
             AppRelayPeer peer = require(nativePeer);
             AppRelayCatalog.Update update = message != null && "com.xiaomi.mirror.message.RecentAppsMessage".equals(message.getClass().getName())
                     ? XiaomiRelayCatalog.recent(message) : XiaomiRelayCatalog.relay(message);
+            return xiaomiCatalog(peer, update);
+        } catch (Exception invalid) { return CompletableFuture.failedFuture(invalid); }
+    }
+    CompletableFuture<JSONObject> xiaomiCatalog(AppRelayPeer peer, AppRelayCatalog.Update update) {
+        try {
+            if (!peer.equals(require(peer.nativeId()))) throw new IllegalStateException("stale_session");
             if (!documentReady.getAsBoolean()) update = new AppRelayCatalog.Update(update.clearAll(), update.candidates().stream()
                     .map(candidate -> candidate.kind() == AppRelayCatalog.Kind.DOCUMENT
                             ? new AppRelayCatalog.Candidate(candidate.packageName(), candidate.label(), candidate.kind(), candidate.visible(), false,

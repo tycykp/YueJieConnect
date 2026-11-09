@@ -24,8 +24,14 @@ final class OplusRelayControl {
         int type = -1;
         for (int i = 0; i < input.length(); i++) {
             JSONObject item = input.getJSONObject(i);
-            if (item.length() != 2 || !(item.get("key") instanceof String key) || !(item.get("value") instanceof String value) || !keys.add(key))
+            if (item.length() != 2 || !(item.get("key") instanceof String key) || !keys.add(key))
                 throw new IllegalArgumentException("invalid_relay_profile");
+            Object raw = item.get("value");
+            String value;
+            if (raw instanceof String text) value = text;
+            else if (OplusRelayPayload.TYPE.equals(key) && raw instanceof Integer typeValue)
+                value = Integer.toString(typeValue);
+            else throw new IllegalArgumentException("invalid_relay_profile");
             if (OplusRelayPayload.PKG.equals(key) && !expectedPackage.equals(value)) throw new SecurityException("source_package_mismatch");
             if (OplusRelayPayload.TYPE.equals(key)) {
                 if (!value.matches("[034567]")) throw new IllegalArgumentException("not_application_handoff");
@@ -33,7 +39,7 @@ final class OplusRelayControl {
             }
             if (OplusRelayPayload.ID.equals(key)) {
                 if (!Integer.toString(appId).equals(value)) throw new IllegalArgumentException("relay_header_mismatch");
-            } else normalized.put(item);
+            } else normalized.put(raw instanceof String ? item : profile(key, value));
         }
         if (!keys.contains(OplusRelayPayload.PKG) || type < 0) throw new IllegalArgumentException("missing_relay_profile");
         normalized.put(profile(OplusRelayPayload.ID, Integer.toString(appId)));

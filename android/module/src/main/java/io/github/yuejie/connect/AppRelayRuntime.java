@@ -21,12 +21,14 @@ final class AppRelayRuntime implements AutoCloseable {
     private final NativeLogicalClient logical;
     private final Handler main=new Handler(Looper.getMainLooper());
     private AppRelayNativeBinding binding;
-    private AppRelayPeer peer;
-    private NativeLogicalClient.Lease lease;
+    private volatile AppRelayPeer peer;
+    private volatile NativeLogicalClient.Lease lease;
     private FileTransferBridge.Registration documents;
     private CompletableFuture<Void> retiring=CompletableFuture.completedFuture(null);
-    private boolean closed,opening,checking,acknowledged;
-    private long retry,nextState;
+    private boolean opening,checking;
+    private boolean claimingBrowser;
+    private volatile boolean closed,acknowledged;
+    private long retry,nextState,nextBrowserClaim;
     private String failedSession="";
     private final Runnable tick=new Runnable(){public void run(){if(!closed){
         try{refresh();}catch(RuntimeException failure){failCurrent();module.log(android.util.Log.WARN,"YueJie","relay_runtime_refresh_failed");}
@@ -36,9 +38,9 @@ final class AppRelayRuntime implements AutoCloseable {
                     BooleanSupplier allowed,FileTransferBridge files){
         this.module=module;this.client=client;this.loader=loader;this.brand=brand;this.allowed=allowed;this.files=files;
         logical=new NativeLogicalClient(client);main.post(tick);
-        android.util.Log.i("YueJieRelay","runtime_installed brand="+brand);
+        ScreenCastLog.i("YueJieRelay","runtime_installed brand="+brand);
     }
-    private boolean current(){JSONObject p=client.projection();return !closed&&allowed.getAsBoolean()&&peer!=null&&peer.matches(p)&&client.hasLocalGrant("app_relay");}
+    private boolean current(){JSONObject p=client.projection();AppRelayPeer selected=peer;return !closed&&allowed.getAsBoolean()&&selected!=null&&selected.matches(p)&&client.hasLocalGrant("app_relay");}
     private boolean channel(){return current()&&(acknowledged&&logical.current(lease)||client.hasIncomingLogicalChannel("app_relay"));}
     private void refresh(){
         JSONObject p=client.projection();
@@ -49,6 +51,7 @@ final class AppRelayRuntime implements AutoCloseable {
             try{prepare(p);}catch(Exception failure){retire();module.log(android.util.Log.WARN,"YueJie","relay_runtime_unavailable "+failure.getClass().getSimpleName());return;}
         }
         binding.nativeStateChanged();
+        claimBrowserOffer();
         if(!opening&&lease==null&&SystemClock.elapsedRealtime()>=retry){
             try{
                 NativeLogicalClient.Lease attempt=logical.allocate(peer.projectionId(),peer.sessionId(),Set.of("app_relay"));
@@ -57,7 +60,7 @@ final class AppRelayRuntime implements AutoCloseable {
                     if(lease!=attempt){logical.close(attempt);return;}
                     opening=false;
                     if(error!=null||!Boolean.TRUE.equals(open)||!current()){logical.close(attempt);lease=null;retry=SystemClock.elapsedRealtime()+2000;}
-                    else{acknowledged=true;nextState=0;notifyBinding();if(acknowledged)android.util.Log.i("YueJieRelay","data_channel_open brand="+brand);}
+                    else{acknowledged=true;nextState=0;notifyBinding();if(acknowledged)ScreenCastLog.i("YueJieRelay","data_channel_open brand="+brand);}
                 });
             }catch(RuntimeException notReady){retry=SystemClock.elapsedRealtime()+1000;}
         }
@@ -69,6 +72,41 @@ final class AppRelayRuntime implements AutoCloseable {
                 if(error!=null||!Boolean.TRUE.equals(open)){acknowledged=false;logical.close(selected);lease=null;retry=SystemClock.elapsedRealtime()+2000;}
                 notifyBinding();
             });
+        }
+    }
+    private void claimBrowserOffer() {
+        AppRelayNativeBinding selectedBinding = binding;
+        AppRelayPeer selectedPeer = peer;
+        long now = SystemClock.elapsedRealtime();
+        if (claimingBrowser || now < nextBrowserClaim || !selectedBinding.browserRelayReady()) return;
+        nextBrowserClaim = now + 750;
+        try {
+            JSONObject command = new JSONObject().put("op", "browser_relay_claim").put("session", selectedPeer.sessionId());
+            claimingBrowser = true;
+            client.browserRelay(command, result -> {
+                claimingBrowser = false;
+                if (result == null || selectedBinding != binding || !selectedPeer.equals(peer)) return;
+                String clicked = result.optString("clicked_package");
+                if (!clicked.isEmpty()) selectedBinding.openSharedOffer(selectedPeer, clicked);
+                JSONObject value = result.optJSONObject("offer");
+                if (value == null) return;
+                try {
+                    BrowserRelayOffer offer = BrowserRelayOffer.decode(value);
+                    selectedBinding.publishBrowserOffer(selectedPeer, offer).whenComplete((receipt, failure) -> {
+                        try {
+                            client.browserRelay(new JSONObject().put("op", "browser_relay_finish").put("session", offer.session())
+                                    .put("id", offer.id()).put("delivered", failure == null), ignored -> {});
+                            ScreenCastLog.i("YueJieRelay", failure == null ? "browser_catalog_delivered" : "browser_catalog_failed");
+                        } catch (org.json.JSONException invalid) {
+                            ScreenCastLog.w("YueJieRelay", "browser_catalog_result_failed");
+                        }
+                    });
+                } catch (org.json.JSONException | IllegalArgumentException invalid) {
+                    ScreenCastLog.w("YueJieRelay", "invalid_browser_offer");
+                }
+            });
+        } catch (org.json.JSONException invalid) {
+            ScreenCastLog.w("YueJieRelay", "browser_claim_failed");
         }
     }
     private void notifyBinding(){try{if(binding!=null)binding.nativeStateChanged();}catch(RuntimeException failure){failCurrent();}}
@@ -104,7 +142,7 @@ final class AppRelayRuntime implements AutoCloseable {
             public void sessionChanged(){if(binding!=null)binding.nativeDocumentsRevoked();}
         });
         retry=0;
-        android.util.Log.i("YueJieRelay","native_resources_prepared brand="+brand);
+        ScreenCastLog.i("YueJieRelay","native_resources_prepared brand="+brand);
     }
     private void retire(){
         NativeLogicalClient.Lease old=lease;lease=null;opening=checking=acknowledged=false;if(old!=null)logical.close(old);

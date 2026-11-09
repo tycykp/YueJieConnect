@@ -62,10 +62,8 @@ class AppRelayEndpoint implements AppRelayTasks.Endpoint {
         String failure = "target_app_missing";
         ArrayList<String> candidates = new ArrayList<>(request.targets());
         if (request.kind() == AppRelayRequest.Kind.BROWSER) {
-            Intent browser = new Intent(Intent.ACTION_VIEW, Uri.parse(request.uri())).addCategory(Intent.CATEGORY_BROWSABLE);
-            ResolveInfo preferred = context.getPackageManager().resolveActivity(browser, PackageManager.MATCH_DEFAULT_ONLY);
-            if (preferred != null && preferred.activityInfo != null && !"android".equals(preferred.activityInfo.packageName)
-                    && !candidates.contains(preferred.activityInfo.packageName)) candidates.add(preferred.activityInfo.packageName);
+            String preferred = browserPackage(context, Uri.parse(request.uri()));
+            if (preferred != null && !candidates.contains(preferred)) candidates.add(preferred);
         }
         for (String target : candidates) {
             Document document = null;
@@ -113,6 +111,21 @@ class AppRelayEndpoint implements AppRelayTasks.Endpoint {
 
     void checkSupported(AppRelayRequest request, String target) throws Exception {}
 
+    static String directoryTarget(Context context, AppRelayCatalog.Candidate candidate) {
+        if (candidate.kind() != AppRelayCatalog.Kind.BROWSER) return candidate.packageName();
+        String browser = browserPackage(context, Uri.parse("https://example.invalid/"));
+        if (browser == null) throw new IllegalStateException("target_app_missing");
+        return browser;
+    }
+
+    private static String browserPackage(Context context, Uri uri) {
+        Intent browser = new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE);
+        ResolveInfo preferred = context.getPackageManager().resolveActivity(browser, PackageManager.MATCH_DEFAULT_ONLY);
+        if (preferred == null || preferred.activityInfo == null || !preferred.activityInfo.exported
+                || !preferred.activityInfo.enabled || "android".equals(preferred.activityInfo.packageName)) return null;
+        return preferred.activityInfo.packageName;
+    }
+
     Intent intent(AppRelayRequest request, String target, Uri local) throws Exception {
         Intent intent;
         if (request.kind() == AppRelayRequest.Kind.RICH_TEXT) {
@@ -147,14 +160,23 @@ class AppRelayEndpoint implements AppRelayTasks.Endpoint {
         List<Task> current = tasks();
         if (!current.isEmpty()) {
             Task top = current.get(0);
-            if (launch.intent.getComponent().equals(top.top)) {
+            if (matches(launch, top)) {
                 Task before = launch.before.stream().filter(task -> task.id == top.id).findFirst().orElse(null);
-                boolean wasForeground = !launch.before.isEmpty() && launch.intent.getComponent().equals(launch.before.get(0).top);
+                boolean wasForeground = !launch.before.isEmpty() && matches(launch, launch.before.get(0));
                 if (before == null || !wasForeground || (top.active > 0 && top.active > before.active)) return top.id;
             }
         }
         if (SystemClock.elapsedRealtime() - launch.dispatched > 10000) throw new IllegalStateException("launch_unverified");
         return -1;
+    }
+
+    private static boolean matches(Launch launch, Task task) {
+        if (task.top == null) return false;
+        // URI handlers can route from an exported trampoline to another activity in the verified app.
+        boolean routesWithinApp = launch.request.kind() == AppRelayRequest.Kind.BROWSER
+                || launch.request.kind() == AppRelayRequest.Kind.APP;
+        return routesWithinApp ? launch.target.equals(task.top.getPackageName())
+                : launch.intent.getComponent().equals(task.top);
     }
 
     @Override public synchronized void release(AppRelayTasks.Prepared prepared) {

@@ -2,6 +2,7 @@ package io.github.yuejie.connect;
 
 import io.github.libxposed.api.XposedModule;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /** Shared owner supplies an actual selected DATA logical slot; this class assembles its business. */
@@ -38,16 +39,52 @@ final class AppRelayNativeBinding implements AutoCloseable {
             BooleanSupplier owns = () -> selection.ownsNativeSlot(peer);
             AppRelayDirectory.Consumer nativeDirectory = brand == 1 ? new XiaomiRelayDirectory(client.context(), loader, peer, selection.deviceName(), current, owns, documentsReady)
                     : new OplusRelayDirectory(client.context(), loader, peer, selection.deviceName(), current, owns, documentsReady);
+            boolean appNoticeEnabled = brand == 1 || client.context().getResources().getConfiguration().smallestScreenWidthDp < 600;
             return new AppRelayDirectory.Consumer() {
+                private String appNotice = "";
                 public void apply(AppRelayCatalog.Update update) throws Exception {
-                    if (update.clearAll()) { nativeDirectory.apply(update); documentDecisions.consumed(peer, update, ""); return; }
+                    if (update.clearAll()) { clear(); return; }
                     for (var value : update.candidates()) {
+                        if (BrowserRelayOffer.ownsPackage(value.packageName())) {
+                            if (value.kind() != AppRelayCatalog.Kind.BROWSER) throw new IllegalArgumentException("invalid_browser_offer");
+                            updateBrowserNotice(peer, value.packageName(), value.eligible(true, true), "");
+                            continue;
+                        }
                         var part = new AppRelayCatalog.Update(false, java.util.List.of(value));
+                        if (appNoticeEnabled && value.kind() == AppRelayCatalog.Kind.APP) {
+                            boolean show = value.eligible(true, true);
+                            String label = "";
+                            if (show) {
+                                if (nativeDirectory instanceof XiaomiRelayDirectory xiaomi) xiaomi.requireEnabled();
+                                else OplusRelayPermission.check(client.context(), loader, value.packageName());
+                                var pm = client.context().getPackageManager();
+                                var app = pm.getApplicationInfo(value.packageName(), 0);
+                                if (!app.enabled || (app.flags & android.content.pm.ApplicationInfo.FLAG_SUSPENDED) != 0)
+                                    throw new IllegalStateException("target_app_disabled");
+                                label = AppRelayCatalog.text(pm.getApplicationLabel(app).toString(), 256);
+                                if (!current.getAsBoolean()) throw new IllegalStateException("stale_session");
+                            }
+                            updateBrowserNotice(peer, value.packageName(), show, label);
+                            appNotice = show ? value.packageName() : appNotice.equals(value.packageName()) ? "" : appNotice;
+                            documentDecisions.consumed(peer, part, "");
+                            continue;
+                        }
+                        if (value.eligible(true, true)) hideAppNotice();
                         nativeDirectory.apply(part);
                         documentDecisions.consumed(peer, part, nativeDirectory instanceof OplusRelayDirectory oplus ? oplus.clickToken() : "");
                     }
                 }
-                public void clear() throws Exception { nativeDirectory.clear(); documentDecisions.clear(peer); }
+                private void hideAppNotice() throws Exception {
+                    if (appNotice.isEmpty()) return;
+                    String previous = appNotice;
+                    appNotice = "";
+                    if (current.getAsBoolean()) updateBrowserNotice(peer, previous, false, "");
+                }
+                public void clear() throws Exception {
+                    hideAppNotice();
+                    nativeDirectory.clear();
+                    documentDecisions.clear(peer);
+                }
             };
         }, (projection, session) -> {
             AppRelayPeer peer = require(projection, session);
@@ -63,7 +100,7 @@ final class AppRelayNativeBinding implements AutoCloseable {
                 xiaomiSource = new XiaomiRelaySource(loader, resolver, bridge::authorized, bridge.sender());
                 xiaomiAdapter = new XiaomiRelayAdapter(module, client.context(), loader, bridge::authorized, client::projection,
                         bridge.sender(), files, resolver, delegate);
-                xiaomiAdapter.sourceRequests(xiaomiSource);
+                xiaomiAdapter.sourceRequests(xiaomiSource, selection::selected);
                 xiaomiClick = new XiaomiRelayClickAdapter(module, loader, delegate);
                 xiaomiAdapter.install(); xiaomiClick.install();
             } else {
@@ -89,6 +126,36 @@ final class AppRelayNativeBinding implements AutoCloseable {
         return peer;
     }
     boolean localResourcesPrepared() { return installed && !closed; }
+    boolean browserRelayReady() { return bridge.authorized(); }
+    CompletableFuture<org.json.JSONObject> publishBrowserOffer(AppRelayPeer peer, BrowserRelayOffer offer) {
+        return bridge.publishBrowserOffer(peer, offer);
+    }
+    void openSharedOffer(AppRelayPeer peer, String pkg) {
+        if (!bridgeAuthorized(peer)) return;
+        boolean browser = BrowserRelayOffer.ownsPackage(pkg);
+        if (!browser) {
+            AppRelayCatalog.Candidate candidate = delegate.candidate(peer, pkg);
+            if (candidate == null || candidate.kind() != AppRelayCatalog.Kind.APP) return;
+        }
+        AppRelayEvents.emit(browser ? AppRelayEvents.Event.BROWSER_NOTICE_CLICK : AppRelayEvents.Event.APP_NOTICE_CLICK,
+                browser ? "browser-click" : "app-click", AppRelayEvents.Outcome.PENDING);
+        var request = browser ? bridge.requestSync(peer, pkg) : delegate.requestSync(peer, pkg);
+        request.whenComplete((result, failure) -> {
+            if (result != null) AppRelayEvents.emit(AppRelayEvents.Event.NATIVE_CLICK_RESULT, result.requestId(), AppRelayEvents.outcome(result));
+        });
+    }
+    private void updateBrowserNotice(AppRelayPeer peer, String pkg, boolean show, String label) throws Exception {
+        var command = new org.json.JSONObject().put("op", "browser_relay_notice").put("session", peer.sessionId())
+                .put("package", pkg).put("show", show).put("app_label", label);
+        // Incoming catalog work owns the relay scope. Complete the Binder reply on
+        // its worker so a simultaneous outgoing share can wait for that scope safely.
+        var result = client.browserRelay(command).get(4, TimeUnit.SECONDS);
+        if (result == null || !"ok".equals(result.optString("status"))) {
+            String code = result == null ? "no_reply" : result.optString("code");
+            if (code.matches("[a-z_]{1,64}")) ScreenCastLog.w("YueJieRelay", "app_notice_rejected " + code);
+            throw new IllegalStateException("notification_unavailable");
+        }
+    }
     void nativeStateChanged() { bridge.nativeStateChanged(); documentDecisions.maintain(); }
     void nativeDocumentPrepared(FileTransferNegotiation.Prepared prepared, FileTransferEndpoint endpoint, FileTransferNegotiation negotiation) {
         documentNegotiation.prepared(prepared, endpoint, negotiation);

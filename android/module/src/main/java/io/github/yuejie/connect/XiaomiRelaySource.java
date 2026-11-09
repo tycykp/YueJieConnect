@@ -38,11 +38,11 @@ final class XiaomiRelaySource implements AutoCloseable {
         handler = (Handler) helper.getClass().getField("c").get(helper);
         request = helper.getClass().getMethod("y", String.class, String.class, long.class);
     }
-    synchronized void observe(AppRelayPeer peer, Object message) throws Exception {
-        if (!"com.xiaomi.mirror.message.RelayAppMessage".equals(message.getClass().getName())) return;
-        var update = XiaomiRelayCatalog.relay(message);
+    boolean registered(String pkg) throws ReflectiveOperationException {
+        return Boolean.TRUE.equals(helper.getClass().getMethod("v", String.class).invoke(helper, pkg));
+    }
+    synchronized void observe(AppRelayPeer peer, AppRelayCatalog.Update update, String process) {
         candidates.entrySet().removeIf(entry -> !entry.getValue().peer().sessionId().equals(peer.sessionId()));
-        String process = (String) message.getClass().getField("processName").get(message);
         for (var value : update.candidates()) {
             String key = key(peer, value.packageName());
             if (value.eligible(true, true)) {
@@ -79,7 +79,7 @@ final class XiaomiRelaySource implements AutoCloseable {
                         AppRelayTasks.Result completed = previous == null ? null : previous.result.getNow(null);
                         if (completed == null || completed.state() != AppRelayTasks.State.COMPLETED) throw new IllegalStateException("relay_busy");
                     }
-                    if (!Boolean.TRUE.equals(helper.getClass().getMethod("v", String.class).invoke(helper, pkg)))
+                    if (!registered(pkg))
                         throw new IllegalStateException("native_source_unavailable");
                     request.invoke(helper, peer.nativeId(), candidate.process(), item.nativeSession);
                 } catch (Exception failure) { finish(item, null, AppRelayTasks.code(failure)); }
@@ -101,6 +101,10 @@ final class XiaomiRelaySource implements AutoCloseable {
     }
     synchronized boolean cancelled(long nativeSession) {
         Pending item = pending.get(nativeSession); return item != null && (item.cancelled || item.result.isDone());
+    }
+    synchronized boolean ownsResponse(AppRelayPeer peer, Object owner, long nativeSession, String id) {
+        Pending item = pending.get(nativeSession);
+        return owner == helper && item != null && item.claimed && item.peer.equals(peer) && item.id.equals(id) && !item.result.isDone();
     }
     synchronized String documentOwnerToken(AppRelayPeer peer, long nativeSession) {
         Pending item = pending.get(nativeSession);

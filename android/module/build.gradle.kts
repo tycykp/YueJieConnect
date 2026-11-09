@@ -30,8 +30,8 @@ android {
         // The native pages handle peer selection on both sides of the LAN listener.
         // Use Android's compatibility access for this sideloaded bridge on Android 17.
         targetSdk = 36
-        versionCode = 32
-        versionName = "0.7.1-native-direct"
+        versionCode = 46
+        versionName = "0.7.2-app-relay"
         buildConfigField("String", "RUNTIME_INPUT_SHA", "\"$runtimeInputDigest\"")
         ndk { abiFilters += "arm64-v8a" }
     }

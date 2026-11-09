@@ -31,17 +31,26 @@ final class XiaomiRelayCodec {
             throw new IllegalStateException("native_document_consent_required");
         String source = string(message, "packageName");
         if ("RelayBrowserMessage".equals(name)) {
-            // Cookies are application credentials and need a distinct, app-bound grant/receiver.
-            if (!string(message, "cookie").isEmpty()) throw new IllegalArgumentException("browser_cookie_transfer_not_granted");
-            return new AppRelayRequest(id, source, AppRelayRequest.Kind.BROWSER, strings(message, "targetPkgs"),
+            // Only carry the URL. Native cookies and browser-specific state stay on the source.
+            return new AppRelayRequest(id, source, AppRelayRequest.Kind.BROWSER, List.of(),
                     string(message, "url"), "", "", "", 0, 0, "");
         }
         if ("RelayAppIntentMessage".equals(name)) {
             Class<?> deviceUtils = Class.forName("q4.j", false, message.getClass().getClassLoader());
             String nativeSigner = (String) deviceUtils.getMethod("o", Context.class, String.class).invoke(null, context, source);
             if (nativeSigner == null || !nativeSigner.equals(string(message, "signature"))) throw new SecurityException("source_signature_mismatch");
-            return new AppRelayRequest(id, source, AppRelayRequest.Kind.APP, strings(message, "targetPkgs"),
-                    string(message, "uri"), AppRelayEndpoint.signers(context, source).get(0), "", "", 0, 0, "");
+            List<String> targets = strings(message, "targetPkgs");
+            // The regular Bilibili app advertises its HD edition in its Xiaomi SDK.
+            // On the other device the same signed regular app also handles this URI.
+            String uri = string(message, "uri");
+            if (XiaomiRelayCatalog.BILI_PACKAGE.equals(source)) {
+                android.net.Uri state = android.net.Uri.parse(uri);
+                if ("bilibili".equalsIgnoreCase(state.getScheme()) && "home".equalsIgnoreCase(state.getHost()))
+                    throw new IllegalStateException("native_source_unavailable");
+                if (targets.equals(List.of("tv.danmaku.bilibilihd"))) targets = List.of("tv.danmaku.bilibilihd", source);
+            }
+            return new AppRelayRequest(id, source, AppRelayRequest.Kind.APP, targets,
+                    uri, AppRelayEndpoint.signers(context, source).get(0), "", "", 0, 0, "");
         }
         if ("RelayOfficeMessage".equals(name)) {
             if (files == null) throw new IllegalStateException("file_transfer_required");

@@ -41,6 +41,9 @@ final class AppRelayDocumentDecisions implements AutoCloseable {
         }
     }
     synchronized void clear(AppRelayPeer peer) { if (slot != null && slot.peer.equals(peer)) slot = null; }
+    synchronized AppRelayCatalog.Candidate candidate(AppRelayPeer peer, String pkg) {
+        return !closed && slot != null && slot.peer.equals(peer) && slot.candidate.packageName().equals(pkg) ? slot.candidate : null;
+    }
     synchronized boolean ownsClick(AppRelayPeer peer, String pkg, String token) {
         return !closed && slot != null && slot.peer.equals(peer) && slot.candidate.packageName().equals(pkg)
                 && token != null && token.matches("[0-9a-f]{32}") && token.equals(slot.clickToken);

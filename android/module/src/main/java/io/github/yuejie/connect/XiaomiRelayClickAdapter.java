@@ -23,15 +23,19 @@ final class XiaomiRelayClickAdapter implements AutoCloseable {
         var slot = remote.getField("k");
         var manager = remote.getMethod("m");
         try {
-            hooks.add(module.hook(remote.getDeclaredMethod("k", boolean.class, String.class)).setId("yj.xiaomi.relay.native-sync").intercept(chain -> {
-                String nativeId = (String)chain.getArg(1);
+            // scheduleRelayApp precedes the stock terminal lookup. A gateway ID has no
+            // native P2P terminal, so the later k() hook would never see the click.
+            hooks.add(module.hook(remote.getDeclaredMethod("a", remote, String.class, String.class, String.class)).setId("yj.xiaomi.relay.native-sync").intercept(chain -> {
+                Object owner = chain.getArg(0);
+                String nativeId = (String)chain.getArg(3);
                 AppRelayPeer peer = delegate.selected(nativeId);
                 if (closed || peer == null) return chain.proceed();
-                Object selected = slot.get(chain.getThisObject());
-                if (selected == null || !nativeId.equals(selected.getClass().getField("a").get(selected))) return chain.proceed();
-                String pkg = XiaomiRelayCatalog.packageOfProcess((String)selected.getClass().getField("c").get(selected));
+                Object selected = slot.get(owner);
+                String pkg = (String)chain.getArg(1);
+                if (selected == null || !nativeId.equals(selected.getClass().getField("a").get(selected))
+                        || !pkg.equals(XiaomiRelayCatalog.packageOfProcess((String)selected.getClass().getField("c").get(selected)))
+                        || delegate.candidate(peer, pkg) == null) return null;
                 AppRelayEvents.emit(AppRelayEvents.Event.NATIVE_CLICK, "xiaomi-click", AppRelayEvents.Outcome.PENDING);
-                Object owner = chain.getThisObject();
                 delegate.requestSync(peer, pkg).whenComplete((result, error) -> main.post(() -> {
                     if (closed || !peer.equals(delegate.selected(nativeId))) return;
                     try {

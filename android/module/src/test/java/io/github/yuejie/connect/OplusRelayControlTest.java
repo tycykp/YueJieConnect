@@ -39,4 +39,16 @@ public class OplusRelayControlTest {
         assertThrows(IllegalArgumentException.class, () -> OplusRelayControl.sdkData(control.toString(), PKG, 1008));
         assertThrows(IllegalArgumentException.class, () -> OplusRelayControl.sdkData(data().put(profile(OplusRelayPayload.TYPE, "5")).toString(), PKG, 1008));
     }
+    @Test public void neteaseNumericPayloadTypeIsCanonicalizedWithoutAcceptingNumericAppData() throws Exception {
+        String app = "com.netease.cloudmusic";
+        JSONArray values = new JSONArray().put(profile(OplusRelayPayload.PKG, app))
+                .put(new JSONObject().put("key", OplusRelayPayload.TYPE).put("value", 6))
+                .put(profile(OplusRelayPayload.ID, "1006"))
+                .put(profile("Application_Relay_Dp_Header", "orpheus://player"));
+        OplusRelayPayload payload = OplusRelayPayload.decode(OplusRelayControl.sdkData(values.toString(), app, 1006));
+        assertEquals(6, payload.type());
+        assertEquals("6", payload.profiles().getJSONObject(1).get("value"));
+        values.put(new JSONObject().put("key", "Relay_Extend_Key_Doc_Data").put("value", 12));
+        assertThrows(IllegalArgumentException.class, () -> OplusRelayControl.sdkData(values.toString(), app, 1006));
+    }
 }

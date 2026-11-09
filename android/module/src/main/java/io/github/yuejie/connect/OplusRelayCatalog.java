@@ -6,6 +6,7 @@ import java.util.Map;
 
 /** RelayInfo and icon AbilityProfile conversion; never calls DockInteraction with an unbound peer. */
 final class OplusRelayCatalog {
+    static final String BROWSER = "com.heytap.browser";
     static AppRelayCatalog.Update relayInfo(Object info) throws ReflectiveOperationException {
         AppRelayCatalog.requireClass(info, "com.oplus.synergy.bean.RelayInfo");
         return candidate(string(info, "getPkgName"), "", string(info, "getActivityName"),
@@ -39,7 +40,8 @@ final class OplusRelayCatalog {
         boolean data = "1".equals(type);
         if (!data && !"2".equals(type) && "show".equals(status)) throw new IllegalArgumentException("invalid_relay_type");
         return new AppRelayCatalog.Update(false, List.of(new AppRelayCatalog.Candidate(pkg, label,
-                data ? AppRelayCatalog.Kind.APP : AppRelayCatalog.Kind.CAST, "show".equals(status),
+                data ? (BROWSER.equals(pkg) ? AppRelayCatalog.Kind.BROWSER : AppRelayCatalog.Kind.APP)
+                        : AppRelayCatalog.Kind.CAST, "show".equals(status),
                 data && "show".equals(status) && device == 1, device, activity)));
     }
     private static String string(Object object, String method) throws ReflectiveOperationException {

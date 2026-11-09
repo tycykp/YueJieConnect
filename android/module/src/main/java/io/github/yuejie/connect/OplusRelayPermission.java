@@ -9,6 +9,10 @@ import java.util.concurrent.TimeUnit;
 /** Original consent and local 256 ability, queried on a worker with a finite deadline. */
 final class OplusRelayPermission {
     static void check(Context context, ClassLoader loader, String pkg) throws Exception {
+        checkConsent(context, loader);
+        checkAbility(loader, pkg);
+    }
+    static void checkConsent(Context context, ClassLoader loader) throws Exception {
         KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
         if (keyguard != null && keyguard.isDeviceLocked()) throw new IllegalStateException("device_locked");
         Class<?> utils = Class.forName("com.oplus.synergy.utils.RelayUtils", false, loader);
@@ -25,7 +29,13 @@ final class OplusRelayPermission {
         });
         Class.forName("com.oplus.synergy.utils.StartEngineUtils", false, loader)
                 .getMethod("queryUserAgreement", Context.class, callbackType).invoke(null, context, callback);
-        if (!consent.get(2000, TimeUnit.MILLISECONDS)) throw new IllegalStateException("native_user_agreement_required");
+        try {
+            if (!consent.get(2000, TimeUnit.MILLISECONDS)) throw new SecurityException("native_user_agreement_required");
+        } catch (java.util.concurrent.TimeoutException timeout) {
+            throw new SecurityException("native_user_agreement_unavailable");
+        }
+    }
+    static void checkAbility(ClassLoader loader, String pkg) throws Exception {
         Class<?> ability = Class.forName("com.oplus.pantaconnect.sdk.connectionservice.ability.Ability", false, loader);
         Object query = ability.getMethod("checkLocalAbility", int.class, String.class).invoke(ability.getMethod("create").invoke(null), 256, pkg);
         if (!(query instanceof CompletableFuture<?> future)) throw new IllegalStateException("ability_query_failed");

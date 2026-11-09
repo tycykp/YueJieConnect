@@ -26,6 +26,8 @@ public final class BridgeService extends Service {
     private SystemNotificationBridge notifications;
     private int hostSource;
     private final NativeRuntimeRegistry runtimes=new NativeRuntimeRegistry();
+    private final BrowserRelayOffer.Inbox browserRelay = new BrowserRelayOffer.Inbox();
+    private BrowserRelayNotice browserNotice;
     private final NativeScreenProofs screenProofs=new NativeScreenProofs();
     private record MediaGrant(String session,long stream,NativeScreenProofs.Caller caller){}
     private final java.util.Map<Long,MediaGrant> screenMedia=new java.util.concurrent.ConcurrentHashMap<>();
@@ -35,12 +37,17 @@ public final class BridgeService extends Service {
     private final Runnable monitorTask=new Runnable(){public void run(){
         if(nativePairing!=null)nativePairing.tick();
         try{JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}"));
-            JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);if(state!=null){String marker="phase="+state.optString("phase")+" error="+state.optString("last_error")+" errno="+state.optString("socket_errno")+" rpc="+state.optLong("requests_sent")+"/"+state.optLong("requests_received")+"/"+state.optLong("responses_received");
+            JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);
+            browserRelay.session(state != null && "active".equals(state.optString("phase")) ? state.optString("session") : "");
+            browserNotice.session(state != null && "active".equals(state.optString("phase"))
+                    && relayGranted(state.optJSONArray("granted_operations")) ? state.optString("session") : "");
+            if(state!=null){String marker="phase="+state.optString("phase")+" error="+state.optString("last_error")+" errno="+state.optString("socket_errno")+" rpc="+state.optLong("requests_sent")+"/"+state.optLong("requests_received")+"/"+state.optLong("responses_received");
                 if(!marker.equals(lastState)){lastState=marker;android.util.Log.i("YueJieBridge",marker);}}
         }catch(org.json.JSONException|RuntimeException ignored){}monitor.postDelayed(this,1000);
     }};
     @Override public void onCreate() {
         super.onCreate();
+        browserNotice = new BrowserRelayNotice(this);
         wifiRoute=new WifiRoute(getSystemService(android.net.ConnectivityManager.class));
         nativePairing=new NativePairingService(this,new NativePairingService.Host(){
             public JSONObject dispatch(JSONObject command)throws org.json.JSONException{
@@ -150,6 +157,80 @@ public final class BridgeService extends Service {
     private static long exactLong(JSONObject value,String key)throws org.json.JSONException{
         Object number=value.get(key);if(!(number instanceof Integer)&&!(number instanceof Long))throw new IllegalArgumentException();return ((Number)number).longValue();
     }
+    private String browserRelayRequest(CallerVerifier.Verified caller, boolean owner, int uid, int pid, int source,
+                                       JSONObject command) throws org.json.JSONException {
+        String op = command.getString("op");
+        boolean localCommand = op.equals("browser_relay_peer") || op.equals("browser_relay_offer")
+                || op.equals("browser_relay_status") || op.equals("browser_relay_click");
+        if (owner != localCommand || !owner && (caller == null || !CallerPolicy.executorAllowed(caller.packageName(), "app_relay")))
+            return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+        JSONObject projection;
+        if (owner) {
+            JSONObject snapshot = new JSONObject(NativeCore.dispatch(uid, pid, true, source, SystemClock.elapsedRealtime(),
+                    "{\"op\":\"bridge_status\"}")).optJSONObject("bridge");
+            if (snapshot == null || !"active".equals(snapshot.optString("phase")) || !relayGranted(snapshot.optJSONArray("granted_operations")))
+                return "{\"status\":\"error\",\"code\":\"peer_offline\"}";
+            projection = snapshot.optJSONObject("projection");
+        } else {
+            JSONObject authorized = new JSONObject(NativeCore.dispatch(uid, pid, false, source, SystemClock.elapsedRealtime(),
+                    new JSONObject().put("op", "bridge_projections").put("token", command.getString("token"))
+                            .put("sequence", command.getLong("sequence")).toString()));
+            if (!"ok".equals(authorized.optString("status"))) return authorized.toString();
+            projection = authorized.optJSONObject("projection");
+            if (projection == null || !relayGranted(projection.optJSONArray("local_grants")))
+                return "{\"status\":\"error\",\"code\":\"peer_offline\"}";
+        }
+        if (projection == null || !relayGranted(projection.optJSONArray("operations")))
+            return "{\"status\":\"error\",\"code\":\"peer_offline\"}";
+        String session = projection.getString("session_id");
+        if (!op.equals("browser_relay_peer") && !session.equals(command.getString("session")))
+            return "{\"status\":\"error\",\"code\":\"stale_session\"}";
+        JSONObject response = new JSONObject().put("status", "ok");
+        try {
+            switch (op) {
+                case "browser_relay_peer" -> {
+                    return response.put("session", session).put("name", projection.getJSONObject("real").getString("name")).toString();
+                }
+                case "browser_relay_offer" -> {
+                    return response.put("id", browserRelay.submit(session, command.getString("url")).id()).toString();
+                }
+                case "browser_relay_status" -> {
+                    return response.put("state", browserRelay.status(session, command.getString("id"))).toString();
+                }
+                case "browser_relay_click" -> {
+                    if (!browserNotice.click(session, command.getString("package")))
+                        return response.put("status", "error").put("code", "stale_offer").toString();
+                    return response.toString();
+                }
+                case "browser_relay_claim" -> {
+                    BrowserRelayOffer offer = browserRelay.claim(session, pid);
+                    if (offer != null) response.put("offer", offer.encode());
+                    String clicked = browserNotice.takeClick(session);
+                    if (clicked != null) response.put("clicked_package", clicked);
+                    return response.toString();
+                }
+                case "browser_relay_notice" -> {
+                    String pkg = command.getString("package");
+                    if (command.getBoolean("show"))
+                        browserNotice.show(session, pkg, projection.getJSONObject("real").getString("name"), command.optString("app_label"));
+                    else browserNotice.hide(session, pkg);
+                    return response.toString();
+                }
+                case "browser_relay_finish" -> {
+                    browserRelay.finish(session, pid, command.getString("id"), command.getBoolean("delivered"));
+                    return response.toString();
+                }
+                default -> { return "{\"status\":\"error\",\"code\":\"invalid_request\"}"; }
+            }
+        } catch (IllegalArgumentException | IllegalStateException rejected) {
+            return response.put("status", "error").put("code", rejected.getMessage()).toString();
+        }
+    }
+    private static boolean relayGranted(JSONArray operations) {
+        if (operations != null) for (int i = 0; i < operations.length(); i++)
+            if ("app_relay".equals(operations.optString(i))) return true;
+        return false;
+    }
     private final IBridge.Stub binder = new IBridge.Stub() {
         @Override public android.os.ParcelFileDescriptor openMediaPipe(String command){
             int uid=Binder.getCallingUid(),pid=Binder.getCallingPid();long identity=Binder.clearCallingIdentity();
@@ -198,6 +279,7 @@ public final class BridgeService extends Service {
                     parsed.remove("runtime_revision");command=parsed.toString();
                 }
                 if(op.startsWith("screen_request_"))return screenRequest(verified,uid,pid,parsed);
+                if(op.startsWith("browser_relay_"))return browserRelayRequest(verified,owner,uid,pid,source,parsed);
                 if("native_pairing".equals(op)){
                     if(owner||!NativePairingPolicy.caller(verified.packageName()))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                     // Consume the real Rust IPC sequence before invoking the narrowly scoped
@@ -271,6 +353,7 @@ public final class BridgeService extends Service {
         if(nativePairing!=null)nativePairing.close();
         monitor.removeCallbacks(monitorTask);
         if(notifications!=null)notifications.close();
+        browserNotice.session("");
         screenProofs.scope("","",false);
         mirrorProof.close();
         wifiRoute.release();

@@ -9,6 +9,13 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class AppRelayCatalogTest {
+    @Test public void androidShareAcceptsOneLinkFollowingTheTitle() {
+        String url = "https://example.invalid/news?q=via#heading";
+        assertEquals(url, BrowserRelayOffer.fromShare("Via 网页 " + url));
+        assertEquals(url, BrowserRelayOffer.fromShare("Via 网页\n" + url));
+        assertThrows(IllegalArgumentException.class, () -> BrowserRelayOffer.fromShare(url + " https://example.invalid/other"));
+        assertThrows(IllegalArgumentException.class, () -> BrowserRelayOffer.fromShare("Via javascript:alert(1)"));
+    }
     @Test public void directoryRequiresBoundPeerAndLocalSupport() throws Exception {
         RelayAppMessage message = new RelayAppMessage();
         var candidate = XiaomiRelayCatalog.relay(message).candidates().get(0);
@@ -29,6 +36,25 @@ public class AppRelayCatalogTest {
         message.appInfoList.clear();
         for (int i = 0; i < 5; i++) message.appInfoList.add(new RecentAppsMessage.RecentAppsInfo("test.synthetic.app" + i));
         assertThrows(IllegalArgumentException.class, () -> XiaomiRelayCatalog.recent(message));
+    }
+    @Test public void localHandoffCapabilityCanReplaceTransportFlagButNotOemWithdrawal() throws Exception {
+        RelayAppMessage message = new RelayAppMessage();
+        message.supportHandoff = false;
+        assertFalse(XiaomiRelayCatalog.relay(message).candidates().get(0).advertisesDataRelay());
+        assertTrue(XiaomiRelayCatalog.relay(message, true).candidates().get(0).advertisesDataRelay());
+        message.isHideIcon = true;
+        assertFalse(XiaomiRelayCatalog.relay(message, true).candidates().get(0).advertisesDataRelay());
+        message.isHideIcon = false;
+        message.isRelay = false;
+        assertFalse(XiaomiRelayCatalog.relay(message, true).candidates().get(0).advertisesDataRelay());
+    }
+    @Test public void colorOsBrowserDirectoryRetainsTheSourcePackageForSync() throws Exception {
+        RelayInfo info = new RelayInfo();
+        info.pkg = "com.heytap.browser";
+        var candidate = OplusRelayCatalog.relayInfo(info).candidates().get(0);
+        assertEquals(AppRelayCatalog.Kind.BROWSER, candidate.kind());
+        assertEquals("com.heytap.browser", candidate.packageName());
+        assertTrue(candidate.eligible(true, true));
     }
     @Test public void castAndPcCannotAdvertiseDataRelay() throws Exception {
         RelayInfo info = new RelayInfo();

@@ -2,6 +2,7 @@ package io.github.yuejie.connect;
 
 import android.content.Context;
 import android.os.SystemClock;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -25,6 +26,7 @@ final class AppRelayBridge implements AutoCloseable {
         AppRelayEndpoint.Documents documents;
         AppRelayDirectory directory;
         AppRelaySync sync;
+        BrowserRelayOffer browser;
         final java.util.Set<String> observed = new java.util.HashSet<>();
         Scope(String peer, String session) { this.peer = peer; this.session = session; }
     }
@@ -157,6 +159,19 @@ final class AppRelayBridge implements AutoCloseable {
             });
         } catch (Exception invalid) { return CompletableFuture.failedFuture(invalid); }
     }
+    CompletableFuture<JSONObject> publishBrowserOffer(AppRelayPeer peer, BrowserRelayOffer offer) {
+        Scope active = scope;
+        if (!current(active) || !active.peer.equals(peer.projectionId()) || !active.session.equals(peer.sessionId())
+                || !active.session.equals(offer.session()) || offer.expired())
+            return CompletableFuture.failedFuture(new IllegalStateException("stale_session"));
+        synchronized (active) {
+            BrowserRelayOffer previous = active.browser;
+            active.browser = offer;
+            List<AppRelayCatalog.Candidate> candidates = previous == null
+                    ? List.of(offer.candidate(true)) : List.of(previous.candidate(false), offer.candidate(true));
+            return publishCatalog(peer, new AppRelayCatalog.Update(false, candidates));
+        }
+    }
     CompletableFuture<AppRelayTasks.Result> requestSync(AppRelayPeer peer, String sourcePackage) {
         return requestSync(peer, sourcePackage, "");
     }
@@ -165,7 +180,24 @@ final class AppRelayBridge implements AutoCloseable {
     }
     private AppRelaySync sync(Scope value) {
         if (sources == null) throw new IllegalStateException("native_source_unavailable");
-        if (value.sync == null) value.sync = new AppRelaySync(sources.forSession(value.peer, value.session), () -> current(value), SystemClock::elapsedRealtime);
+        if (value.sync == null) {
+            AppRelaySync.Native nativeSource = sources.forSession(value.peer, value.session);
+            value.sync = new AppRelaySync(new AppRelaySync.Native() {
+                public CompletableFuture<AppRelayTasks.Result> request(String id, String pkg) { return request(id, pkg, ""); }
+                public CompletableFuture<AppRelayTasks.Result> request(String id, String pkg, String ownerToken) {
+                    if (!BrowserRelayOffer.ownsPackage(pkg)) return nativeSource.request(id, pkg, ownerToken);
+                    BrowserRelayOffer offer = value.browser;
+                    if (offer == null || offer.expired() || !offer.sourcePackage().equals(pkg))
+                        return CompletableFuture.completedFuture(new AppRelayTasks.Result(id, AppRelayTasks.State.FAILED,
+                                "native_source_unavailable", "", -1));
+                    return sender.send(value.peer, value.session, offer.request(id));
+                }
+                public void cancel(String id) {
+                    sender.cancel(id);
+                    nativeSource.cancel(id);
+                }
+            }, () -> current(value), SystemClock::elapsedRealtime);
+        }
         return value.sync;
     }
     private AppRelayEndpoint endpoint(AppRelayEndpoint.Documents files) throws ReflectiveOperationException {
@@ -205,7 +237,15 @@ final class AppRelayBridge implements AutoCloseable {
     private final Map<Scope, Boolean> retiring = new ConcurrentHashMap<>();
     private void cleanup() {
         Scope active = scope;
-        if (active != null) synchronized (active) { if (active.sync != null) active.sync.expire(); }
+        if (active != null) synchronized (active) {
+            if (active.sync != null) active.sync.expire();
+            if (active.browser != null && active.browser.expired()) {
+                BrowserRelayOffer expired = active.browser;
+                active.browser = null;
+                publishCatalog(new AppRelayPeer(active.peer, active.peer, active.session),
+                        new AppRelayCatalog.Update(false, List.of(expired.candidate(false))));
+            }
+        }
         for (Scope value : retiring.keySet()) {
             synchronized (value) {
             if (!retiring.containsKey(value)) continue;
@@ -307,6 +347,10 @@ final class AppRelayBridge implements AutoCloseable {
                         item.scope.receiver = new AppRelayReceiver(endpoint, () -> current(item.scope));
                     }
                     JSONObject result = item.scope.receiver.execute(payload);
+                    if ("FAILED".equals(result.optString("state"))) {
+                        String code = result.optString("code");
+                        if (code.matches("[a-z_]{1,64}")) ScreenCastLog.w("YueJieRelay", "target_relay_failed " + code);
+                    }
                     if ("COMPLETED".equals(result.optString("state")) && "foreground_observed".equals(result.optString("code"))
                             && item.scope.observed.add(item.request))
                         AppRelayEvents.emit(AppRelayEvents.Event.TARGET_FOREGROUND, item.request, AppRelayEvents.Outcome.SUCCEEDED);
@@ -319,7 +363,11 @@ final class AppRelayBridge implements AutoCloseable {
                         completion.fail("cancelled");
                     } else if (!current(item.scope)) completion.fail("stale_session");
                     else completion.success(result); // LAUNCHING/FAILED remain explicit business states.
-                } catch (Exception error) { completion.fail(AppRelayTasks.code(error)); }
+                } catch (Exception error) {
+                    String code = AppRelayTasks.code(error);
+                    if ("catalog".equals(payload.optString("action"))) ScreenCastLog.w("YueJieRelay", "catalog_rejected " + code);
+                    completion.fail(code);
+                }
                 finally { executing = null; work.remove(key, item); cleanup(); }
                 }
             }); } catch (java.util.concurrent.RejectedExecutionException busy) { work.remove(key, item); completion.fail("relay_busy"); }
