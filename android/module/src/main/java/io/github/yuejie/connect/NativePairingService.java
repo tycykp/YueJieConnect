@@ -28,7 +28,6 @@ final class NativePairingService implements AutoCloseable {
     private String selectedKey="",confirmedSession="";
     private int source;
     private String resolution="none";
-    private static JSONArray nativeGrants(){return new JSONArray().put("device_profile").put("battery_status").put("clipboard_write").put("file_transfer").put("app_relay").put("screen_video").put("screen_input");}
     NativePairingService(Context context,Host host){this.nsd=context.getSystemService(NsdManager.class);this.host=host;}
     synchronized JSONObject command(JSONObject request)throws JSONException{
         String action=request.optString("action");
@@ -54,7 +53,7 @@ final class NativePairingService implements AutoCloseable {
                 String id=request.optString("peer");
                 JSONObject remote=remote(state);
                 if("awaiting_confirmation".equals(phase)&&remote!=null&&id.equals(NativePairingPolicy.alias(source,key(remote)))){
-                    return host.dispatch(new JSONObject().put("op","bridge_confirm").put("session",state.getString("session")).put("operations",nativeGrants()));
+                    return host.dispatch(new JSONObject().put("op","bridge_confirm").put("session",state.getString("session")).put("operations",new JSONArray(NativePairingPolicy.DEFAULT_GRANTS)));
                 }
                 if(!NativePairingPolicy.idle(phase))return failure("pairing_busy");
                 Peer peer=peers.values().stream().filter(p->id.equals(NativePairingPolicy.alias(source,p.key()))).findFirst().orElse(null);
@@ -96,7 +95,7 @@ final class NativePairingService implements AutoCloseable {
         String phase=state.optString("phase"),session=state.optString("session");
         if("awaiting_confirmation".equals(phase)&&!selectedKey.isEmpty()&&remote!=null&&!session.equals(confirmedSession)){
             if(!selectedKey.equals(key(remote))){host.dispatch(new JSONObject().put("op","bridge_abort").put("session",session));selectedKey="";return failure("peer_identity_changed");}
-            JSONObject result=host.dispatch(new JSONObject().put("op","bridge_confirm").put("session",session).put("operations",nativeGrants()));
+            JSONObject result=host.dispatch(new JSONObject().put("op","bridge_confirm").put("session",session).put("operations",new JSONArray(NativePairingPolicy.DEFAULT_GRANTS)));
             if("ok".equals(result.optString("status")))confirmedSession=session;else return result;
         }
         if("active".equals(phase)||"stopped".equals(phase)||"disconnected".equals(phase))selectedKey="";

@@ -1,6 +1,5 @@
 package io.github.yuejie.connect;
 
-import android.content.ClipData;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -24,8 +23,7 @@ final class ClipboardUriReceiver implements AutoCloseable {
         boolean applied() { return error == null; }
     }
     private final FileTransferReceiveLease<Uri> lease;
-    private final ClipboardNativeContent endpoint;
-    private final ClipboardEchoGuard echoes;
+    private final BooleanSupplier onClipboard;
     private final BooleanSupplier allowed;
     private final Supplier<JSONObject> projection;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -43,10 +41,10 @@ final class ClipboardUriReceiver implements AutoCloseable {
 
     /** Transfers lease cleanup ownership to this instance. Caller enforces at most four leases
      * and supplies a genuinely selected native receive decision, not an RPC-generated grant. */
-    ClipboardUriReceiver(FileTransferReceiveLease<Uri> lease, ClipboardNativeContent endpoint,
-            ClipboardEchoGuard echoes, BooleanSupplier allowed, Supplier<JSONObject> projection) {
-        this.lease = Objects.requireNonNull(lease); this.endpoint = Objects.requireNonNull(endpoint);
-        this.echoes = Objects.requireNonNull(echoes); this.allowed = Objects.requireNonNull(allowed);
+    ClipboardUriReceiver(FileTransferReceiveLease<Uri> lease, BooleanSupplier onClipboard,
+            BooleanSupplier allowed, Supplier<JSONObject> projection) {
+        this.lease = Objects.requireNonNull(lease); this.onClipboard = Objects.requireNonNull(onClipboard);
+        this.allowed = Objects.requireNonNull(allowed);
         this.projection = Objects.requireNonNull(projection);
         delivery.whenComplete((result, failure) -> main.removeCallbacks(timeout));
         main.post(expiry);
@@ -80,8 +78,8 @@ final class ClipboardUriReceiver implements AutoCloseable {
                         if (!current()) throw new IOException("stale_session");
                         if (SystemClock.elapsedRealtime() >= deadline) throw new IOException("request_timeout");
                         // URI I/O and the second full hash always happen off the native main thread.
-                        Uri local = lease.claim(lease.key(), lease.offer());
-                        main.post(() -> apply(local));
+                        lease.claim(lease.key(), lease.offer());
+                        main.post(this::verifyClipboard);
                     } catch (IOException | RuntimeException failureToClaim) {
                         String reason = failureToClaim.getMessage();
                         String code = "stale_session".equals(reason) || "request_timeout".equals(reason) ? reason : "clipboard_uri_claim_failed";
@@ -92,18 +90,16 @@ final class ClipboardUriReceiver implements AutoCloseable {
         });
         return reply;
     }
-    private void apply(Uri local) {
+    private void verifyClipboard() {
         if (delivery.isDone()) return;
         if (!current() || !lease.current()) { fail("stale_session"); return; }
         if (SystemClock.elapsedRealtime() >= deadline) { fail("request_timeout"); return; }
         applying = true;
         String failure = null;
-        echoes.armUri(lease.key().session(), local, lease.offer().mime());
-        try { ClipData actual = endpoint.writeLocalUri(local, lease.offer().mime()); echoes.seal(actual); }
+        // Replacing the staged URI here would revoke the grant of the app already pasting it.
+        try { if (!onClipboard.getAsBoolean()) failure = "clipboard_write_unverified"; }
         catch (SecurityException denied) { failure = "permission_denied"; }
-        catch (ReflectiveOperationException nativeFailure) { failure = "native_clipboard_failed"; }
         catch (RuntimeException unverified) { failure = "clipboard_write_unverified"; }
-        if (failure != null) echoes.clear();
         if (!current() || !lease.current()) failure = "stale_session";
         delivery.complete(result(request, failure));
         applying = false;

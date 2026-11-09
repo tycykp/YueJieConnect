@@ -99,7 +99,7 @@ public class ClipboardRichHarness {
   var mixed=html.localClip();mixed.addItem(new ClipData.Item(Uri.parse("content://synthetic/extra")));rejects(()->ClipboardRichContent.snapshot(mixed),"unsupported_clipboard_format");
   for(int source:new int[]{1,2}) {
    Context ctx=new Context(source==1?"com.xiaomi.mirror":"com.oplus.linker");V3.V.context=ctx;V3.V.manager.clock=0;V3.V.manager.skipConversion=false;
-   var nativeSink=new ClipboardNativeContent(new XposedModule(),ctx,ClipboardRichHarness.class.getClassLoader(),source);
+   var nativeSink=new ClipboardNativeContent(new XposedModule(),ctx,ClipboardRichHarness.class.getClassLoader(),source,"test.html");
    var guard=new ClipboardEchoGuard();var events=new ArrayList<ClipboardRichSource.Event>();projection=p("peer",A);allowed=true;
    var observer=new ClipboardRichSource(ctx,guard,()->allowed,()->projection,events::add);observer.update();check(ctx.cm.reads==0,"authorization does not read history");
    var receiver=new ClipboardRichReceiver(nativeSink,guard,()->allowed,()->projection);
@@ -121,18 +121,18 @@ public class ClipboardRichHarness {
    ctx.cm.afterWrite=()->allowed=false;status(receiver.executeHtml("peer",A,"revoke-during",empty,2000),"stale_session");ctx.cm.afterWrite=null;allowed=true;
    int eventBefore=events.size();allowed=false;observer.update();check(ctx.cm.listeners.isEmpty(),"revocation releases only owned listener");ctx.cm.setPrimaryClip(html.localClip());check(events.size()==eventBefore,"revoked source quiet");
    allowed=true;observer.update();check(events.size()==eventBefore,"reauthorization does not export old clipboard");
-   var uri=Uri.parse("content://synthetic/local");var actual=nativeSink.writeLocalUri(uri,"application/octet-stream");check(ClipboardNativeContent.matchesUri(actual,uri,"application/octet-stream"),"recipient-local URI imported without text/Parcel");
-   rejects(()->nativeSink.writeLocalUri(Uri.parse("file:///private/file"),"text/plain"),"local_content_uri_required");
+   var uri=Uri.parse("content://synthetic/local");nativeSink.stageLocalUri(uri,"application/octet-stream");check(nativeSink.hasLocalUri(uri,"application/octet-stream"),"recipient-local URI staged without text/Parcel");
+   rejects(()->nativeSink.stageLocalUri(Uri.parse("file:///private/file"),"text/plain"),"local_content_uri_required");
    Looper.worker=true;rejects(()->nativeSink.writeHtml(html),"clipboard_requires_main");Looper.worker=false;
    receiver.close();status(receiver.executeHtml("peer",A,"closed",html,2000),"stale_session");observer.close();nativeSink.close();
    rejects(()->nativeSink.writeHtml(html),"clipboard_lifecycle");
    if(source==1)check(XposedModule.interceptor==null,"Mirror conversion hook released");
   }
   Context ctx=new Context("com.xiaomi.mirror");V3.V.context=ctx;V3.V.manager.clock=0;
-  var sink=new ClipboardNativeContent(new XposedModule(),ctx,ClipboardRichHarness.class.getClassLoader(),1);
+  var sink=new ClipboardNativeContent(new XposedModule(),ctx,ClipboardRichHarness.class.getClassLoader(),1,"test.html");
   V3.V.manager.skipConversion=true;rejects(()->sink.writeHtml(html),"native_conversion_not_observed");V3.V.manager.skipConversion=false;
   check(XposedModule.interceptor.run(new XposedModule.Chain(){public Object getArg(int n){return n==0?new com.xiaomi.mirror.message.ClipDataMessage():Boolean.TRUE;}public Object proceed(){return "native-unrelated";}}).equals("native-unrelated"),"unrelated native z0 call proceeds unchanged");
-  sink.writeHtml(html);long clock=V3.V.manager.clock;sink.writeLocalUri(Uri.parse("content://synthetic/a"),"text/plain");check(V3.V.manager.clock>clock,"different import formats have one monotonic native clock");sink.close();
+  sink.writeHtml(html);long clock=V3.V.manager.clock;sink.stageLocalUri(Uri.parse("content://synthetic/a"),"text/plain");check(V3.V.manager.clock>clock,"different import formats have one monotonic native clock");sink.close();
   System.out.println("PASS "+checks+" rich clipboard assertions; Android/OEM/hook doubles only, no device proof");
  }
 }'''
@@ -163,11 +163,11 @@ def main():
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     assert len(json_sources) >= 6, 'Prepare Android JSON sources with scripts/prepare-file-transfer-json.py first'
     run('compile', JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
-        *actual, *json_sources, *sorted(sources.rglob('*.java')))
+        *actual, *json_sources, *(sources / path for path in sorted(stubs)))
     run('rich-tests', JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardRichHarness')
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-rich.py',
         source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [*actual, Path(__file__)]},
-        generated_test_sha256={str(p.relative_to(OUT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources.rglob('*.java')},
+        generated_test_sha256={str(p.relative_to(OUT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in (sources / path for path in sorted(stubs))},
         json_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in json_sources},
         result='passed', apk=None, device_operations=False,
         scope='real rich receive/source/import/codec/echo code with deterministic platform/OEM/hook doubles'), indent=2), encoding='utf-8')

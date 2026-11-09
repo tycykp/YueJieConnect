@@ -40,7 +40,7 @@ stubs['android/content/Context.java'] = '''package android.content;public class 
  public boolean grant=true;public int lastGrantUid,lastGrantPid;public android.content.pm.PackageManager pm=new android.content.pm.PackageManager();public ContentResolver resolver=new ContentResolver();
  public Context(String p){pkg=p;pm.provider=new android.content.pm.ProviderInfo();pm.provider.packageName=p;pm.provider.name=p.equals("com.xiaomi.mirror")?"com.xiaomi.mirror.provider.RemoteProvider":"com.oplus.linker.synergy.wisetransfer.clipboard.provider.ClipboardProvider";pm.provider.exported=p.equals("com.xiaomi.mirror");}
  public String getPackageName(){return pkg;}public <T>T getSystemService(Class<T> t){return t.cast(cm);}public android.content.pm.PackageManager getPackageManager(){return pm;}
- public ContentResolver getContentResolver(){return resolver;}public int checkUriPermission(android.net.Uri u,int pid,int uid,int flags){lastGrantUid=uid;lastGrantPid=pid;return grant?0:-1;}}'''
+ public ContentResolver getContentResolver(){return resolver;}public int checkUriPermission(android.net.Uri u,int pid,int uid,int flags){lastGrantUid=uid;lastGrantPid=pid;return grant&&cm.clip!=null&&u.equals(cm.clip.getItemAt(0).getUri())?0:-1;}}'''
 stubs['android/content/ContentProvider.java'] = '''package android.content;public class ContentProvider{public static String callingPackage="com.android.fileexplorer";public int originals;
  public String getCallingPackage(){return callingPackage;}public android.os.ParcelFileDescriptor openFile(android.net.Uri u,String m){originals++;return null;}
  public android.os.ParcelFileDescriptor openFile(android.net.Uri u,String m,android.os.CancellationSignal c){originals++;return null;}
@@ -48,12 +48,15 @@ stubs['android/content/ContentProvider.java'] = '''package android.content;publi
  public android.database.MatrixCursor query(android.net.Uri u,String[] p,String s,String[] a,String sort){originals++;return null;}
  public android.database.MatrixCursor query(android.net.Uri u,String[] p,String s,String[] a,String sort,android.os.CancellationSignal c){originals++;return null;}}'''
 stubs['com/xiaomi/mirror/provider/RemoteProvider.java'] = '''package com.xiaomi.mirror.provider;public class RemoteProvider extends android.content.ContentProvider{public static boolean allow=true;public boolean f(String p){return allow;}}'''
+stubs['io/github/libxposed/api/XposedInterface.java'] = stubs['io/github/libxposed/api/XposedInterface.java'].replace(
+    'interface XposedInterface {', 'interface XposedInterface {enum ExceptionMode{PASSTHROUGH}')
 stubs['com/oplus/linker/synergy/wisetransfer/clipboard/provider/ClipboardProvider.java'] = 'package com.oplus.linker.synergy.wisetransfer.clipboard.provider;public class ClipboardProvider extends android.content.ContentProvider{}'
 stubs['io/github/libxposed/api/XposedModule.java'] = '''package io.github.libxposed.api;public class XposedModule{
  public interface Chain{Object getArg(int i);Object proceed()throws Throwable;default Object getThisObject(){return null;}}
  public interface Interceptor{Object run(Chain c)throws Throwable;}public static Interceptor interceptor;public static java.util.Map<java.lang.reflect.Method,Interceptor> hooks=new java.util.HashMap<>();
  public boolean deoptimize(java.lang.reflect.Method m){return true;}public Builder hook(java.lang.reflect.Method m){return new Builder(m);}
  public static class Builder{final java.lang.reflect.Method method;Builder(java.lang.reflect.Method m){method=m;}public Builder setId(String id){return this;}
+ public Builder setExceptionMode(XposedInterface.ExceptionMode mode){return this;}
  public XposedInterface.HookHandle intercept(Interceptor i){if(method.getName().equals("z0")){interceptor=i;return ()->interceptor=null;}hooks.put(method,i);return ()->hooks.remove(method);}}
  public static Object call(Object instance,String name,Class<?>[] types,Object...args)throws Throwable{
  java.lang.reflect.Method m=instance.getClass().getMethod(name,types);Interceptor h=hooks.get(m);Chain chain=new Chain(){public Object getArg(int n){return args[n];}public Object getThisObject(){return instance;}
@@ -77,8 +80,8 @@ public class ClipboardUriPasteHarness{
   volatile boolean live=true;volatile int receives,claims,verifies,revokes;volatile FileTransferReceiveLease<Uri> lease;volatile boolean deleted;final CompletableFuture<ClipboardUriReceiver.Result> applied=new CompletableFuture<>();
   Fixture(int brand)throws Exception{
    SystemClock.now=1000;context=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");root=Files.createTempDirectory("yj-uri-paste").toFile();engine=new FileTransferEngine(root,k->live,()->SystemClock.now);
-   V3.V.context=context;V3.V.manager.clock=0;endpoint=new ClipboardNativeContent(new XposedModule(),context,getClass().getClassLoader(),brand);
-   JSONObject projection=new JSONObject().put("id","peer").put("session_id",A);routes=new ClipboardUriRoutes(endpoint,guard,()->live,()->projection);
+   V3.V.context=context;V3.V.manager.clock=0;endpoint=new ClipboardNativeContent(new XposedModule(),context,getClass().getClassLoader(),brand,"test.uri");
+   JSONObject projection=new JSONObject().put("id","peer").put("session_id",A);routes=new ClipboardUriRoutes(()->live,()->projection);
    prepared=new ClipboardUriPasteHooks.Prepared(key,offer,"b".repeat(32));
    hooks=new ClipboardUriPasteHooks(new XposedModule(),context,getClass().getClassLoader(),brand,endpoint,guard,new ClipboardUriPasteHooks.Routes(){
     public boolean current(ClipboardUriPasteHooks.Prepared p){return live&&p.equals(prepared);}
@@ -92,7 +95,7 @@ public class ClipboardUriPasteHarness{
       public CompletableFuture<Void> revoke(FileTransferEngine.Key k){try{engine.cancel(k);return CompletableFuture.completedFuture(null);}catch(Exception e){return CompletableFuture.failedFuture(e);}}
      },()->SystemClock.now);lease.authorize();
      CompletableFuture<ClipboardUriPasteHooks.Received> result=new CompletableFuture<>();Handler h=new Handler(Looper.getMainLooper());
-     h.post(()->{check(routes.attach(lease),"single accepted native lease handoff");result.complete(new ClipboardUriPasteHooks.Received(lease,applied));});
+     h.post(()->{check(routes.attach(lease,()->hooks.onClipboard(p)),"single accepted native lease handoff");result.complete(new ClipboardUriPasteHooks.Received(lease,applied));});
      lease.committed().whenComplete((receipt,error)->h.post(()->{if(error!=null)applied.completeExceptionally(error);else routes.execute("peer",A,prepared.request(),new ClipboardUriCodec.Request(key.transfer(),offer),SystemClock.now+30000).whenComplete((r,e)->{if(e==null)applied.complete(r);else applied.completeExceptionally(e);});}));
      return result;
     }
@@ -114,14 +117,15 @@ public class ClipboardUriPasteHarness{
     check(call(f.provider,"getType",new Class<?>[]{Uri.class},Uri.parse("content://unrelated/native")).equals("native-unrelated"),"unrelated OEM path unchanged");
     f.context.grant=false;denied(open(f.provider,u,"r",null));check(f.receives==0,"no OS read grant means no decision");f.context.grant=true;
     denied(open(f.provider,u,"rw",null));CancellationSignal cancelled=new CancellationSignal();cancelled.cancel();denied(open(f.provider,u,"r",cancelled));check(f.receives==0,"write or already-cancelled opens do not decide");
-    if(brand==1){com.xiaomi.mirror.provider.RemoteProvider.allow=false;denied(open(f.provider,u,"r",null));check(f.receives==0,"Mirror native caller policy preserved");com.xiaomi.mirror.provider.RemoteProvider.allow=true;}
+    if(brand==1)com.xiaomi.mirror.provider.RemoteProvider.allow=false;
     var reading=open(f.provider,u,"r",null);waitFor(()->f.lease!=null&&f.lease.accepted().isDone());Handler.drain();check(!reading.isDone(),"real native open waits for actual file commit");
     f.commit();waitFor(reading::isDone);var descriptor=reading.join();check(Arrays.equals(descriptor.bytes,BYTES),"actual native PFD serves committed binary bytes");
-    check(f.applied.join().applied()&&f.verifies>=2,"native clipboard applied/readback plus provider reopen hash");
+    check(f.applied.join().applied()&&f.verifies>=2&&f.context.cm.writes==1,"clipboard readback and provider hash retain the pending paste grant");
     check(f.context.resolver.cleared&&!Binder.cleared.get(),"private destination read clears and restores caller identity");
     var repeat=open(f.provider,u,"r",null);waitFor(repeat::isDone);check(Arrays.equals(repeat.join().bytes,BYTES)&&f.receives==1,"same native target repeated open reuses one decision");
-    Binder.uid=30002;denied(open(f.provider,u,"r",null));Binder.uid=30001;check(f.receives==1,"different target cannot reuse prior native decision");
-    f.context.resolver.data.put(f.local,new byte[]{9});denied(open(f.provider,u,"r",null));check(f.context.resolver.opens==2,"post-commit mutation never leaks corrupted PFD");
+    Binder.uid=30002;var other=open(f.provider,u,"r",null);waitFor(other::isDone);check(Arrays.equals(other.join().bytes,BYTES)&&f.receives==1,"another granted app can paste the same verified bytes");Binder.uid=30001;
+    f.context.resolver.data.put(f.local,new byte[]{9});denied(open(f.provider,u,"r",null));check(f.context.resolver.opens==3,"post-commit mutation never leaks corrupted PFD");
+    if(brand==1)com.xiaomi.mirror.provider.RemoteProvider.allow=true;
    }
    try(var f=new Fixture(brand)){
     Uri u=f.stage();var reading=open(f.provider,u,"r",null);waitFor(()->f.lease!=null&&f.lease.accepted().isDone());f.live=false;f.hooks.sessionChanged();f.routes.sessionChanged();denied(reading);check(f.revokes==1,"session revocation reaches the existing resource owner");
@@ -147,7 +151,7 @@ def main():
     inputs = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
-             *actual, *json_sources, *sorted(sources.rglob('*.java')))
+             *actual, *json_sources, *(sources / path for path in sorted(stubs)))
     rich.run('paste-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardUriPasteHarness')
     races = [p for p, sha in inputs.items() if hashlib.sha256((ROOT / p).read_bytes()).hexdigest() != sha]
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-paste.py',

@@ -29,6 +29,7 @@ public class ClipboardUriReceiverHarness {
   final FileTransferEngine.Offer offer=new FileTransferEngine.Offer("synthetic.bin","application/octet-stream",BYTES.length,FileTransferEngine.hex(FileTransferEngine.sha256().digest(BYTES)));
   final Uri uri=Uri.parse("content://synthetic/"+key.transfer());final FileTransferEngine engine;final FileTransferReceiveLease<Uri> lease;
   volatile boolean nativeCurrent=true,deleted,mutated,block,failCleanup;volatile int claims;byte[] published;
+  boolean onClipboard=true;int readbacks;Runnable onReadback=()->{};
   final CountDownLatch claimEntered=new CountDownLatch(1),claimRelease=new CountDownLatch(1);
   FileFixture()throws Exception {
    root=Files.createTempDirectory("yj-uri-receive-").toFile();engine=new FileTransferEngine(root,k->nativeCurrent,()->SystemClock.now);
@@ -47,23 +48,23 @@ public class ClipboardUriReceiverHarness {
    },()->SystemClock.now);lease.authorize();lease.accepted().join();
   }
   void commit()throws Exception {engine.begin(key,offer);engine.append(key,0,BYTES);engine.commit(key);}
+  boolean verifyClipboard(){check(Thread.currentThread()==MAIN,"clipboard readback runs on main");readbacks++;onReadback.run();return onClipboard;}
   public void close()throws Exception {lease.close();engine.close();try(var files=Files.walk(root.toPath())){for(var p:files.sorted(Comparator.reverseOrder()).toList())Files.delete(p);}}
  }
- static Context context;static ClipboardNativeContent endpoint;static ClipboardEchoGuard echoes;
- static ClipboardUriReceiver receiver(FileFixture f){return new ClipboardUriReceiver(f.lease,endpoint,echoes,()->allowed,()->projection);}
+ static Context context;
+ static ClipboardUriReceiver receiver(FileFixture f){return new ClipboardUriReceiver(f.lease,f::verifyClipboard,()->allowed,()->projection);}
  static void reset(int brand)throws Exception {SystemClock.now=1000;allowed=true;projection=new JSONObject().put("id","peer").put("session_id",A);
-  context=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");V3.V.context=context;V3.V.manager.clock=0;V3.V.manager.skipConversion=false;
-  endpoint=new ClipboardNativeContent(new XposedModule(),context,ClipboardUriReceiverHarness.class.getClassLoader(),brand);echoes=new ClipboardEchoGuard();}
+  context=new Context(brand==1?"com.xiaomi.mirror":"com.oplus.linker");}
  public static void main(String[] args)throws Exception {
   for(int brand:new int[]{1,2}) {
    reset(brand);
    try(var f=new FileFixture()) {
     var r=receiver(f);var result=r.execute("uri-one",2000);Handler.drain();check(!result.isDone()&&context.cm.writes==0,"authorization without final commit cannot apply clipboard");
     f.commit();status(result,null);check(f.claims==1&&Arrays.equals(f.published,BYTES),"actual file commit and single local rehash");
-    check(ClipboardNativeContent.matchesUri(context.cm.clip,f.uri,f.offer.mime()),"native sink reads back exact recipient URI");
+    check(f.readbacks==1&&context.cm.writes==0,"native verification retains the staged URI grant");
     check(!f.deleted&&f.lease.current(),"successful URI retained for real paste lifetime");
     check(result.join().transfer().equals(f.key.transfer())&&result.join().sha256().equals(f.offer.sha256())&&result.join().size()==BYTES.length,"receipt binds transfer/measured size/hash without local URI");
-    var replay=r.execute("uri-one",2000);status(replay,null);check(context.cm.writes==1&&f.claims==1,"same receive instance replay does not apply twice");
+    var replay=r.execute("uri-one",2000);status(replay,null);check(f.readbacks==1&&f.claims==1,"same receive instance replay does not apply twice");
     status(r.execute("different-request",2000),"clipboard_uri_already_started");var cancel=r.cancel();Handler.drain();check(!cancel.join(),"completed URI never falsely rolled back");
     r.close();waitFor(()->f.deleted);check(!f.lease.current(),"owner close revokes lease and removes exact new destination");
    }
@@ -84,7 +85,10 @@ public class ClipboardUriReceiverHarness {
     int before=context.cm.writes;f.commit();f.block=true;var r=receiver(f);var result=r.execute("native-decision-revoked",2000);Handler.drain();waitFor(()->f.claims==1);f.nativeCurrent=false;f.claimRelease.countDown();r.sessionChanged();status(result,"stale_session");waitFor(()->f.deleted);check(context.cm.writes==before,"native decision revocation cannot be replaced by active Noise session");
    }
    try(var f=new FileFixture()) {
-    f.commit();context.cm.afterWrite=()->allowed=false;var r=receiver(f);status(r.execute("revoked-in-native",2000),"stale_session");context.cm.afterWrite=null;waitFor(()->f.deleted);allowed=true;
+    f.commit();f.onReadback=()->allowed=false;var r=receiver(f);status(r.execute("revoked-in-native",2000),"stale_session");waitFor(()->f.deleted);allowed=true;
+   }
+   try(var f=new FileFixture()) {
+    f.commit();f.onClipboard=false;var r=receiver(f);status(r.execute("clipboard-replaced",2000),"clipboard_write_unverified");waitFor(()->f.deleted);
    }
    try(var f=new FileFixture()) {
     var r=receiver(f);status(r.execute("expired",1000),"expired_or_invalid_request");waitFor(()->f.deleted);
@@ -97,7 +101,7 @@ public class ClipboardUriReceiverHarness {
     f.commit();var r=receiver(f);status(r.execute("cleanup-retry",2000),null);f.failCleanup=true;r.close();waitFor(()->!f.failCleanup);
     check(!f.deleted,"failed deletion keeps ownership for retry");for(var timer:java.util.List.copyOf(Handler.delayed))timer.run();waitFor(()->f.deleted);check(f.lease.disposed(),"periodic maintain retries exact disposable object");Handler.delayed.clear();
    }
-   endpoint.close();Handler.delayed.clear();
+   Handler.delayed.clear();
   }
   System.out.println("PASS "+checks+" URI receive/lease/native integration assertions; synthetic local decisions and OEM/Android doubles, no device proof");
  }
@@ -120,12 +124,12 @@ def main():
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
     assert len(json_sources) >= 6
     rich.run('compile', rich.JDK / 'javac.exe', '--release', '17', '-encoding', 'UTF-8', '-d', classes,
-        *actual, *json_sources, *sorted(sources.rglob('*.java')))
+        *actual, *json_sources, *(sources / path for path in sorted(stubs)))
     rich.run('uri-receive-tests', rich.JDK / 'java.exe', '-cp', classes, 'io.github.yuejie.connect.ClipboardUriReceiverHarness')
     (OUT / 'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-receiver.py',
         source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in [*actual, Path(__file__), ROOT / 'scripts/validate-clipboard-rich.py']},
-        generated_test_sha256={str(p.relative_to(OUT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources.rglob('*.java')},
+        generated_test_sha256={str(p.relative_to(OUT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in (sources / path for path in sorted(stubs))},
         result='passed', apk=None, device_operations=False,
         scope='actual local engine final-commit future and lease handoff into URI native clipboard receiver; OEM/platform doubles'), indent=2), encoding='utf-8')
 

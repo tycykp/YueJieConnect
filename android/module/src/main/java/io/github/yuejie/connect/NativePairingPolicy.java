@@ -2,12 +2,13 @@ package io.github.yuejie.connect;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.util.List;
 import java.util.Set;
 
 /** The OEM page may select a discovered LAN endpoint, never an arbitrary socket or grant. */
 final class NativePairingPolicy {
-    private static final Set<String> OPERATIONS=Set.of("device_profile","battery_status",
-            "clipboard_write","clipboard_rich_write","file_transfer","app_relay","screen_video","screen_input");
+    static final List<String> DEFAULT_GRANTS=List.of("device_profile","battery_status","clipboard_write",
+            "clipboard_rich_write","file_transfer","clipboard_uri_write","app_relay","screen_video","screen_input");
     static boolean caller(String pkg){return CallerPolicy.XIAOMI.equals(pkg)||CallerPolicy.OPLUS.equals(pkg)||CallerPolicy.OPLUS_PAIRING.equals(pkg);}
     static boolean idle(String phase){return Set.of("stopped","disconnected","listening").contains(phase);}
     static boolean endpoint(InetAddress address,int port){
@@ -15,7 +16,8 @@ final class NativePairingPolicy {
                 &&(address.isSiteLocalAddress()||address.isLinkLocalAddress())&&!address.isLoopbackAddress();
     }
     static InetAddress lanAddress(java.util.List<InetAddress> addresses,int port){return addresses.stream().filter(address->endpoint(address,port)).findFirst().orElse(null);}
-    static boolean grants(Set<String> operations){return operations.contains("device_profile")&&OPERATIONS.containsAll(operations);}
+    static boolean grants(Set<String> operations){return operations.contains("device_profile")&&DEFAULT_GRANTS.containsAll(operations)
+            &&(!operations.contains("clipboard_uri_write")||operations.contains("file_transfer"));}
     static boolean session(String session){return session!=null&&session.matches("[0-9a-f]{64}");}
     static String alias(int source,String key){
         if((source!=1&&source!=2)||!session(key))throw new IllegalArgumentException("invalid_peer");

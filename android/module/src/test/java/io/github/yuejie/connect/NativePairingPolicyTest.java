@@ -34,6 +34,9 @@ public class NativePairingPolicyTest {
         assertTrue(NativePairingPolicy.idle("stopped"));assertTrue(NativePairingPolicy.idle("disconnected"));assertTrue(NativePairingPolicy.idle("listening"));
     }
     @Test public void grantsAreExplicitAndRejectHiddenCapabilities(){
+        assertTrue(NativePairingPolicy.grants(Set.copyOf(NativePairingPolicy.DEFAULT_GRANTS)));
+        assertTrue(NativePairingPolicy.DEFAULT_GRANTS.containsAll(Set.of("clipboard_write","clipboard_rich_write","clipboard_uri_write")));
+        assertFalse(NativePairingPolicy.grants(Set.of("device_profile","clipboard_uri_write")));
         assertTrue(NativePairingPolicy.grants(Set.of("device_profile","battery_status","file_transfer","clipboard_write")));
         assertTrue(NativePairingPolicy.grants(Set.of("device_profile","screen_video")));
         assertFalse(NativePairingPolicy.grants(Set.of("battery_status")));

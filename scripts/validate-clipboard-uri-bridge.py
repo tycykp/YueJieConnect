@@ -14,6 +14,7 @@ rich.OUT = OUT
 PKG = paste.PKG
 stubs = dict(paste.stubs)
 stubs[PKG+'ClipboardBridge.java'] = '''package io.github.yuejie.connect;class ClipboardBridge{interface Probe{
+ void close();
  boolean permitUriOutbound(android.content.ClipData c);boolean permitUriInbound(String n,long z,String h);
  void attachUriTransfers(java.util.function.Supplier<? extends java.util.concurrent.CompletableFuture<?>> s);
  void uriStaged(String s,String n,android.content.ClipData c);void uriApplied(String s,String n,android.content.ClipData c);void uriConsumed(String s,String n);}
@@ -26,7 +27,7 @@ stubs['android/database/MatrixCursor.java'] = stubs['android/database/MatrixCurs
 stubs['android/provider/OpenableColumns.java'] = 'package android.provider;public class OpenableColumns{public static final String DISPLAY_NAME="_display_name",SIZE="_size";}'
 stubs['android/content/Context.java'] = stubs['android/content/Context.java'].replace('public String pkg;', 'public java.io.File cache;public java.io.File getCacheDir(){return cache;}public String pkg;')
 stubs['android/content/ContentResolver.java'] = stubs['android/content/ContentResolver.java'].replace('public int opens;', '''public String getType(android.net.Uri u){return "application/octet-stream";}public android.database.Cursor query(android.net.Uri u,String[] p,String s,String[] a,String sort){var c=new android.database.MatrixCursor(p);c.addRow(new Object[]{"synthetic.bin",(long)data.get(u).length});return c;}public int opens;''')
-stubs['android/util/Log.java'] = 'package android.util;public class Log{public static final int WARN=5;}'
+stubs['android/util/Log.java'] = 'package android.util;public class Log{public static final int INFO=4,WARN=5;}'
 stubs['io/github/libxposed/api/XposedModule.java'] = stubs['io/github/libxposed/api/XposedModule.java'].replace('public boolean deoptimize', 'public void log(int priority,String tag,String message){}public boolean deoptimize')
 stubs[PKG+'OplusClipboardEndpoint.java'] = 'package io.github.yuejie.connect;class OplusClipboardEndpoint{OplusClipboardEndpoint(ClassLoader l){}boolean enabled(android.content.Context c){return true;}}'
 stubs[PKG+'XiaomiClipboardEndpoint.java'] = 'package io.github.yuejie.connect;class XiaomiClipboardEndpoint{XiaomiClipboardEndpoint(ClassLoader l){}boolean available(){return true;}}'
@@ -117,7 +118,7 @@ public class ClipboardUriBridgeHarness{
     var done=new Done();f.client.executors.get("clipboard_uri_write").execute(f.task(prepared,"83"),done);Handler.drain();check(done.data==null&&done.error==null,"wire numeric task waits for real commit");
     f.engine.begin(prepared.key(),prepared.metadata().offer());f.engine.append(prepared.key(),0,BYTES);f.engine.commit(prepared.key());waitFor(()->done.data!=null||done.error!=null);waitFor(opened::isDone);
     check(done.error==null&&ClipboardUriCodec.matchesAck(done.data,prepared.key(),prepared.metadata().offer()),"wire request maps to canonical exact import result");
-    check(Arrays.equals(opened.join().bytes,BYTES)&&f.c.cm.writes==2,"native target reads actual bytes after single stage and single OEM applied write");check(f.files.allocations==0,"incoming native URI import has no echo source allocation");
+    check(Arrays.equals(opened.join().bytes,BYTES)&&f.c.cm.writes==1,"native target reads actual bytes with the original staged URI grant");check(f.files.allocations==0,"incoming native URI import has no echo source allocation");
    }
    try(var f=new Fixture(brand)){
     var prepared=f.incoming();var opened=f.open();waitFor(()->f.approved(prepared));
@@ -145,7 +146,7 @@ def main():
     files = [*actual, Path(__file__), Path(paste.__file__), Path(rich.__file__)]
     inputs = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     json_sources = sorted((ROOT / 'build/file-transfer-validation/json-src/org/json').glob('*.java'))
-    rich.run('compile',rich.JDK/'javac.exe','--release','17','-encoding','UTF-8','-d',classes,*actual,*json_sources,*sorted(sources.rglob('*.java')))
+    rich.run('compile',rich.JDK/'javac.exe','--release','17','-encoding','UTF-8','-d',classes,*actual,*json_sources,*(sources / path for path in sorted(stubs)))
     rich.run('bridge-tests',rich.JDK/'java.exe','-cp',classes,'io.github.yuejie.connect.ClipboardUriBridgeHarness')
     races = [p for p,sha in inputs.items() if hashlib.sha256((ROOT/p).read_bytes()).hexdigest()!=sha]
     (OUT/'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-bridge.py',result='passed' if not races else 'source_changed',

@@ -25,7 +25,7 @@ final class ClipboardNativeContent implements AutoCloseable {
     private Thread importingThread;
     private boolean converted, closed;
 
-    ClipboardNativeContent(XposedModule module, Context context, ClassLoader loader, int source)
+    ClipboardNativeContent(XposedModule module, Context context, ClassLoader loader, int source, String hookId)
             throws ReflectiveOperationException {
         if (source != 1 && source != 2 || context == null
                 || !(source == 1 ? "com.xiaomi.mirror" : "com.oplus.linker").equals(context.getPackageName()))
@@ -44,7 +44,7 @@ final class ClipboardNativeContent implements AutoCloseable {
             resource = manager.getMethod("G");
             receive = manager.getMethod("T", Class.forName("com.xiaomi.mirror.k0", false, loader), messageClass);
             Method decode = manager.getMethod("z0", clipClass, boolean.class);
-            conversion = module.hook(decode).setId("yj.clipboard.local.content").intercept(chain -> {
+            conversion = module.hook(decode).setId(hookId).intercept(chain -> {
                 if (!closed && importing != null && Thread.currentThread() == importingThread
                         && chain.getArg(0) == importing && Boolean.TRUE.equals(chain.getArg(1))) {
                     converted = true;
@@ -64,18 +64,9 @@ final class ClipboardNativeContent implements AutoCloseable {
         return actual;
     }
 
-    /** Caller supplies only a completed, locally consented file lease, never a remotely supplied URI. */
-    ClipData writeLocalUri(Uri uri, String mime) throws ReflectiveOperationException {
-        return writeUri(uri, mime);
-    }
-
     /** Metadata-only native handle for an authenticated pending offer. No bytes or applied ACK.
      * Its exact local OEM-provider URI must already be registered with ClipboardUriPasteHooks. */
     ClipData stageLocalUri(Uri uri, String mime) throws ReflectiveOperationException {
-        return writeUri(uri, mime);
-    }
-
-    private ClipData writeUri(Uri uri, String mime) throws ReflectiveOperationException {
         FileTransferUris.requireContent(uri);
         if (mime == null || !mime.matches("[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+"))
             throw new IllegalArgumentException("invalid_mime");
@@ -83,6 +74,10 @@ final class ClipboardNativeContent implements AutoCloseable {
         ClipData actual = write(desired);
         if (!matchesUri(actual, uri, mime)) throw new IllegalStateException("clipboard_write_unverified");
         return actual;
+    }
+
+    boolean hasLocalUri(Uri uri, String mime) {
+        return !closed && matchesUri(clipboard.getPrimaryClip(), uri, mime);
     }
 
     static boolean matchesUri(ClipData clip, Uri uri, String mime) {

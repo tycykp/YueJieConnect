@@ -84,8 +84,8 @@ final class ClipboardUriBridge implements AutoCloseable {
         this.module = module; this.context = context; this.client = client; this.allowed = verifiedNativeContextAllowed; this.files = files;
         oplus = brand == 2 ? new OplusClipboardEndpoint(loader) : null;
         xiaomi = brand == 1 ? new XiaomiClipboardEndpoint(loader) : null;
-        endpoint = new ClipboardNativeContent(module, context, loader, brand);
-        deliveries = new ClipboardUriRoutes(endpoint, echoes, this::ready, client::projection);
+        endpoint = new ClipboardNativeContent(module, context, loader, brand, "yj.clipboard.local.uri");
+        deliveries = new ClipboardUriRoutes(this::ready, client::projection);
         paste = new ClipboardUriPasteHooks(module, context, loader, brand, endpoint, echoes, new ClipboardUriPasteHooks.Routes() {
             @Override public boolean current(ClipboardUriPasteHooks.Prepared prepared) { return currentIncoming(incoming.get(prepared.key()), prepared); }
             @Override public CompletableFuture<ClipboardUriPasteHooks.Received> receive(ClipboardUriPasteHooks.Prepared prepared, ClipboardUriPasteHooks.Caller caller) {
@@ -109,10 +109,10 @@ final class ClipboardUriBridge implements AutoCloseable {
         });
         try {
             paste.install();
-            if (brand == 2) installUriProbe(loader);
+            if (brand == 2) main.post(() -> { if (!closed) installUriProbe(loader); });
             registration = files.registerReceiver(FileTransferNegotiation.Purpose.CLIPBOARD, new FileTransferBridge.NativeReceiver() {
                 @Override public void prepared(FileTransferNegotiation.Prepared prepared, FileTransferEndpoint ignored, FileTransferNegotiation negotiation) {
-                    if (closed || prepared.metadata().purpose() != FileTransferNegotiation.Purpose.CLIPBOARD || !ready()) return;
+                    if (closed || !ready()) { negotiation.revoke(prepared.key()); return; }
                     ClipboardBridge.Probe probe = probe();
                     if (probe != null && !probe.permitUriInbound(prepared.metadata().offer().name(), prepared.metadata().offer().size(), prepared.metadata().offer().sha256())) {
                         negotiation.revoke(prepared.key()); return;
@@ -181,7 +181,10 @@ final class ClipboardUriBridge implements AutoCloseable {
             } catch (IOException | RuntimeException failure) { item.preparing = false; revokeIncoming(item); return; }
             item.preparing = false;
             lease.accepted().whenComplete((ignored, failure) -> main.post(() -> {
-                if (failure != null || !decision.current(item.prepared.key()) || !deliveries.attach(lease)) { revokeIncoming(item); disposeUnattached(item); return; }
+                if (failure != null || !decision.current(item.prepared.key())
+                        || !deliveries.attach(lease, () -> paste.onClipboard(item.local))) {
+                    revokeIncoming(item); disposeUnattached(item); return;
+                }
                 item.attached = true;
                 boolean decided = files.negotiation().approve(item.prepared, decision, lease.accepted(), () -> {
                     revokeIncoming(item);
@@ -324,7 +327,9 @@ final class ClipboardUriBridge implements AutoCloseable {
     private CompletableFuture<Receipt> observedTransfer() { return lastTransfer; }
     private void cancelOutgoing() { Outgoing work = outgoing; if (work != null && !work.result.isDone()) retire(work, "file_cancelled"); }
     private void retire(Outgoing work, String code) {
-        work.cancelled = true; work.result.completeExceptionally(new IOException(code));
+        work.cancelled = true;
+        if (work.result.completeExceptionally(new IOException(code)))
+            module.log(android.util.Log.INFO, "YueJie", code);
         if (work.pending != null && !work.pending.isDone()) work.pending.cancel(false);
         if (work.applying && work.key != null) client.cancel(work.key.session(), "uri:" + work.key.transfer(), ignored -> {});
         cleanupSource(work);
@@ -348,7 +353,8 @@ final class ClipboardUriBridge implements AutoCloseable {
     }
     private void sessionChanged() {
         if (closed) return;
-        Outgoing work = outgoing; if (work != null && !current(work)) retire(work, "stale_session");
+        Outgoing work = outgoing;
+        if (work != null && !work.result.isDone() && !current(work)) retire(work, "stale_session");
         source.update(); paste.sessionChanged(); deliveries.sessionChanged();
         for (Incoming item : incoming.values()) if (!currentIncoming(item, item.local)) revokeIncoming(item);
         wireRequests.entrySet().removeIf(entry -> !files.current(entry.getValue()));

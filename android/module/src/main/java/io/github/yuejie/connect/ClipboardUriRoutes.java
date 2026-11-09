@@ -20,26 +20,22 @@ final class ClipboardUriRoutes implements AutoCloseable {
     private final Map<FileTransferEngine.Key, Entry> leases = new HashMap<>();
     private final Map<String, Task> tasks = new HashMap<>();
     private final Map<FileTransferEngine.Key, String> owners = new HashMap<>();
-    private final ClipboardNativeContent endpoint;
-    private final ClipboardEchoGuard echoes;
     private final BooleanSupplier allowed;
     private final Supplier<JSONObject> projection;
     private boolean closed;
 
-    ClipboardUriRoutes(ClipboardNativeContent endpoint, ClipboardEchoGuard echoes, BooleanSupplier allowed,
-            Supplier<JSONObject> projection) {
-        this.endpoint = Objects.requireNonNull(endpoint); this.echoes = Objects.requireNonNull(echoes);
+    ClipboardUriRoutes(BooleanSupplier allowed, Supplier<JSONObject> projection) {
         this.allowed = Objects.requireNonNull(allowed); this.projection = Objects.requireNonNull(projection);
     }
 
     /** true transfers cleanup ownership; false leaves ownership with the native receive owner.
      * Call after actual lease.accepted() success and before exposing the selected receive to the peer.
      * The local decision gate must additionally bind clipboard purpose and its native grant lifetime. */
-    boolean attach(FileTransferReceiveLease<Uri> lease) {
+    boolean attach(FileTransferReceiveLease<Uri> lease, BooleanSupplier onClipboard) {
         main(); Objects.requireNonNull(lease); prune();
         if (!current(lease.key()) || leases.size() >= FileTransferEngine.MAX_TRANSFERS || leases.containsKey(lease.key())
                 || !lease.accepted().isDone() || lease.accepted().isCompletedExceptionally() || !lease.current()) return false;
-        leases.put(lease.key(), new Entry(lease, new ClipboardUriReceiver(lease, endpoint, echoes, allowed, projection)));
+        leases.put(lease.key(), new Entry(lease, new ClipboardUriReceiver(lease, onClipboard, allowed, projection)));
         return true;
     }
 

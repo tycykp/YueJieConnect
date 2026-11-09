@@ -13,6 +13,7 @@ import android.os.CancellationSignal;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
+import io.github.libxposed.api.XposedInterface.ExceptionMode;
 import io.github.libxposed.api.XposedInterface.HookHandle;
 import io.github.libxposed.api.XposedModule;
 import java.io.FileNotFoundException;
@@ -51,7 +52,7 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
         final Uri uri;
         final long expires = SystemClock.elapsedRealtime() + 300_000;
         volatile boolean revoked;
-        Caller caller;
+        volatile Caller caller;
         CompletableFuture<Received> receiving;
         Slot(Prepared prepared, Uri uri) { this.prepared = prepared; this.uri = uri; }
     }
@@ -67,7 +68,6 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
     private final List<HookHandle> hooks = new ArrayList<>();
     private final Semaphore opens = new Semaphore(4);
     private Class<?> providerType;
-    private Method mirrorPackages;
     private volatile boolean closed;
 
     ClipboardUriPasteHooks(XposedModule module, Context context, ClassLoader loader, int source,
@@ -88,12 +88,12 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
         if (info == null || !context.getPackageName().equals(info.packageName) || !providerName.equals(info.name)
                 || !info.grantUriPermissions || info.exported != (source == 1)) throw new SecurityException("native_clipboard_provider_unavailable");
         providerType = Class.forName(providerName, false, loader);
-        if (source == 1) mirrorPackages = providerType.getMethod("f", String.class);
         try {
             for (boolean cancellation : new boolean[]{false, true}) {
                 Method open = cancellation ? providerType.getMethod("openFile", Uri.class, String.class, CancellationSignal.class)
                         : providerType.getMethod("openFile", Uri.class, String.class);
-                hooks.add(module.hook(open).setId("yj.clipboard.uri.open." + cancellation).intercept(chain -> {
+                hooks.add(module.hook(open).setId("yj.clipboard.uri.open." + cancellation)
+                        .setExceptionMode(ExceptionMode.PASSTHROUGH).intercept(chain -> {
                     Slot slot = find(chain.getThisObject(), (Uri) chain.getArg(0));
                     if (slot == null) { if (owned(chain.getThisObject(), (Uri) chain.getArg(0))) throw denied(); return chain.proceed(); }
                     return open(slot, (ContentProvider) chain.getThisObject(), (String) chain.getArg(1),
@@ -143,6 +143,14 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
         synchronized (slots) { for (Slot slot : slots) if (slot.prepared.equals(prepared)) return current(slot); }
         return false;
     }
+    boolean onClipboard(Prepared prepared) {
+        main();
+        Slot match = null;
+        synchronized (slots) {
+            for (Slot slot : slots) if (slot.prepared.equals(prepared)) { match = slot; break; }
+        }
+        return match != null && current(match) && endpoint.hasLocalUri(match.uri, prepared.offer().mime());
+    }
     boolean permitted(Prepared prepared, Caller caller) {
         synchronized (slots) {
             for (Slot slot : slots) if (slot.prepared.equals(prepared))
@@ -184,16 +192,16 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
         Caller caller = new Caller(Binder.getCallingUid(), Binder.getCallingPid(), provider.getCallingPackage());
         if (caller.uid() == android.os.Process.myUid() || caller.pid() == android.os.Process.myPid() || caller.packageName() == null
                 || !readable(slot, caller)) throw denied();
-        try {
-            if (mirrorPackages != null && !Boolean.TRUE.equals(mirrorPackages.invoke(provider, caller.packageName()))) throw denied();
-        } catch (ReflectiveOperationException unavailable) { throw denied(); }
+        // This slot serves a module-owned URI. The OS grant authorizes its consumer.
+        // Stock provider calls, including their own package policy, proceed unchanged.
         if (!opens.tryAcquire()) throw denied();
         boolean decided = false;
         try {
             CompletableFuture<Received> receiving;
             synchronized (slot) {
-                if (!current(slot) || slot.caller != null && slot.caller.uid() != caller.uid()) throw denied();
+                if (!current(slot)) throw denied();
                 if (slot.receiving == null) {
+                    decided = true;
                     slot.caller = caller; slot.receiving = new CompletableFuture<>();
                     try {
                         Objects.requireNonNull(routes.receive(slot.prepared, caller)).whenComplete((received, failure) -> {
@@ -202,7 +210,6 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
                     } catch (RuntimeException failure) { slot.receiving.completeExceptionally(failure); }
                 }
                 receiving = slot.receiving;
-                decided = true;
             }
             Received received = waitFor(receiving, slot, caller, cancellation);
             if (received == null || received.lease() == null || received.applied() == null
@@ -210,13 +217,13 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
             ClipboardUriReceiver.Result result = waitFor(received.applied(), slot, caller, cancellation);
             // Full identity and native application receipt, not the file commit future.
             ClipboardUriCodec.applied(slot.prepared.key(), slot.prepared.request(), slot.prepared.offer(), result);
-            Uri local;
-            synchronized (received.lease()) { local = received.lease().reopenClaimed(slot.prepared.key(), slot.prepared.offer()); }
             if (!readable(slot, caller)) throw denied();
             long identity = Binder.clearCallingIdentity();
             ParcelFileDescriptor descriptor;
-            try { descriptor = context.getContentResolver().openFileDescriptor(local, "r"); }
-            finally { Binder.restoreCallingIdentity(identity); }
+            try {
+                Uri local = received.lease().reopenClaimed(slot.prepared.key(), slot.prepared.offer());
+                descriptor = context.getContentResolver().openFileDescriptor(local, "r");
+            } finally { Binder.restoreCallingIdentity(identity); }
             if (descriptor == null) throw denied();
             if (!readable(slot, caller) || cancellation != null && cancellation.isCanceled()) { descriptor.close(); throw denied(); }
             routes.delivered(slot.prepared, caller);

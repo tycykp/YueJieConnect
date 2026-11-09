@@ -86,7 +86,7 @@ final class ClipboardBridge implements AutoCloseable {
                 oplusAdapter.install();
             }
             try {
-                richEndpoint = new ClipboardNativeContent(module, context, loader, source);
+                richEndpoint = new ClipboardNativeContent(module, context, loader, source, "yj.clipboard.local.html");
                 richReceiver = new ClipboardRichReceiver(richEndpoint, richEchoes, this::richAuthorized, client::projection);
                 richSource = new ClipboardRichSource(context, richEchoes, this::richAuthorized,
                         client::projection, this::sendHtml);

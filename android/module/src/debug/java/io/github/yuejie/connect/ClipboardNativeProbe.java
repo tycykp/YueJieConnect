@@ -315,7 +315,11 @@ final class ClipboardNativeProbe implements ClipboardBridge.Probe {
         if (armed && uriMode && current() && Objects.equals(session, receivedSession) && uriLeg(name) != 0
                 && clip != null && clip.getItemCount() == 1 && clip.getItemAt(0).getUri() != null) testUris.put(clip.getItemAt(0).getUri(), uriLeg(name));
     }
-    @Override public void uriStaged(String session, String name, ClipData clip) { rememberUri(session, name, clip); }
+    @Override public void uriStaged(String session, String name, ClipData clip) {
+        rememberUri(session, name, clip);
+        int leg = uriLeg(name);
+        if (leg != 0 && clip != null && syntheticLeg(clip) == leg) event("stage", leg, "native_handle_ready");
+    }
     @Override public void uriApplied(String session, String name, ClipData clip) {
         rememberUri(session, name, clip); int leg = uriLeg(name);
         if (armed && uriMode && current() && Objects.equals(this.session, session) && leg != 0 && !uriApplied[leg]) {

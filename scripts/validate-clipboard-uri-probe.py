@@ -79,7 +79,7 @@ def main():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding='utf-8')
     actual = [probe.PROBE, probe.CODEC, probe.NATIVE_CLOCK]
-    probe.run('compile',probe.JDK/'javac.exe','--release','17','-encoding','UTF-8','-d',classes,*actual,*sorted(sources.rglob('*.java')))
+    probe.run('compile',probe.JDK/'javac.exe','--release','17','-encoding','UTF-8','-d',classes,*actual,*(sources / path for path in sorted(stubs)))
     probe.run('uri-probe-tests',probe.JDK/'java.exe','-cp',classes,'io.github.yuejie.connect.ClipboardUriProbeHarness')
     files = [*actual,Path(__file__),Path(probe.__file__)]
     (OUT/'evidence.json').write_text(json.dumps(dict(command='python scripts/validate-clipboard-uri-probe.py',result='passed',

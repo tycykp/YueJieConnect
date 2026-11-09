@@ -98,7 +98,7 @@ final class OplusNativePairing implements Application.ActivityLifecycleCallbacks
         if(state==null||!session.equals(state.optString("session")))return;
         try{JSONObject request=new JSONObject().put("session",session);
             if("CONNECT_REQUEST_RESULT_ACCEPTED".equals(action))request.put("action","confirm").put("comparison_code",state.getString("comparison_code"))
-                    .put("operations",new JSONArray().put("device_profile").put("battery_status").put("clipboard_write").put("file_transfer").put("app_relay").put("screen_video").put("screen_input"));
+                    .put("operations",new JSONArray(NativePairingPolicy.DEFAULT_GRANTS));
             else if("CONNECT_REQUEST_RESULT_REJECTED".equals(action)||"CONNECT_REQUEST_RESULT_TIME_OUT".equals(action))request.put("action","disconnect");else return;
             client.pairing(request,value->{if(!"ok".equals(value.optString("status"))&&page.get()!=null)change(page.get(),"CONNECT_FAILED");});
         }catch(org.json.JSONException ignored){}
