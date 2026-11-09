@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "yj-jni"
 version.workspace = true
 edition.workspace = true

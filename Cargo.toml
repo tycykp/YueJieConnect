@@ -3,6 +3,7 @@ members = ["core", "transport", "native"]
 resolver = "2"
 
 [workspace.package]
+license = "Apache-2.0"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
