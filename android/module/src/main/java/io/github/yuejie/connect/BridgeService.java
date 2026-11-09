@@ -34,8 +34,11 @@ public final class BridgeService extends Service {
     private String initialization="{\"status\":\"error\",\"code\":\"profile_unavailable\"}";
     private final android.os.Handler monitor=new android.os.Handler(android.os.Looper.getMainLooper());
     private String lastState="";
+    private boolean connectionStarted;
+    private final java.util.concurrent.locks.ReentrantLock lifecycle=new java.util.concurrent.locks.ReentrantLock();
+    private final java.util.concurrent.ScheduledExecutorService pairingWorker=
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r->new Thread(r,"yj-pairing-recovery"));
     private final Runnable monitorTask=new Runnable(){public void run(){
-        if(nativePairing!=null)nativePairing.tick();
         try{JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}"));
             JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);
             browserRelay.session(state != null && "active".equals(state.optString("phase")) ? state.optString("session") : "");
@@ -53,8 +56,12 @@ public final class BridgeService extends Service {
             public JSONObject dispatch(JSONObject command)throws org.json.JSONException{
                 if("bridge_confirm".equals(command.optString("op"))&&notifications!=null)notifications.addNativeGrants(command);
                 JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,hostSource,SystemClock.elapsedRealtime(),command.toString()));
-                if("bridge_abort".equals(command.optString("op"))&&"ok".equals(result.optString("status"))){wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);}
+                if("bridge_abort".equals(command.optString("op"))&&"ok".equals(result.optString("status"))){releaseConnection();}
                 return result;
+            }
+            public JSONObject restore(JSONObject command)throws org.json.JSONException{
+                // Reuse exactly the saved grants, without adding newly enabled notification grants.
+                return new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,hostSource,SystemClock.elapsedRealtime(),command.toString()));
             }
             public void prepare()throws org.json.JSONException{
                 if(!"ok".equals(new JSONObject(initialization).optString("status")))throw new IllegalStateException("profile_unavailable");
@@ -90,13 +97,20 @@ public final class BridgeService extends Service {
             catch(RuntimeException unavailable){android.util.Log.w("YueJieBridge","notification_endpoint_unavailable");}
         } catch(org.json.JSONException | RuntimeException error) {
             initialization="{\"status\":\"error\",\"code\":\"profile_setup_failed\",\"detail\":\""+error.getClass().getSimpleName()+"\"}";
-        } finally {android.util.Log.i("YueJieBridge","initialization="+initialization);monitor.post(monitorTask);}
+        } finally {android.util.Log.i("YueJieBridge","initialization="+initialization);monitor.post(monitorTask);
+            pairingWorker.scheduleWithFixedDelay(()->{
+                if(!lifecycle.tryLock())return;
+                try{nativePairing.tick();releaseEndedConnection();}
+                catch(org.json.JSONException|RuntimeException failure){android.util.Log.w("YueJieBridge","pairing_recovery_unavailable");}
+                finally{lifecycle.unlock();}
+            },0,1,java.util.concurrent.TimeUnit.SECONDS);
+        }
     }
     private int sourceFor(String packageName){
         try{return CallerVerifier.verify(getPackageManager(),getPackageManager().getApplicationInfo(packageName,0).uid);}
         catch(PackageManager.NameNotFoundException ignored){return 0;}
     }
-    private void foreground() {
+    private synchronized void foreground() {
         NotificationManager manager=getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("bridge","设备桥接",NotificationManager.IMPORTANCE_LOW));
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE);
@@ -104,6 +118,31 @@ public final class BridgeService extends Service {
             .setContentTitle(getString(R.string.app_name)).setContentText("设备桥接正在运行，点此查看或断开")
             .setContentIntent(open).setOngoing(true).build();
         startForeground(1,note,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        // Foreground priority alone does not give a bound service a started lifetime.
+        // Retain the authenticated connection when the last UI/OEM binding goes away.
+        if(!connectionStarted){
+            startService(new Intent(this,BridgeService.class));
+            connectionStarted=true;
+        }
+    }
+    private synchronized void releaseConnection(){
+        wifiRoute.release();
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        if(connectionStarted){connectionStarted=false;stopSelf();}
+    }
+    private void releaseEndedConnection() throws org.json.JSONException {
+        // Do not race a new connection's route acquisition or block the main thread on it.
+        if(!lifecycle.tryLock())return;
+        try{
+            JSONObject state=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,
+                    SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}")).optJSONObject("bridge");
+            if(state!=null && !nativePairing.reconnecting() && ("stopped".equals(state.optString("phase")) || "disconnected".equals(state.optString("phase"))))releaseConnection();
+        }finally{lifecycle.unlock();}
+    }
+    @Override public synchronized int onStartCommand(Intent intent,int flags,int startId){
+        // A killed process has lost its Noise session; never replay pairing or consent.
+        if(!connectionStarted)stopSelf(startId);
+        return START_NOT_STICKY;
     }
     private void refreshScreenScope(JSONObject state){
         JSONObject projection=state==null?null:state.optJSONObject("projection"),remote=state==null?null:state.optJSONObject("remote");
@@ -268,6 +307,7 @@ public final class BridgeService extends Service {
             // Capture the kernel caller first; perform package lookups as this service, then
             // explicitly pass the ORIGINAL UID/PID into Rust's session check.
             long identity=Binder.clearCallingIdentity();
+            boolean changingLifecycle=false;
             try {
             CallerVerifier.Verified verified=owner?null:CallerVerifier.resolve(getPackageManager(),uid);
             if(!owner&&verified==null&&mirrorProof.verifies(uid,pid))verified=new CallerVerifier.Verified(1,CallerPolicy.MIRROR);
@@ -276,6 +316,8 @@ public final class BridgeService extends Service {
             if (!owner && source == 0) return "{\"status\":\"error\",\"code\":\"caller_rejected\"}";
             try {
                 JSONObject parsed=new JSONObject(command);String op=parsed.optString("op");
+                changingLifecycle=java.util.Set.of("native_pairing","bridge_listen","bridge_connect","bridge_stop","bridge_disconnect","bridge_abort").contains(op);
+                if(changingLifecycle)lifecycle.lock();
                 if(owner&&"bridge_runtime_status".equals(op))return runtimes.snapshot(BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime()).put("native_pairing",nativePairing.inspect())
                     .put("host_initialization",new JSONObject(initialization)).put("xiaomi_package",CallerVerifier.inspect(getPackageManager(),CallerPolicy.XIAOMI)).toString();
                 if(!owner){
@@ -345,8 +387,12 @@ public final class BridgeService extends Service {
                     foreground();
                 }
                 String result=NativeCore.dispatch(uid,pid,owner,source,SystemClock.elapsedRealtime(),command);
+                if("ok".equals(new JSONObject(result).optString("status"))){
+                    if(owner&&(op.equals("bridge_listen")||op.equals("bridge_connect")))nativePairing.resume();
+                    if(op.equals("bridge_disconnect")||owner&&(op.equals("bridge_stop")||op.equals("bridge_abort")))nativePairing.pause();
+                }
                 if("bridge_disconnect".equals(op)&&"ok".equals(new JSONObject(result).optString("status"))){
-                    wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);
+                    releaseConnection();
                 }
                 if("bridge_media_register".equals(op)&&"sender".equals(parsed.optString("role"))&&"ok".equals(new JSONObject(result).optString("status"))){
                     long stream=parsed.getLong("stream_id");screenMedia.put(stream,new MediaGrant(parsed.getString("session_id"),stream,new NativeScreenProofs.Caller(uid,pid)));
@@ -355,14 +401,17 @@ public final class BridgeService extends Service {
                     JSONObject opened=new JSONObject(result);
                     if("ok".equals(opened.optString("status")))runtimes.opened(uid,pid,opened.optString("token",""),SystemClock.elapsedRealtime());
                 }
-                if(owner && op.equals("bridge_stop")) {wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
+                if(owner && op.equals("bridge_stop")) {releaseConnection();}
                 return result;
             } catch(org.json.JSONException e) {return "{\"status\":\"error\",\"code\":\"invalid_request\"}";}
-            } finally {Binder.restoreCallingIdentity(identity);}
+            } finally {if(changingLifecycle)lifecycle.unlock();Binder.restoreCallingIdentity(identity);}
         }
     };
     @Override public IBinder onBind(Intent intent) { return binder; }
     @Override public void onDestroy() {
+        pairingWorker.shutdownNow();
+        lifecycle.lock();
+        try{
         if(nativePairing!=null)nativePairing.close();
         monitor.removeCallbacks(monitorTask);
         if(notifications!=null)notifications.close();
@@ -371,6 +420,7 @@ public final class BridgeService extends Service {
         mirrorProof.close();
         wifiRoute.release();
         NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_stop\"}");
+        }finally{lifecycle.unlock();}
         super.onDestroy();
     }
 }

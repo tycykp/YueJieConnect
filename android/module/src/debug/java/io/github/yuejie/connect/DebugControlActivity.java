@@ -45,7 +45,6 @@ public final class DebugControlActivity extends Activity {
             }
             if(!Set.of("bridge_status","bridge_runtime_status","bridge_listen","bridge_connect","bridge_confirm","bridge_query_peer","bridge_stop","notification_fixture","notification_packages").contains(op))throw new IllegalArgumentException();
             TextView message=new TextView(this);message.setText("越界互联：正在执行已授权的调试操作");setContentView(message);
-            if(op.equals("bridge_listen")||op.equals("bridge_connect"))startService(new Intent(this,BridgeService.class));
             bound=bindService(new Intent(this,BridgeService.class),connection,Context.BIND_AUTO_CREATE);
         }catch(Exception e){finish();}
     }

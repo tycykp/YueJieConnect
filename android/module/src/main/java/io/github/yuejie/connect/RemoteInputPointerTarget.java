@@ -2,12 +2,15 @@ package io.github.yuejie.connect;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.PowerManager;
 import android.os.SystemClock;
+import android.view.Display;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.MotionEvent;
 import android.view.KeyEvent;
 import android.view.KeyCharacterMap;
+import android.view.ViewConfiguration;
 import java.lang.reflect.Method;
 import java.util.function.BooleanSupplier;
 
@@ -19,6 +22,8 @@ public final class RemoteInputPointerTarget implements AutoCloseable {
     private final Context context;
     private final int displayId, width, height;
     private final BooleanSupplier currentAndAllowed;
+    private final PowerManager power;
+    private final WakeGesture wakeGesture;
     private long sequence, downTime;
     private float lastX, lastY;
     private boolean down, closed;
@@ -31,6 +36,10 @@ public final class RemoteInputPointerTarget implements AutoCloseable {
             throw new IllegalArgumentException("invalid_input_display");
         this.context = context; this.displayId = displayId; this.width = width; this.height = height;
         this.currentAndAllowed = currentAndAllowed;
+        power = displayId == Display.DEFAULT_DISPLAY ? context.getSystemService(PowerManager.class) : null;
+        ViewConfiguration config = ViewConfiguration.get(context);
+        wakeGesture = new WakeGesture(config.getScaledTouchSlop(), config.getScaledDoubleTapSlop(),
+                ViewConfiguration.getDoubleTapTimeout());
         manager = context.getSystemService(Context.INPUT_SERVICE);
         if (manager == null) throw new IllegalStateException("native_input_service_missing");
         inject = manager.getClass().getMethod("injectInputEvent", InputEvent.class, int.class);
@@ -47,10 +56,23 @@ public final class RemoteInputPointerTarget implements AutoCloseable {
         if (!Float.isFinite(x) || !Float.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1
                 || (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE
                 && action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL)) return Result.INVALID;
-        if (action == MotionEvent.ACTION_DOWN ? down : !down) return Result.INVALID;
-        long now = SystemClock.uptimeMillis(), start = action == MotionEvent.ACTION_DOWN ? now : downTime;
-        if(action==MotionEvent.ACTION_DOWN)mouse=mouseSource;
+        long now = SystemClock.uptimeMillis();
         float px = x * (width - 1), py = y * (height - 1);
+        boolean sleeping = power != null && !power.isInteractive();
+        if (sleeping || wakeGesture.held) {
+            cancelPointer();
+            // Consume both taps here so neither can land on the lock screen as it lights up.
+            if (wakeGesture.accept(action, now, px, py, mouseSource, sleeping) && !power.isInteractive()) {
+                boolean pressed = sendKey(KeyEvent.KEYCODE_WAKEUP, true, now, now, 0);
+                boolean released = sendKey(KeyEvent.KEYCODE_WAKEUP, false, now, SystemClock.uptimeMillis(), 0);
+                if (!pressed || !released) return Result.NATIVE_REJECTED;
+            }
+            return Result.ACCEPTED;
+        }
+        wakeGesture.reset();
+        if (action == MotionEvent.ACTION_DOWN ? down : !down) return Result.INVALID;
+        long start = action == MotionEvent.ACTION_DOWN ? now : downTime;
+        if(action==MotionEvent.ACTION_DOWN)mouse=mouseSource;
         if (!send(action, start, now, px, py)) return Result.NATIVE_REJECTED;
         down = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE;
         downTime = start; lastX = px; lastY = py; return Result.ACCEPTED;
@@ -90,9 +112,71 @@ public final class RemoteInputPointerTarget implements AutoCloseable {
     @Override public synchronized void close() {
         if (closed) return;
         closed = true;
-        if (down) send(MotionEvent.ACTION_CANCEL, downTime, SystemClock.uptimeMillis(), lastX, lastY);
-        down = false;
+        wakeGesture.reset();
+        cancelPointer();
         for(var key:keys.entrySet())sendKey(key.getKey(),false,key.getValue(),SystemClock.uptimeMillis(),KeyEvent.FLAG_CANCELED);
         keys.clear();
+    }
+    private void cancelPointer() {
+        if (down) send(MotionEvent.ACTION_CANCEL, downTime, SystemClock.uptimeMillis(), lastX, lastY);
+        down = false;
+    }
+
+    static final class WakeGesture {
+        private static final int MAX_TAP_DURATION_MS = 250;
+        private final float touchSlop, doubleTapSlop;
+        private final int doubleTapTimeout;
+        private boolean held, tap, mouse, firstMouse;
+        private long downAt, firstUpAt = -1;
+        private float downX, downY, firstX, firstY;
+
+        WakeGesture(float touchSlop, float doubleTapSlop, int doubleTapTimeout) {
+            this.touchSlop = touchSlop;
+            this.doubleTapSlop = doubleTapSlop;
+            this.doubleTapTimeout = doubleTapTimeout;
+        }
+
+        boolean accept(int action, long time, float x, float y, boolean mouseSource, boolean sleeping) {
+            if (action == MotionEvent.ACTION_DOWN) {
+                if (held || !sleeping) reset();
+                held = true;
+                tap = sleeping;
+                mouse = mouseSource;
+                downAt = time;
+                downX = x;
+                downY = y;
+                return false;
+            }
+            if (!held || action == MotionEvent.ACTION_CANCEL) {
+                reset();
+                return false;
+            }
+            tap &= sleeping && within(x - downX, y - downY, touchSlop);
+            if (action != MotionEvent.ACTION_UP) return false;
+            held = false;
+            if (!tap || time - downAt > MAX_TAP_DURATION_MS) {
+                reset();
+                return false;
+            }
+            if (firstUpAt >= 0 && downAt - firstUpAt <= doubleTapTimeout && mouse == firstMouse
+                    && within(downX - firstX, downY - firstY, doubleTapSlop)) {
+                reset();
+                return true;
+            }
+            firstUpAt = time;
+            firstMouse = mouse;
+            firstX = downX;
+            firstY = downY;
+            return false;
+        }
+
+        void reset() {
+            held = false;
+            firstUpAt = -1;
+        }
+
+        private static boolean within(float dx, float dy, float slop) {
+            return dx * dx + dy * dy <= slop * slop;
+        }
     }
 }

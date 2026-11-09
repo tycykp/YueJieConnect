@@ -68,7 +68,7 @@
             android:theme="@android:style/Theme.NoDisplay" />
         <!-- Each transaction validates UID, PID, package, version, certificate and Rust session.
              Network starts from the module or verified OEM pairing UI, with bilateral confirmation. -->
-        <service android:name=".BridgeService" android:exported="true" android:process=":bridge" android:foregroundServiceType="connectedDevice" />
+        <service android:name=".BridgeService" android:stopWithTask="false" android:exported="true" android:process=":bridge" android:foregroundServiceType="connectedDevice" />
         <activity android:name=".CameraShareConsentActivity" android:exported="false" android:process=":bridge" />
         <service android:name=".CameraShareSourceService" android:exported="false" android:process=":bridge" android:foregroundServiceType="camera" />
         <service android:name=".NotificationSyncListener" android:exported="true" android:process=":bridge"

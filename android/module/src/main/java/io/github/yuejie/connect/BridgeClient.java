@@ -63,18 +63,23 @@ final class BridgeClient implements AutoCloseable {
         }
         main.postDelayed(this,SystemClock.elapsedRealtime()<fileBurstUntil||!mediaPipes.isEmpty()?5:100);
     }};
-    private final ServiceConnection connection=new ServiceConnection(){
-        @Override public void onServiceConnected(ComponentName name,IBinder binder){bridge=IBridge.Stub.asInterface(binder);enqueue(()->{token=null;nextOpen=0;nextRegistration=0;});}
-        @Override public void onServiceDisconnected(ComponentName name){bridge=null;publish(null);}
-        @Override public void onBindingDied(ComponentName name){bridge=null;enqueue(()->unbind());}
-        @Override public void onNullBinding(ComponentName name){bridge=null;enqueue(()->unbind());}
-    };
+    private volatile ServiceConnection connection;
+    private ServiceConnection newConnection(){return new ServiceConnection(){
+        @Override public void onServiceConnected(ComponentName name,IBinder binder){
+            enqueue(()->{if(connection!=this||closed)return;bridge=IBridge.Stub.asInterface(binder);token=null;nextOpen=0;nextRegistration=0;nextProjection=0;});
+        }
+        @Override public void onServiceDisconnected(ComponentName name){
+            enqueue(()->{if(connection!=this)return;bridge=null;token=null;nextBind=SystemClock.elapsedRealtime()+10_000;publish(null);});
+        }
+        @Override public void onBindingDied(ComponentName name){enqueue(()->{if(connection==this){unbind();nextBind=0;}});}
+        @Override public void onNullBinding(ComponentName name){enqueue(()->{if(connection==this)unbind();});}
+    };}
     private boolean enqueue(Runnable task){
         if(closed)return false;
         try{worker.execute(()->{try{task.run();}catch(RuntimeException failure){token=null;publish(null);android.util.Log.w("YueJieClient","worker_error "+failure.getClass().getSimpleName());}});return true;}
         catch(java.util.concurrent.RejectedExecutionException busy){return false;}
     }
-    void attach(Context value){context=value;enqueue(this::ensureBound);if(!pollStarted){pollStarted=true;main.post(poll);}}
+    void attach(Context value){context=value.getApplicationContext();enqueue(this::ensureBound);if(!pollStarted){pollStarted=true;main.post(poll);}}
     Context context(){return context;}
     void onProjection(Consumer<JSONObject> listener){legacyListener=listener;if(listener!=null)main.post(()->{if(legacyListener==listener)listener.accept(projection);});}
     Subscription addProjectionListener(Consumer<JSONObject> listener){
@@ -417,14 +422,18 @@ final class BridgeClient implements AutoCloseable {
         long observedAt=SystemClock.elapsedRealtime();String copied=event.toString();
         enqueue(()->{if(SystemClock.elapsedRealtime()-observedAt>5000)return;try{authenticated(new JSONObject().put("op","observe").put("event",new JSONObject(copied)));}catch(org.json.JSONException|RemoteException failure){token=null;}});
     }
-    private void unbind(){if(bound){bound=false;try{context.unbindService(connection);}catch(IllegalArgumentException ignored){}}token=null;publish(null);}
+    private void unbind(){bridge=null;ServiceConnection previous=connection;connection=null;if(bound){bound=false;try{context.unbindService(previous);}catch(IllegalArgumentException ignored){}}token=null;publish(null);}
     void retryBinding(){enqueue(()->{
         if(bridge!=null)return;
         unbind();nextBind=0;ensureBound();
     });}
     private void ensureBound(){
-        if(context==null||bound||SystemClock.elapsedRealtime()<nextBind)return;
+        if(closed||context==null||bridge!=null||SystemClock.elapsedRealtime()<nextBind)return;
+        // AUTO_CREATE may be accepted without delivering a binder after an OEM kill.
+        // Give normal reconnection a grace interval, then replace the stalled binding.
+        if(bound)unbind();
         nextBind=SystemClock.elapsedRealtime()+10_000;
+        connection=newConnection();
         try{bound=context.bindService(new Intent().setComponent(new ComponentName("io.github.yuejie.connect","io.github.yuejie.connect.BridgeService")),connection,Context.BIND_AUTO_CREATE);}catch(SecurityException ignored){bound=false;}
     }
 }

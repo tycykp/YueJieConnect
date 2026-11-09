@@ -12,12 +12,17 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Short-lived discovery with key-bound selection and bilateral native user confirmation. */
+/** Manual first pairing plus identity-bound reconnection using persisted bilateral consent. */
 final class NativePairingService implements AutoCloseable {
-    interface Host { JSONObject dispatch(JSONObject command)throws JSONException; void prepare()throws JSONException; }
+    interface Host { JSONObject dispatch(JSONObject command)throws JSONException; void prepare()throws JSONException; JSONObject restore(JSONObject command)throws JSONException; }
     private static final String TYPE="_yjconnect._tcp.";
     private final NsdManager nsd;
     private final Host host;
+    private final android.content.SharedPreferences preferences;
+    private final PairedPeers paired;
+    private boolean paused,automaticSelection;
+    private long nextRetry,nextScan;
+    private String rememberedSession="";
     private final Map<String,Peer> peers=new LinkedHashMap<>();
     private final Map<String,Peer> knownPeers=new LinkedHashMap<>();
     private record Peer(String key,JSONObject real,String address,long found){}
@@ -28,7 +33,15 @@ final class NativePairingService implements AutoCloseable {
     private String selectedKey="",confirmedSession="";
     private int source;
     private String resolution="none";
-    NativePairingService(Context context,Host host){this.nsd=context.getSystemService(NsdManager.class);this.host=host;}
+    NativePairingService(Context context,Host host){
+        this.nsd=context.getSystemService(NsdManager.class);this.host=host;
+        preferences=context.getSharedPreferences("paired-peers",Context.MODE_PRIVATE);
+        paired=new PairedPeers(preferences.getStringSet("peers",java.util.Set.of()));
+        paused=preferences.getBoolean("paused",false);
+    }
+    synchronized void resume(){paused=false;nextRetry=0;preferences.edit().putBoolean("paused",false).apply();}
+    synchronized void pause(){paused=true;selectedKey="";automaticSelection=false;stopDiscovery();preferences.edit().putBoolean("paused",true).apply();}
+    synchronized boolean reconnecting(){return !paused&&!paired.isEmpty();}
     synchronized JSONObject command(JSONObject request)throws JSONException{
         String action=request.optString("action");
         JSONObject state=host.dispatch(new JSONObject().put("op","bridge_status")).getJSONObject("bridge");
@@ -36,6 +49,7 @@ final class NativePairingService implements AutoCloseable {
         String phase=state.optString("phase");
         switch(action){
             case "start" -> {
+                resume();
                 if(!NativePairingPolicy.idle(phase))return snapshot(state);
                 if(discovery==null){
                     host.prepare();
@@ -50,6 +64,7 @@ final class NativePairingService implements AutoCloseable {
                 }
             }
             case "select" -> {
+                resume();automaticSelection=false;
                 String id=request.optString("peer");
                 JSONObject remote=remote(state);
                 if("awaiting_confirmation".equals(phase)&&remote!=null&&id.equals(NativePairingPolicy.alias(source,key(remote)))){
@@ -79,7 +94,7 @@ final class NativePairingService implements AutoCloseable {
                 String session=request.optString("session");
                 if(!NativePairingPolicy.session(session))return failure("stale_session");
                 JSONObject result=host.dispatch(new JSONObject().put("op","bridge_abort").put("session",session));
-                if("ok".equals(result.optString("status")))stopDiscovery();
+                if("ok".equals(result.optString("status")))pause();
                 return result;
             }
             case "hide" -> {stopDiscovery();}
@@ -95,7 +110,9 @@ final class NativePairingService implements AutoCloseable {
         String phase=state.optString("phase"),session=state.optString("session");
         if("awaiting_confirmation".equals(phase)&&!selectedKey.isEmpty()&&remote!=null&&!session.equals(confirmedSession)){
             if(!selectedKey.equals(key(remote))){host.dispatch(new JSONObject().put("op","bridge_abort").put("session",session));selectedKey="";return failure("peer_identity_changed");}
-            JSONObject result=host.dispatch(new JSONObject().put("op","bridge_confirm").put("session",session).put("operations",new JSONArray(NativePairingPolicy.DEFAULT_GRANTS)));
+            JSONObject confirm=new JSONObject().put("op","bridge_confirm").put("session",session)
+                    .put("operations",new JSONArray(automaticSelection?paired.grants(selectedKey):NativePairingPolicy.DEFAULT_GRANTS));
+            JSONObject result=automaticSelection?host.restore(confirm):host.dispatch(confirm);
             if("ok".equals(result.optString("status")))confirmedSession=session;else return result;
         }
         if("active".equals(phase)||"stopped".equals(phase)||"disconnected".equals(phase))selectedKey="";
@@ -111,7 +128,7 @@ final class NativePairingService implements AutoCloseable {
                 .put("searching",discovery!=null).put("error",error.isEmpty()?state.optString("last_error",""):error);
     }
     private void start(JSONObject local,int port)throws JSONException{
-        stopDiscovery();error="";deadline=SystemClock.elapsedRealtime()+120_000;long ticket=generation;
+        stopDiscovery();error="";deadline=SystemClock.elapsedRealtime()+120_000;nextScan=SystemClock.elapsedRealtime()+60_000;long ticket=generation;
         knownPeers.clear();
         String platform=local.getString("platform");source="hyper_os4".equals(platform)?1:2;selectedKey="";
         ownName="yj-"+UUID.randomUUID().toString().replace("-","");
@@ -157,8 +174,57 @@ final class NativePairingService implements AutoCloseable {
         catch(RuntimeException unavailable){stopDiscovery();error="discovery_unavailable";}
     }
     private synchronized void failed(long ticket,String reason){if(ticket==generation){stopDiscovery();error=reason;}}
-    synchronized void tick(){if(discovery!=null&&SystemClock.elapsedRealtime()>=deadline)stopDiscovery();}
-    synchronized JSONObject inspect()throws JSONException{return new JSONObject().put("searching",discovery!=null).put("peer_count",peers.size()).put("known_count",knownPeers.size()).put("resolution",resolution).put("error",error);}
+    // Called on a service worker under its lifecycle lock, never on the main looper.
+    synchronized void tick(){
+        long now=SystemClock.elapsedRealtime();
+        try{
+            JSONObject state=host.dispatch(new JSONObject().put("op","bridge_status")).getJSONObject("bridge");
+            String phase=state.optString("phase"),session=state.optString("session");
+            if("active".equals(phase)){
+                if(!session.equals(rememberedSession)&&state.optBoolean("local_confirmed")&&state.optBoolean("remote_confirmed")){
+                    JSONObject remote=state.getJSONObject("remote");java.util.List<String> grants=new java.util.ArrayList<>();
+                    JSONArray values=state.getJSONArray("granted_operations");for(int i=0;i<values.length();i++)grants.add(values.getString(i));
+                    paired.remember(key(remote),grants);
+                    if(preferences.edit().putStringSet("peers",paired.encode()).commit())rememberedSession=session;
+                    else error="pairing_store_unavailable";
+                }
+                selectedKey="";stopDiscovery();return;
+            }
+            if(discovery!=null&&now>=deadline)stopDiscovery();
+            if("awaiting_confirmation".equals(phase)){
+                JSONArray identity=state.optJSONArray("pending_peer_key");
+                String authenticated=identity==null?"":key(new JSONObject().put("peer_key",identity));
+                if(!selectedKey.isEmpty()&&!selectedKey.equals(authenticated)){
+                    host.dispatch(new JSONObject().put("op","bridge_abort").put("session",session));selectedKey="";nextRetry=now+15_000;return;
+                }
+                // Discovery metadata never authorizes a peer: only Noise's authenticated key does.
+                if(!paused&&!state.optBoolean("local_confirmed")&&!session.equals(confirmedSession)&&!paired.grants(authenticated).isEmpty()){
+                    JSONObject result=host.restore(new JSONObject().put("op","bridge_confirm").put("session",session)
+                            .put("operations",new JSONArray(paired.grants(authenticated))));
+                    if("ok".equals(result.optString("status")))confirmedSession=session;
+                }else if(!selectedKey.isEmpty()&&!automaticSelection)snapshot(state);
+                return;
+            }
+            if(!reconnecting()||!NativePairingPolicy.idle(phase)||now<nextRetry)return;
+            selectedKey="";automaticSelection=false;
+            if(!"listening".equals(phase)||discovery==null||now>=nextScan){
+                nextRetry=now+5_000;host.prepare();int port=state.optInt("listening_port");
+                if(!"listening".equals(phase)||port==0){
+                    JSONObject result=host.dispatch(new JSONObject().put("op","bridge_listen").put("port",0));
+                    if(!"ok".equals(result.optString("status")))return;port=result.getInt("port");
+                }
+                start(state.getJSONObject("local"),port);return;
+            }
+            String local=key(state.getJSONObject("local"));
+            for(Peer peer:peers.values())if(!paired.grants(peer.key()).isEmpty()&&now-peer.found()<60_000&&PairedPeers.initiates(local,peer.key())){
+                nextRetry=now+15_000;
+                JSONObject result=host.dispatch(new JSONObject().put("op","bridge_connect").put("address",peer.address()));
+                if("ok".equals(result.optString("status"))){selectedKey=peer.key();automaticSelection=true;confirmedSession="";}
+                break;
+            }
+        }catch(JSONException|RuntimeException unavailable){nextRetry=now+15_000;error="reconnect_unavailable";}
+    }
+    synchronized JSONObject inspect()throws JSONException{return new JSONObject().put("searching",discovery!=null).put("peer_count",peers.size()).put("known_count",knownPeers.size()).put("paired_count",paired.size()).put("auto_reconnect",reconnecting()).put("resolution",resolution).put("error",error);}
     private void stopDiscovery(){
         generation++;peers.clear();
         if(discovery!=null){try{nsd.stopServiceDiscovery(discovery);}catch(RuntimeException ignored){}discovery=null;}
