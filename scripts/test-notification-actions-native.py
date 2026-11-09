@@ -1,4 +1,4 @@
-"""One targeted native-shade action per direction; no direct PendingIntent/test-RPC bypass."""
+"""Exercise a synthetic notification through the real notification shade on both devices."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -121,7 +121,7 @@ def card(tree, identifier):
 
 def safe_tree(tree, identifier):
     selected = card(tree, identifier)
-    allowed = ['越界合成通知 ' + str(identifier), '测试动作', '测试回复', '在来源设备移除', '展开', 'Expand', '收起', 'Collapse', 'YJ-test-reply']
+    allowed = ['越界合成通知 ' + str(identifier), '测试动作', '测试回复', '在来源设备移除', '展开', 'Expand', '收起', 'Collapse', '人工回复', 'YJ-test-reply']
     return {'synthetic_card_found': selected is not None, 'nodes': [
         {'text': n.get('text') if n.get('text') in allowed else '',
          'resource_id': n.get('resource-id', ''), 'class': n.get('class', ''),
@@ -137,7 +137,7 @@ def native_action(serial, identifier, kind, record):
     tree = hierarchy(serial, identifier)
     record['collapsed_ui'] = safe_tree(tree, identifier)
     selected = card(tree, identifier)
-    label = '测试动作' if kind == 'action' else '测试回复'
+    label = {'action': '测试动作', 'reply': '测试回复', 'dismiss': '在来源设备移除'}[kind]
     matches = [n for n in selected.iter('node') if n.get('text') == label] if selected is not None else []
     if not matches and selected is not None and selected.get('clickable') == 'true' and any(
             c.get('resource-id', '').endswith('notification_children_container') for c in list(selected)):
@@ -153,7 +153,8 @@ def native_action(serial, identifier, kind, record):
         if matches or selected is None:
             break
         expand = [n for n in selected.iter('node') if ('expand_button' in n.get('resource-id', '')
-                  and n.get('clickable') == 'true') or n.get('content-desc') in ['展开', 'Expand']]
+                  and n.get('clickable') == 'true') or n.get('content-desc') in ['展开', 'Expand']
+                  or n.get('resource-id', '').endswith('expand_button_touch_container')]
         exact = [n for n in expand if n.get('resource-id', '').endswith('expand_button')]
         if len(exact) == 1:
             expand = exact
@@ -176,9 +177,13 @@ def native_action(serial, identifier, kind, record):
     if not matches and selected is not None and serial == DEVICES[0]:
         titles = [n for n in selected.iter('node') if n.get('text') == '越界合成通知 ' + str(identifier)]
         if len(titles) == 1:
-            if 'native_expand_gesture_sent' not in helper(serial,identifier,'expand-card'):
+            expanded_result = helper(serial,identifier,'expand-card')
+            if 'native_expand_accessibility_sent' in expanded_result:
+                record['native_expand_gesture'] = 'accessibility_expand'
+            elif 'native_expand_gesture_sent' in expanded_result:
+                record['native_expand_gesture'] = 'two_pointer_native_touch'
+            else:
                 raise RuntimeError('Native synthetic card expansion was not injected')
-            record['native_expand_gesture'] = 'two_pointer_native_touch'
             time.sleep(.5)
             tree = hierarchy(serial, identifier)
             selected = card(tree, identifier)
@@ -187,7 +192,8 @@ def native_action(serial, identifier, kind, record):
     if len(matches) != 1:
         raise RuntimeError('Unique synthetic action unavailable in native notification card')
     record['button_bounds'] = bounds(matches[0])
-    tap(serial, matches[0])
+    if 'synthetic_button_clicked' not in helper(serial, identifier, 'tap-' + kind):
+        raise RuntimeError('Native synthetic button could not be clicked')
     record['button_tapped_once'] = True
     if kind == 'reply':
         time.sleep(.6)
@@ -195,23 +201,26 @@ def native_action(serial, identifier, kind, record):
         inputs = [n for n in tree.iter('node') if n.get('class') == 'android.widget.EditText' and n.get('focused') == 'true']
         if len(inputs) != 1:
             raise RuntimeError('Unique native RemoteInput field unavailable')
-        if 'synthetic_actions' in record['mirror_observed']:
-            adb(serial, 'shell', 'input', 'text', 'YJ-test-reply')
-            record['reply_input'] = 'fixed_ascii_platform_keyboard'
-        elif 'reply_text_set' in helper(serial, identifier, 'reply-text'):
-            record['reply_input'] = 'fixed_chinese_native_edit_text'
+        if 'reply_text_set' in helper(serial, identifier, 'reply-text'):
+            expected = '人工回复'
         else:
-            raise RuntimeError('Native synthetic reply text was not set')
+            expected = 'YJ-test-reply'
+            adb(serial, 'shell', 'input', 'text', expected)
+        time.sleep(.3)
         tree = hierarchy(serial, identifier)
         # Only a send control inside the exact artificial notification can be selected.
         selected = card(tree, identifier)
         if selected is None:
             raise RuntimeError('Synthetic card disappeared before reply send')
+        if not any(n.get('text') == expected and n.get('focused') == 'true' for n in selected.iter('node')):
+            raise RuntimeError('Native RemoteInput field does not contain the synthetic reply')
+        record['reply_input'] = expected
         sends = [n for n in selected.iter('node') if n.get('resource-id', '').endswith('remote_input_send')]
         if len(sends) != 1:
             raise RuntimeError('Unique native RemoteInput send control unavailable')
         record['reply_ui'] = safe_tree(tree, identifier)
-        tap(serial, sends[0])
+        if 'reply_send_clicked' not in helper(serial, identifier, 'send-reply'):
+            raise RuntimeError('Native RemoteInput send control could not be clicked')
         record['reply_sent_once'] = True
 
 
@@ -219,7 +228,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--apk', type=Path, required=True)
     p.add_argument('--inputs', type=Path, required=True)
-    p.add_argument('--kind', choices=['action', 'reply'], required=True)
+    p.add_argument('--kind', choices=['action', 'reply', 'all'], required=True)
     p.add_argument('--direction', choices=['both','xiaomi-to-oplus','oplus-to-xiaomi'], default='both')
     p.add_argument('--out', type=Path, required=True)
     args = p.parse_args()
@@ -299,13 +308,26 @@ def main():
             row = {'source': source, 'target': target, 'id': identifier, 'result': 'incomplete'}
             record['directions'].append(row)
             try:
-                counter = 'action_count' if args.kind == 'action' else 'reply_count'
-                before = fixture(source, 'state')[counter]
-                row['source_counter_before'] = before
+                before = fixture(source, 'state')
+                row['source_counters_before'] = {counter: before[counter] for counter in ('action_count','reply_count')}
                 row['post_once'] = fixture(source, 'post', id=identifier, revision=1)
                 row['mirror_observed'] = until(lambda: fixture(target, 'state'), lambda v: {'id': identifier, 'revision': 1} in v.get('synthetic_mirrors', []))
-                native_action(target, identifier, args.kind, row)
-                row['source_original_callback'] = until(lambda: fixture(source, 'state'), lambda v: v[counter] == before+1)
+                kinds = ('action','reply','dismiss') if args.kind == 'all' else (args.kind,)
+                for kind in kinds:
+                    step = row.setdefault('steps', {}).setdefault(kind, {})
+                    native_action(target, identifier, kind, step)
+                    if kind == 'dismiss':
+                        step['source_removed'] = until(lambda: fixture(source, 'state'), lambda v: not v['synthetic'])
+                        step['mirror_removed'] = until(lambda: fixture(target, 'state'), lambda v: not v['synthetic_mirrors'])
+                    else:
+                        counter = 'action_count' if kind == 'action' else 'reply_count'
+                        step['source_original_callback'] = until(lambda: fixture(source, 'state'), lambda v: v[counter] == before[counter]+1)
+                        if kind == 'reply' and args.kind == 'all':
+                            until(lambda: hierarchy(target, identifier), lambda tree: not any(
+                                n.get('resource-id', '').endswith('remote_input_progress')
+                                for n in card(tree, identifier).iter('node')
+                            ) if card(tree, identifier) is not None else False)
+                            step['reply_ui_finished'] = True
                 row['result'] = 'passed_original_remote_' + args.kind
             except Exception as error:
                 row.update(result='blocked', error=str(error))
@@ -332,7 +354,7 @@ def main():
                     row['stop'] = command(serial, {'op': 'bridge_stop'})
                 row['final_synthetic_state'] = until(lambda: fixture(serial,'state'), lambda v:
                     not v.get('synthetic') and not v.get('synthetic_mirrors')
-                    and bool(v.get('access_granted')) == saved['access'], seconds=7)
+                    and bool(v.get('access_granted')) == saved['access'], seconds=18)
                 row['restored'] = True
             except Exception as error:
                 row.update(restored=False, error=str(error))

@@ -105,13 +105,15 @@ public final class MainActivity extends Activity {
                 // Retain explicitly chosen applications without a launcher, e.g. after an app update.
                 for(String pkg:selected)if(!apps.containsKey(pkg))try{apps.put(pkg,getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg,0)).toString());}catch(PackageManager.NameNotFoundException removed){}
                 var ids=new java.util.ArrayList<>(apps.keySet());ids.sort(java.util.Comparator.comparing(apps::get));
-                String[] labels=new String[ids.size()];boolean[] choices=new boolean[ids.size()];
-                for(int i=0;i<ids.size();i++){labels[i]=apps.get(ids.get(i))+"\n"+ids.get(i);choices[i]=selected.contains(ids.get(i));}
+                String[] labels=new String[ids.size()+1];boolean[] choices=new boolean[labels.length];
+                labels[0]="允许原厂配对同步和操作所选应用的通知（开启后需重新连接）";
+                choices[0]=policy.optBoolean("native_enabled");
+                for(int i=0;i<ids.size();i++){labels[i+1]=apps.get(ids.get(i))+"\n"+ids.get(i);choices[i+1]=selected.contains(ids.get(i));}
                 main.post(()->{if(isDestroyed())return;new AlertDialog.Builder(this).setTitle("选择允许同步通知的应用")
                         .setMultiChoiceItems(labels,choices,(dialog,index,checked)->choices[index]=checked)
                         .setNegativeButton(android.R.string.cancel,null).setPositiveButton(android.R.string.ok,(dialog,which)->{
-                            try{org.json.JSONArray packages=new org.json.JSONArray();for(int i=0;i<ids.size();i++)if(choices[i])packages.put(ids.get(i));
-                                request(new JSONObject().put("op","notification_packages").put("packages",packages).toString(),false);
+                            try{org.json.JSONArray packages=new org.json.JSONArray();for(int i=0;i<ids.size();i++)if(choices[i+1])packages.put(ids.get(i));
+                                request(new JSONObject().put("op","notification_packages").put("packages",packages).put("native_enabled",choices[0]).toString(),false);
                             }catch(org.json.JSONException ignored){}
                         }).show();});
             }catch(Exception failure){main.post(()->{if(!isDestroyed())operationResult.setText("通知设置暂不可用");});}

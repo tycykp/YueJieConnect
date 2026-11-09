@@ -58,8 +58,18 @@ public final class NotificationSyncUiProbe extends com.android.uiautomator.testr
         return false;
     }
     private static void inputs(AccessibilityNodeInfo n,List<AccessibilityNodeInfo> result){
-        if(n.isFocused()&&"android.widget.EditText".contentEquals(n.getClassName()))result.add(n);
+        String id=n.getViewIdResourceName();
+        if(n.isFocused()&&id!=null&&id.endsWith(":id/remote_input_text"))result.add(n);
         for(int i=0;i<n.getChildCount();i++){AccessibilityNodeInfo c=n.getChild(i);if(c!=null)inputs(c,result);}
+    }
+    private static void sendButtons(AccessibilityNodeInfo node,List<AccessibilityNodeInfo> result){
+        String id=node.getViewIdResourceName();
+        if(node.isEnabled()&&id!=null&&id.endsWith(":id/remote_input_send"))result.add(node);
+        for(int i=0;i<node.getChildCount();i++){var child=node.getChild(i);if(child!=null)sendButtons(child,result);}
+    }
+    private static void buttons(AccessibilityNodeInfo node,String label,List<AccessibilityNodeInfo> result){
+        if(node.isClickable()&&node.isEnabled()&&label.contentEquals(node.getText()==null?"":node.getText()))result.add(node);
+        for(int i=0;i<node.getChildCount();i++){var child=node.getChild(i);if(child!=null)buttons(child,label,result);}
     }
     private static AccessibilityNodeInfo findTitle(AccessibilityNodeInfo n,String target){
         if(target.contentEquals(n.getText()==null?"":n.getText()))return n;
@@ -98,7 +108,7 @@ public final class NotificationSyncUiProbe extends com.android.uiautomator.testr
     }
     public void testSynthetic() throws Exception {
             String id=getParams().getString("id",""),operation=getParams().getString("operation","");
-            if(!id.matches("90000[0-7]")||!List.of("smoke","snapshot","reply-text","expand-card").contains(operation))throw new IllegalArgumentException("invalid_synthetic_ui_request");
+            if(!id.matches("90000[0-7]")||!List.of("smoke","snapshot","reply-text","send-reply","expand-card","tap-action","tap-reply","tap-dismiss").contains(operation))throw new IllegalArgumentException("invalid_synthetic_ui_request");
             String target="越界合成通知 "+id;
             // The platform's own UiAutomator runner owns connection and cleanup. Do not create
             // a second UiAutomation connection from an untracked app_process.
@@ -117,18 +127,54 @@ public final class NotificationSyncUiProbe extends com.android.uiautomator.testr
                 AccessibilityNodeInfo candidate=window.getRoot();if(candidate!=null&&title(candidate,target)){root=candidate;break;}
             }
             if(root==null||!title(root,target))throw new IllegalStateException("synthetic_card_unavailable");
-            if("expand-card".equals(operation)){expandCard(ui,findTitle(root,target));System.out.println("native_expand_gesture_sent");return;}
+            if("expand-card".equals(operation)){
+                var titleNode=findTitle(root,target);
+                var expand=AccessibilityNodeInfo.AccessibilityAction.ACTION_EXPAND;
+                for(var node=titleNode.getParent();node!=null;node=node.getParent()){
+                    String resource=node.getViewIdResourceName();
+                    if(resource!=null&&resource.endsWith(":id/notification_stack_scroller"))break;
+                    if(node.getActionList().contains(expand)&&node.performAction(expand.getId())){
+                        System.out.println("native_expand_accessibility_sent");return;
+                    }
+                }
+                expandCard(ui,titleNode);System.out.println("native_expand_gesture_sent");return;
+            }
+            if(operation.startsWith("tap-")){
+                String label=switch(operation){case "tap-action"->"测试动作";case "tap-reply"->"测试回复";default->"在来源设备移除";};
+                List<AccessibilityNodeInfo> matches=new ArrayList<>();
+                for(var node=findTitle(root,target).getParent();node!=null;node=node.getParent()){
+                    String resource=node.getViewIdResourceName();
+                    if(resource!=null&&resource.endsWith(":id/notification_stack_scroller"))break;
+                    buttons(node,label,matches);if(!matches.isEmpty())break;
+                }
+                if(matches.size()!=1||!matches.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                    throw new IllegalStateException("synthetic_button_unavailable");
+                System.out.println("synthetic_button_clicked");return;
+            }
             AccessibilityNodeInfo selected=row(root,target);
             // OEMs need not expose AOSP's row resource ID. A snapshot may include the
             // sanitized window to discover its real container; input still requires a row.
-            if(selected==null){if("reply-text".equals(operation))throw new IllegalStateException("synthetic_row_unavailable");selected=root;}
-            if("reply-text".equals(operation)){
-                List<AccessibilityNodeInfo> fields=new ArrayList<>();inputs(selected,fields);
+            if("reply-text".equals(operation)||"send-reply".equals(operation)){
+                List<AccessibilityNodeInfo> fields=new ArrayList<>();
+                for(var node=findTitle(root,target).getParent();node!=null;node=node.getParent()){
+                    String resource=node.getViewIdResourceName();
+                    if(resource!=null&&resource.endsWith(":id/notification_stack_scroller"))break;
+                    inputs(node,fields);if(!fields.isEmpty()){selected=node;break;}
+                }
                 if(fields.size()!=1)throw new IllegalStateException("synthetic_reply_field_unavailable");
+                if("send-reply".equals(operation)){
+                    String text=String.valueOf(fields.get(0).getText());
+                    List<AccessibilityNodeInfo> sends=new ArrayList<>();sendButtons(selected,sends);
+                    if(!List.of("人工回复","YJ-test-reply").contains(text)||sends.size()!=1
+                            ||!sends.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                        throw new IllegalStateException("synthetic_reply_send_unavailable");
+                    System.out.println("reply_send_clicked");return;
+                }
                 Bundle input=new Bundle();input.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"人工回复");
                 if(!fields.get(0).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,input))throw new IllegalStateException("synthetic_reply_input_rejected");
                 System.out.println("reply_text_set");
             }else{
+                if(selected==null)selected=root;
                 StringWriter out=new StringWriter();XmlSerializer xml=Xml.newSerializer();xml.setOutput(out);
                 xml.startDocument("UTF-8",true);xml.startTag(null,"hierarchy");write(xml,selected,target);xml.endTag(null,"hierarchy");xml.endDocument();
                 System.out.println(out);

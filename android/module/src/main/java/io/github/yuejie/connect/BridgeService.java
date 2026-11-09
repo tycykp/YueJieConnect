@@ -51,6 +51,7 @@ public final class BridgeService extends Service {
         wifiRoute=new WifiRoute(getSystemService(android.net.ConnectivityManager.class));
         nativePairing=new NativePairingService(this,new NativePairingService.Host(){
             public JSONObject dispatch(JSONObject command)throws org.json.JSONException{
+                if("bridge_confirm".equals(command.optString("op"))&&notifications!=null)notifications.addNativeGrants(command);
                 JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,hostSource,SystemClock.elapsedRealtime(),command.toString()));
                 if("bridge_abort".equals(command.optString("op"))&&"ok".equals(result.optString("status"))){wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);}
                 return result;
@@ -329,7 +330,7 @@ public final class BridgeService extends Service {
                 if(owner&&op.equals("notification_settings"))return notifications==null?"{\"status\":\"error\",\"code\":\"notification_unavailable\"}":notifications.settings().toString();
                 if(owner&&op.equals("notification_packages")){
                     if(notifications==null)return "{\"status\":\"error\",\"code\":\"notification_unavailable\"}";
-                    try{return notifications.configure(parsed.optJSONArray("packages")).toString();}
+                    try{return notifications.configure(parsed.optJSONArray("packages"),parsed.opt("native_enabled")).toString();}
                     catch(IllegalArgumentException invalid){return "{\"status\":\"error\",\"code\":\"invalid_notification_packages\"}";}
                 }
                 if(owner && (op.equals("bridge_listen") || op.equals("bridge_connect"))) {

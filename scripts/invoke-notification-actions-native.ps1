@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Apk,
     [Parameter(Mandatory=$true)][string]$Inputs,
-    [Parameter(Mandatory=$true)][ValidateSet('action','reply')][string]$Kind,
+    [Parameter(Mandatory=$true)][ValidateSet('action','reply','all')][string]$Kind,
     [ValidateSet('both','xiaomi-to-oplus','oplus-to-xiaomi')][string]$Direction='both',
     [Parameter(Mandatory=$true)][string]$Out
 )

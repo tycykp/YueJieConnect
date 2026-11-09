@@ -1,6 +1,7 @@
 package io.github.yuejie.connect;
 
 import android.Manifest;
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -16,6 +17,7 @@ import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -80,6 +82,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
         volatile StatusBarNotification notification;
         NotificationSyncCodec.Post advertised;
         volatile long revision;
+        final Set<String> usedActions = new HashSet<>();
         byte[] digest;
         volatile boolean removed;
         int queued;
@@ -138,8 +141,13 @@ final class NotificationSyncRuntime implements AutoCloseable {
     void posted(StatusBarNotification n, NotificationSyncCodec.Post nativePost) {
         if (n == null || n.getNotification() == null || closed) return;
         // Check authorization before retaining or converting any private notification content.
+        Notification value = n.getNotification();
         if (!n.getUser().equals(android.os.Process.myUserHandle()) || !grants.allowsPackage(n.getPackageName())
-                || n.getNotification().extras.getBoolean(MARKER)) return;
+                || value.extras.getBoolean(MARKER)) return;
+        // System-generated groups for our mirrors do not carry the mirror marker.
+        if (nativeSource == null && context.getPackageName().equals(n.getPackageName())
+                && ("bridge".equals(value.getChannelId()) || CHANNEL.equals(value.getChannelId())
+                || (value.flags & Notification.FLAG_GROUP_SUMMARY) != 0)) return;
         notificationEvent(n.getKey(), () -> {
             require(NotificationSyncCodec.OP_POST); if (!accessGranted()) throw failure("access_denied");
             if (!grants.allowsPackage(n.getPackageName())) throw failure("package_denied");
@@ -157,6 +165,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
             source.notification = n;
             source.advertised = post;
             if (duplicate) return;
+            source.usedActions.clear();
             source.digest = fingerprint; source.removed = false; source.revision++;
             enqueue(source, NotificationSyncCodec.posted(source.token, source.revision, post));
         });
@@ -276,6 +285,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
     }
     private Notification render(NotificationSyncCodec.Frame f) {
         NotificationSyncCodec.Post p = f.post(); cancelIntents(f.key());
+        boolean interactive = grants.allows(peer, session, NotificationSyncCodec.OP_ACTION);
         Bundle extras = new Bundle(); extras.putBoolean(MARKER, true); extras.putLong("yj.revision", f.revision());
         Notification.Builder b = new Notification.Builder(context, CHANNEL)
                 .setSmallIcon(context.getApplicationInfo().icon).setSubText(p.app())
@@ -289,14 +299,25 @@ final class NotificationSyncRuntime implements AutoCloseable {
         Bitmap picture = decodeImage(p.picture());
         if (picture != null) b.setStyle(new Notification.BigPictureStyle().bigPicture(picture).setSummaryText(p.text()));
         else if (!p.bigText().isEmpty()) b.setStyle(new Notification.BigTextStyle().bigText(p.bigText()));
-        if (grants.allows(peer, session, NotificationSyncCodec.OP_ACTION)) {
+        if (interactive) {
             if (p.openable()) b.setContentIntent(tapIntent(f, "open", false));
-            // Dismiss remains an explicit action; local shade dismissal never silently deletes the source notification.
-            if (!p.ongoing()) b.addAction(new Notification.Action.Builder((Icon) null, "在来源设备移除", tapIntent(f, "dismiss", false)).build());
-            for (NotificationSyncCodec.Button button : p.buttons()) {
+            // Android displays at most three buttons. Reserve a slot for direct reply when available.
+            List<NotificationSyncCodec.Button> buttons = new ArrayList<>(p.buttons().subList(0, Math.min(3, p.buttons().size())));
+            if (buttons.size() == 3 && buttons.stream().noneMatch(NotificationSyncCodec.Button::reply))
+                p.buttons().stream().filter(NotificationSyncCodec.Button::reply).findFirst().ifPresent(reply -> buttons.set(2, reply));
+            for (NotificationSyncCodec.Button button : buttons) {
                 Notification.Action.Builder action = new Notification.Action.Builder((Icon) null, button.title(), tapIntent(f, button.id(), button.reply()));
-                if (button.reply()) action.addRemoteInput(new RemoteInput.Builder("reply").setLabel(button.title()).build());
+                if (button.reply()) action.addRemoteInput(new RemoteInput.Builder("reply").setLabel(button.title()).build())
+                        .setSemanticAction(Notification.Action.SEMANTIC_ACTION_REPLY).setAllowGeneratedReplies(false);
                 b.addAction(action.build());
+            }
+            if (!p.ongoing() && buttons.size() < 3)
+                b.addAction(new Notification.Action.Builder((Icon) null, "在来源设备移除", tapIntent(f, "dismiss", false)).build());
+            if ((!buttons.isEmpty() || !p.ongoing()) && "Xiaomi".equalsIgnoreCase(Build.MANUFACTURER)) {
+                // HyperOS rewrites BigText and BigPicture cards to a compact OEM template.
+                // Without custom views, the decorated style lets SystemUI inflate Android's action template.
+                b.setStyle(new Notification.DecoratedCustomViewStyle());
+                if (picture != null) b.setLargeIcon(picture);
             }
         }
         return b.build();
@@ -321,14 +342,30 @@ final class NotificationSyncRuntime implements AutoCloseable {
                 Tap tap = uri == null ? null : taps.get(uri.getLastPathSegment());
                 if (tap == null || tap.generation != generation) throw failure("stale_target");
                 ledger.requireActive(tap.key, tap.revision); require(NotificationSyncCodec.OP_ACTION);
-                if (!tap.reply && !reply.isEmpty()) throw failure("invalid_reply");
+                if (tap.reply == reply.isEmpty()) throw failure("invalid_reply");
                 // One tap token is consumed once, including on uncertain timeout: never replay a side effect.
                 taps.remove(uri.getLastPathSegment());
                 send(NotificationSyncCodec.action(tap.key, tap.revision, tap.button, reply))
-                        .whenComplete((v, e) -> { if (e == null) result.complete(null); else result.completeExceptionally(e); });
+                        .whenComplete((v, e) -> {
+                            if (e != null) { result.completeExceptionally(e); return; }
+                            try {
+                                if (tap.reply) finishReply(tap, reply);
+                            } finally { result.complete(null); }
+                        });
             } catch (RuntimeException e) { result.completeExceptionally(e); }
         });
         return result;
+    }
+    private void finishReply(Tap tap, String reply) {
+        if (generation != tap.generation || !postingGranted()) return;
+        String tag = tag(tap.key);
+        StatusBarNotification mirror = findMirror(tag, tap.revision);
+        if (mirror != null) {
+            // Update the same card after the source accepts the reply so SystemUI can close its input spinner.
+            Notification updated = Notification.Builder.recoverBuilder(context, mirror.getNotification())
+                    .setRemoteInputHistory(new CharSequence[]{reply}).build();
+            manager.notify(tag, 1, updated);
+        }
     }
     private void perform(NotificationSyncCodec.Frame f, CompletableFuture<byte[]> result) {
         if (!accessGranted()) throw failure("access_denied");
@@ -342,10 +379,11 @@ final class NotificationSyncRuntime implements AutoCloseable {
         if (exact == null || exact.length != 1 || exact[0].getPostTime() != n.getPostTime() || !sameActions(n, exact[0])) throw failure("stale_target");
         NotificationSyncCodec.Action action = f.action();
         NotificationSyncActionPolicy.requireAdvertised(source.advertised, action);
+        if (source.usedActions.contains(action.button()) || source.usedActions.contains("dismiss")) throw failure("stale_target");
         long epoch = generation;
         if (action.button().equals("dismiss")) {
             if (n.isOngoing() || !action.reply().isEmpty()) throw failure("not_dismissible");
-            source.revision++;
+            source.usedActions.add(action.button());
             listener.cancelNotification(n.getKey());
             awaitEffect(() -> {
                 if (!accessGranted()) throw failure("access_denied");
@@ -358,6 +396,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
             return;
         }
         PendingIntent target;
+        boolean authenticationRequired = false;
         Intent fill = null;
         if (action.button().equals("open")) {
             if (!action.reply().isEmpty()) throw failure("invalid_reply");
@@ -368,24 +407,31 @@ final class NotificationSyncRuntime implements AutoCloseable {
             Notification.Action[] buttons = n.getNotification().actions;
             if (buttons == null || index < 0 || index >= buttons.length || index >= 8) throw failure("invalid_action");
             Notification.Action button = buttons[index]; target = button.actionIntent;
+            authenticationRequired = button.isAuthenticationRequired();
             RemoteInput[] inputs = button.getRemoteInputs();
             if (inputs != null && inputs.length == 1 && inputs[0].getAllowFreeFormInput()) {
-                if (action.reply().isEmpty()) throw failure("empty_reply");
+                if (action.reply().isEmpty() || target == null || target.isImmutable()) throw failure("invalid_reply");
                 fill = new Intent(); Bundle values = new Bundle(); values.putCharSequence(inputs[0].getResultKey(), action.reply());
                 RemoteInput.addResultsToIntent(inputs, fill, values);
+                RemoteInput.setResultsSource(fill, RemoteInput.SOURCE_FREE_FORM_INPUT);
             } else if (!action.reply().isEmpty()) throw failure("invalid_reply");
         }
         if (target == null || !n.getPackageName().equals(target.getCreatorPackage())) throw failure("invalid_pending_intent");
         Intent finalFill = fill;
-        // Consume the advertised revision before dispatch; a repeated action cannot be executed twice.
-        source.revision++;
+        boolean needsUnlock = authenticationRequired;
+        // Fence each button separately so using one does not invalidate the other buttons.
+        source.usedActions.add(action.button());
         main.post(() -> {
             if (result.isDone() || closed || epoch != generation || source.removed || source.notification != n
-                    || source.revision != f.revision() + 1 || !accessGranted()
+                    || source.revision != f.revision() || !accessGranted()
                     || !grants.allowsPackage(n.getPackageName()) || !grants.allows(peer, session, NotificationSyncCodec.OP_ACTION)) {
                 result.completeExceptionally(failure("stale_session")); return;
             }
             try {
+                KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+                if (needsUnlock && (keyguard == null || keyguard.isDeviceLocked())) {
+                    result.completeExceptionally(failure("authentication_required")); return;
+                }
                 target.send(context, 0, finalFill, (pi, sent, code, data, extras) -> worker.execute(() -> {
                     if (epoch != generation) result.completeExceptionally(failure("stale_session"));
                     else if (!grants.allows(peer, session, NotificationSyncCodec.OP_ACTION)) result.completeExceptionally(failure("permission_denied"));
@@ -403,7 +449,8 @@ final class NotificationSyncRuntime implements AutoCloseable {
             if (b.actionIntent == null || !n.getPackageName().equals(b.actionIntent.getCreatorPackage())) continue;
             boolean reply = inputs != null && inputs.length == 1 && inputs[0].getAllowFreeFormInput();
             // Multiple choice/data-only input needs a richer schema; do not expose a misleading plain button.
-            if (inputs != null && inputs.length > 0 && !reply) continue;
+            if ((inputs != null && inputs.length > 0 && (!reply || b.actionIntent.isImmutable()))
+                    || (b.getDataOnlyRemoteInputs() != null && !reply)) continue;
             String title = b.title == null ? "" : b.title.toString();
             if (!title.isEmpty()) buttons.add(new NotificationSyncCodec.Button(Integer.toString(i), title, reply));
         }
@@ -414,7 +461,8 @@ final class NotificationSyncRuntime implements AutoCloseable {
         } catch (PackageManager.NameNotFoundException ignored) { }
         Bitmap picture = extras.getParcelable(Notification.EXTRA_PICTURE, Bitmap.class);
         return new NotificationSyncCodec.Post(label, text(extras, Notification.EXTRA_TITLE), text(extras, Notification.EXTRA_TEXT),
-                text(extras, Notification.EXTRA_BIG_TEXT), value.when, n.isOngoing(), value.contentIntent != null,
+                text(extras, Notification.EXTRA_BIG_TEXT), value.when, n.isOngoing(),
+                value.contentIntent != null && n.getPackageName().equals(value.contentIntent.getCreatorPackage()),
                 image(icon), image(picture, 4096), buttons);
     }
     private static String text(Bundle b, String key) { CharSequence value = b.getCharSequence(key); return value == null ? "" : value.toString(); }
@@ -426,6 +474,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
         if (nx != ny) return false;
         for (int i = 0; i < nx; i++) {
             if (!java.util.Objects.equals(x.actions[i].actionIntent, y.actions[i].actionIntent)) return false;
+            if (x.actions[i].isAuthenticationRequired() != y.actions[i].isAuthenticationRequired()) return false;
             RemoteInput[] xi = x.actions[i].getRemoteInputs(), yi = y.actions[i].getRemoteInputs();
             int lx = xi == null ? 0 : xi.length, ly = yi == null ? 0 : yi.length;
             if (lx != ly) return false;
@@ -472,9 +521,12 @@ final class NotificationSyncRuntime implements AutoCloseable {
         try { return image(decoded, limit); } finally { decoded.recycle(); }
     }
     private boolean present(String tag, long revision) {
+        return findMirror(tag, revision) != null;
+    }
+    private StatusBarNotification findMirror(String tag, long revision) {
         for (StatusBarNotification n : manager.getActiveNotifications())
-            if (tag.equals(n.getTag()) && n.getId() == 1 && (revision < 0 || n.getNotification().extras.getLong("yj.revision") == revision)) return true;
-        return false;
+            if (tag.equals(n.getTag()) && n.getId() == 1 && (revision < 0 || n.getNotification().extras.getLong("yj.revision") == revision)) return n;
+        return null;
     }
     private void awaitEffect(BooleanSupplier check, long epoch, CompletableFuture<?> result, Runnable done, int tries) {
         if (result.isDone()) return;

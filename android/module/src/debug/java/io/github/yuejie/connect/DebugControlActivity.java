@@ -50,7 +50,13 @@ public final class DebugControlActivity extends Activity {
         }catch(Exception e){finish();}
     }
     private void logResponse(String response){
-        Log.i("YueJieTest",requestId+" "+Base64.encodeToString(response.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP));
+        String encoded=Base64.encodeToString(response.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP);
+        int count=(encoded.length()+2999)/3000;
+        if(count<=1||!getIntent().getBooleanExtra("chunked_response",false)){
+            Log.i("YueJieTest",requestId+" "+encoded);return;
+        }
+        for(int i=0;i<count;i++)
+            Log.i("YueJieTest",requestId+" "+(i+1)+"/"+count+" "+encoded.substring(i*3000,Math.min(encoded.length(),(i+1)*3000)));
     }
     @Override public void onDestroy(){if(bound)try{unbindService(connection);}catch(IllegalArgumentException ignored){}super.onDestroy();}
 }
