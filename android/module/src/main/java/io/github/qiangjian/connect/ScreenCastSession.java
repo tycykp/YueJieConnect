@@ -36,7 +36,6 @@ public final class ScreenCastSession implements AutoCloseable {
     }
     public interface Receiver { ScreenCastFrameQueue.Offer offer(ScreenCastPacket packet); }
     private static final int MAX_RECEIPTS = 256;
-    private long lastReceiptTime=-1;
     private final Scope scope;
     private final ScreenCastFormat format;
     private final Role role;
@@ -117,11 +116,11 @@ public final class ScreenCastSession implements AutoCloseable {
         if (role != Role.SINK || !current() || state == State.PREPARING) return false;
         for (Map.Entry<Long, Long> frame : frames.entrySet()) if (frame.getValue() == presentationTimeUs) {
             Receipt receipt = new Receipt(scope, frame.getKey(), presentationTimeUs);
+            boolean first=state!=State.STREAMING;
             if (!accept(receipt)) return false;
-            long now=clock.getAsLong();
-            // Pixel delivery is binary; the polled control lane needs only periodic liveness
-            // receipts. Keep the first actual render immediate and avoid a per-frame RPC flood.
-            if(lastReceiptTime<0||now-lastReceiptTime>=500){lastReceiptTime=now;transport.rendered(receipt);}return true;
+            // The first native render proves readiness. Ongoing liveness belongs to the binary
+            // media channel; repeated RPC receipts exhaust its session-long replay ledger.
+            if(first)transport.rendered(receipt);return true;
         }
         return false;
     }

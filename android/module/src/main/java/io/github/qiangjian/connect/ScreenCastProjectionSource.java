@@ -11,20 +11,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Consumes a fresh system-approved MediaProjection. It never creates or reuses a consent token. */
 public final class ScreenCastProjectionSource implements AutoCloseable {
+    private final ScreenCastVideoEncoder.Listener listener;
     private final MediaProjection projection;
     private final HandlerThread callbacks = new HandlerThread("qj-screen-consent");
     private final AtomicBoolean closed = new AtomicBoolean();
     private ScreenCastVideoEncoder encoder;
     private VirtualDisplay display;
     private final MediaProjection.Callback revoked = new MediaProjection.Callback() {
-        @Override public void onStop() { close(); }
+        @Override public void onStop() { if(!closed.get()){close();listener.onFailure("screen_projection_revoked");} }
     };
 
     /** Caller must have a foreground service of mediaProjection type and normal user consent. */
     public ScreenCastProjectionSource(MediaProjection projection, long streamId, ScreenCastFormat format,
                                       int densityDpi, ScreenCastVideoEncoder.Listener listener) throws IOException {
         if (densityDpi < 72 || densityDpi > 1000) throw new IllegalArgumentException("invalid_density");
-        this.projection = Objects.requireNonNull(projection);
+        this.projection = Objects.requireNonNull(projection);this.listener=Objects.requireNonNull(listener);
         callbacks.start();
         try {
             synchronized (this) {

@@ -17,21 +17,47 @@ final class ScreenCastSinkRuntime {
     private final ScreenCastBridge bridge;
     private final XiaomiScreenSinkAdapter sinks;
     private final Class<?> viewType;
-    private ScreenCastSession.Scope scope;
+    private volatile ScreenCastSession.Scope scope;
     private String peerId;
     private Object peer,view,nativeSink;
     private ScreenCastFormat format;
     private boolean consent;
+    private boolean closing;
+    private Boolean lastCardQuery;
     ScreenCastSinkRuntime(XposedModule module,BridgeClient client,ClassLoader loader)throws Exception{
         this.client=client;this.loader=loader;
         viewType=type("com.xiaomi.mirror.sink.SinkView");
         ScreenCastBridgeTransport transport=new ScreenCastBridgeTransport(client);
         bridge=new ScreenCastBridge(transport,new ScreenCastBridge.Listener(){
             public void onStreaming(Object owner,ScreenCastSession.Scope scope,ScreenCastSession.Receipt receipt){ScreenCastLog.i("QiangJianScreen","sink_first_frame pts="+receipt.presentationTimeUs());}
-            public void onClosed(Object owner,ScreenCastSession.Scope scope,String code){ScreenCastLog.w("QiangJianScreen","sink_closed "+code);}
+            public void onClosed(Object owner,ScreenCastSession.Scope scope,String code){ScreenCastLog.w("QiangJianScreen","sink_closed "+code);dismiss(scope);}
         },SystemClock::elapsedRealtime);
         sinks=new XiaomiScreenSinkAdapter(module,loader);sinks.install();
         transport.onAllowed(this::allowed);transport.attach(bridge);
+        module.hook(type("com.xiaomi.mirror.provider.CallProvider").getDeclaredMethod("call",String.class,String.class,android.os.Bundle.class))
+            .setId("qj.screen.card.query").intercept(chain->{
+                if(!XiaomiScreenCardState.METHOD.equals(chain.getArg(0)))return chain.proceed();
+                android.os.Bundle result=new android.os.Bundle();
+                int caller=android.os.Binder.getCallingUid();long identity=android.os.Binder.clearCallingIdentity();
+                try{
+                    var verified=CallerVerifier.resolve(client.context().getPackageManager(),caller);
+                    var request=(android.os.Bundle)chain.getArg(2);var owned=scope;
+                    boolean valid=verified!=null&&CallerPolicy.XIAOMI.equals(verified.packageName())&&request!=null
+                        &&owned!=null&&owned.sessionId().equals(request.getString("session_id"))&&current()
+                        &&peerId.equals(chain.getArg(1))&&!closing&&view!=null;
+                    boolean active=valid&&bridge.streaming(view,owned);
+                    if(!Boolean.valueOf(active).equals(lastCardQuery)){lastCardQuery=active;ScreenCastLog.i("QiangJianScreen","card_query active="+active+" verified="+(verified!=null)+" current="+current());}
+                    result.putBoolean("active",active);return result;
+                }finally{android.os.Binder.restoreCallingIdentity(identity);}
+            });
+        Class<?> helper=type("com.xiaomi.mirror.j0");
+        hooksClose(module,helper.getDeclaredMethod("j"),false);
+        hooksClose(module,helper.getDeclaredMethod("k",String.class),true);
+        Class<?> windowType=type("com.xiaomi.mirror.sink.SinkWindow");
+        module.hook(windowType.getMethod("f1")).setId("qj.screen.window.close").intercept(chain->{
+            var owned=scope;boolean selected=owned!=null&&view!=null&&field(windowType,"h").get(chain.getThisObject())==view;
+            Object result=chain.proceed();if(selected)stopOnly(owned);return result;
+        });
         module.hook(type("com.xiaomi.mirror.j0").getDeclaredMethod("b0",String.class,int.class)).setId("qj.screen.entry").intercept(chain->{
             JSONObject p=client.projection();
             if(p==null||!p.optString("id").equals(chain.getArg(0)))return chain.proceed();
@@ -48,22 +74,47 @@ final class ScreenCastSinkRuntime {
             if(!owns(chain.getThisObject()))return chain.proceed();
             Object actual=chain.getThisObject();main.post(()->bind(actual));return null;
         });
-        main.post(new Runnable(){public void run(){bridge.tick();if(scope!=null&&!current()){sinks.sessionChanged();scope=null;consent=false;}main.postDelayed(this,250);}});
+        main.post(new Runnable(){public void run(){bridge.tick();if(scope!=null&&!current()){dismiss(scope);sinks.sessionChanged();}main.postDelayed(this,250);}});
         ScreenCastLog.i("QiangJianScreen","sink_installed");
     }
+    private void hooksClose(XposedModule module,java.lang.reflect.Method method,boolean targeted){
+        module.hook(method).setId("qj.screen.close."+method.getName()).intercept(chain->{
+            var owned=scope;if(owned==null||!current()||targeted&&!peerId.equals(chain.getArg(0)))return chain.proceed();
+            stopOnly(owned);return null;
+        });
+    }
+    private void stopOnly(ScreenCastSession.Scope owned){main.post(()->{
+        if(scope!=owned)return;
+        ScreenCastLog.i("QiangJianScreen","native_stop_only");
+        bridge.stop(owned,"screen_user_stopped");dismiss(owned);
+    });}
     private Class<?> type(String name)throws ClassNotFoundException{return Class.forName(name,false,loader);}
     private static Field field(Class<?> type,String name)throws Exception{Field f=type.getDeclaredField(name);f.setAccessible(true);return f;}
     private boolean current(){JSONObject p=client.projection();return scope!=null&&p!=null&&scope.sessionId().equals(p.optString("session_id"))&&peerId.equals(p.optString("id"))&&client.hasLocalGrant("screen_video");}
     private boolean owns(Object actual){try{return current()&&consent&&peerId.equals(viewType.getMethod("getDeviceId").invoke(actual));}catch(Exception e){return false;}}
     private void start(){try{
         JSONObject p=client.projection();if(p==null||!client.hasLocalGrant("screen_video"))return;
+        if(current()&&nativeSink!=null&&!closing&&bridge.streaming(view,scope)){
+            Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);
+            Object window=field(controller,"h").get(owner);
+            if(window!=null)window.getClass().getMethod("e2").invoke(window);
+            return;
+        }
+        if(scope!=null&&closing){main.postDelayed(this::start,250);return;}
         if(scope!=null){bridge.sessionChanged();sinks.sessionChanged();}
         peerId=p.getString("id");scope=new ScreenCastSession.Scope(p.getString("session_id"),(new java.security.SecureRandom().nextLong()&Long.MAX_VALUE)|1);
-        consent=false;view=null;nativeSink=null;peer=null;
+        consent=false;closing=false;view=null;nativeSink=null;peer=null;
         client.request(peerId,scope.sessionId(),"screen_request","screen-request:"+scope.streamId(),new JSONObject().put("stream_id",scope.streamId()),r->{
             ScreenCastLog.i("QiangJianScreen","request_result "+r.optString("status")+" "+r.optString("code"));
         });
     }catch(Exception e){ScreenCastLog.e("QiangJianScreen","start_failed",e);}}
+    private void dismiss(ScreenCastSession.Scope owned){main.post(()->{
+        if(scope!=owned||closing)return;closing=true;
+        try{Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);
+            if(view!=null&&field(controller,"g").get(owner)==view)controller.getMethod("O").invoke(owner);
+        }catch(Exception error){ScreenCastLog.e("QiangJianScreen","window_close_failed",error);}
+        finally{main.postDelayed(()->{if(scope==owned){scope=null;consent=false;nativeSink=null;view=null;peer=null;}closing=false;},250);}
+    });}
     private boolean allowed(JSONObject payload){
         if(!current()||consent||scope.streamId()!=payload.optLong("stream_id"))return false;
         try{format=new ScreenCastFormat(payload.getInt("width"),payload.getInt("height"),payload.getInt("fps"),payload.getInt("bitrate"));consent=true;main.post(this::window);return true;}

@@ -35,8 +35,9 @@ public class NativePairingPolicyTest {
     }
     @Test public void grantsAreExplicitAndRejectHiddenCapabilities(){
         assertTrue(NativePairingPolicy.grants(Set.of("device_profile","battery_status","file_transfer","clipboard_write")));
+        assertTrue(NativePairingPolicy.grants(Set.of("device_profile","screen_video")));
         assertFalse(NativePairingPolicy.grants(Set.of("battery_status")));
-        for(String op:new String[]{"screen_video","camera_video","logical_open","notification_action","network_share","unknown"})
+        for(String op:new String[]{"camera_video","logical_open","notification_action","network_share","unknown"})
             assertFalse(NativePairingPolicy.grants(Set.of("device_profile",op)));
         assertFalse(NativePairingPolicy.session(""));assertFalse(NativePairingPolicy.session("stale"));assertTrue(NativePairingPolicy.session("a".repeat(64)));
     }

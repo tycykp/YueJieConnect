@@ -100,7 +100,7 @@ public class ScreenCastSessionTest {
             s.receive(scope,frame(i,i*100L),p->ScreenCastFrameQueue.Offer.ACCEPTED);
             assertTrue(s.frameRendered(i*100L));clock.addAndGet(33);
         }
-        assertEquals(2,e.receipts.size());assertEquals(1,e.receipts.get(0).sequence());
+        assertEquals(1,e.receipts.size());assertEquals(1,e.receipts.get(0).sequence());
         assertEquals(1,e.streaming.size());
     }
     @Test public void configurationResendKeepsOutstandingRenderEvidence() {

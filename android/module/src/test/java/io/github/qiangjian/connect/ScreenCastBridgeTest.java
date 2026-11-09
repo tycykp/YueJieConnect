@@ -80,6 +80,18 @@ public class ScreenCastBridgeTest {
         assertFalse(next.currentAndConsented().getAsBoolean());
         assertEquals(2,end.stops);
     }
+    @Test public void closingScreenAllowsAnotherStreamInTheSamePairedSession(){
+        End end=new End();var old=expectation(end);
+        end.bridge.stop(scope,"screen_user_stopped");
+        assertFalse(old.currentAndConsented().getAsBoolean());assertEquals(1,end.stops);
+        var nextScope=new ScreenCastSession.Scope(scope.sessionId(),scope.streamId()+1);
+        var next=end.bridge.sink(new XiaomiScreenRequestAdapter.NativeWindow(
+                new Object(),peer,"synthetic-device",5,true,()->true),nextScope,format,()->true,end);
+        old.listener().onEnd();end.bridge.stop(scope,"late_old_close");
+        assertTrue(next.currentAndConsented().getAsBoolean());assertEquals(2,end.opens);
+        assertEquals(1,end.stops);
+        end.bridge.stop(nextScope,"screen_user_stopped");assertEquals(2,end.stops);
+    }
     @Test public void cancellationBeforeNativeAllowStillCancelsExactPendingNativeRequest(){
         End end=new End();var lease=source(end);lease.close();lease.onNativeAllowed(device);
         assertEquals(0,end.opens);assertEquals(1,end.stops);assertEquals(1,end.revokes);assertEquals(1,end.cancels);
