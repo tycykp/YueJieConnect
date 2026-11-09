@@ -48,8 +48,9 @@
         <activity android:name=".BrowserRelayOpenActivity" android:exported="false" android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".NfcTapActivity" android:exported="true" android:excludeFromRecents="true"
+            android:taskAffinity=""
             android:permission="android.permission.DISPATCH_NFC_MESSAGE"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.nfc.action.NDEF_DISCOVERED" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -57,6 +58,7 @@
                     android:path="/com.xiaomi.mi_connect_service:externaltype" />
             </intent-filter>
         </activity>
+        <service android:name=".NfcTapService" android:exported="false" android:foregroundServiceType="connectedDevice" />
         <activity android:name=".BridgeBootstrapActivity" android:exported="true" android:process=":bridge"
             android:theme="@android:style/Theme.NoDisplay" />
         <!-- Each transaction validates UID, PID, package, version, certificate and Rust session.

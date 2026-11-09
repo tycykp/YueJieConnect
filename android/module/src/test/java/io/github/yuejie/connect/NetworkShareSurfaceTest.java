@@ -24,4 +24,12 @@ public class NetworkShareSurfaceTest {
         assertEquals(2,value(Phase.STOPPING,Upstream.WIFI,false).state(1000));
         assertThrows(IllegalArgumentException.class,()->value(Phase.ACTIVE,null,true));
     }
+    @Test public void cardCannotReuseSurfaceAcrossSessionTransportOrGrantChanges(){
+        var snapshot=value(Phase.STOPPED,Upstream.WIFI,true);
+        assertTrue(snapshot.matches(ID,SESSION,"bluetooth",true));
+        assertFalse(snapshot.matches(ID,"c".repeat(64),"bluetooth",true));
+        assertFalse(snapshot.matches("yj:"+"c".repeat(64),SESSION,"bluetooth",true));
+        assertFalse(snapshot.matches(ID,SESSION,"lan",true));
+        assertFalse(snapshot.matches(ID,SESSION,"bluetooth",false));
+    }
 }

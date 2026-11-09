@@ -36,6 +36,9 @@ public class NativePairingPolicyTest {
     @Test public void grantsAreExplicitAndRejectHiddenCapabilities(){
         assertTrue(NativePairingPolicy.grants(Set.copyOf(NativePairingPolicy.DEFAULT_GRANTS)));
         assertTrue(NativePairingPolicy.DEFAULT_GRANTS.containsAll(Set.of("clipboard_write","clipboard_rich_write","clipboard_uri_write")));
+        assertTrue(NativePairingPolicy.grants(Set.of("device_profile","device_finder")));
+        PairedPeers previous=new PairedPeers(Set.of("a".repeat(64)+"|device_profile,clipboard_write"));
+        assertFalse(previous.grants("a".repeat(64)).contains("device_finder"));
         assertFalse(NativePairingPolicy.grants(Set.of("device_profile","clipboard_uri_write")));
         assertTrue(NativePairingPolicy.grants(Set.of("device_profile","battery_status","file_transfer","clipboard_write")));
         assertTrue(NativePairingPolicy.grants(Set.of("device_profile","screen_video")));

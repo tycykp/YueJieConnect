@@ -67,6 +67,7 @@ public final class BridgeService extends Service {
                 .put("observed_at",networkObservedAt);
         }
         sendBroadcast(new Intent(NetworkShareSurface.STATE).setPackage(NetworkShareSurface.SYSTEM_UI).putExtra("state",data.toString()));
+        sendBroadcast(new Intent(NetworkShareSurface.STATE).setPackage(CallerPolicy.XIAOMI).putExtra("state",data.toString()));
     }
     @Override public void onCreate() {
         super.onCreate();
@@ -364,6 +365,27 @@ public final class BridgeService extends Service {
                     networkStatus=new JSONObject().put("session",parsed.getString("session")).put("phase",phase).put("upstream",upstream).put("error",error).put("available",parsed.optBoolean("available"));
                     networkObservedAt=SystemClock.elapsedRealtime();
                     return "{\"status\":\"ok\"}";
+                }
+                if("network_card_control".equals(op)){
+                    if(owner||!CallerPolicy.XIAOMI.equals(verified.packageName()))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    JSONObject authorized=new JSONObject(NativeCore.dispatch(uid,pid,false,source,SystemClock.elapsedRealtime(),
+                        new JSONObject().put("op","bridge_projections").put("token",parsed.getString("token")).put("sequence",parsed.getLong("sequence")).toString()));
+                    JSONObject projection=authorized.optJSONObject("projection");
+                    boolean granted=false;
+                    if(projection!=null){JSONArray ops=projection.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)granted|="network_share".equals(ops.optString(i));}
+                    JSONObject network=networkStatus;
+                    if(!granted||!"bluetooth".equals(projection.optString("control_transport"))
+                            ||!projection.optString("session_id").equals(parsed.optString("session"))
+                            ||!projection.optString("id").equals(parsed.optString("id"))||network==null
+                            ||!network.optString("session").equals(parsed.optString("session"))
+                            ||SystemClock.elapsedRealtime()-networkObservedAt>=6500)
+                        return "{\"status\":\"error\",\"code\":\"stale_session\"}";
+                    String action=parsed.getString("action");
+                    if(!java.util.Set.of("start","stop").contains(action))throw new IllegalArgumentException();
+                    if("start".equals(action)&&!network.optBoolean("available"))return "{\"status\":\"error\",\"code\":\"network_unavailable\"}";
+                    sendBroadcast(new Intent("io.github.yuejie.connect.NETWORK_CONTROL").setPackage(CallerPolicy.XIAOMI)
+                        .putExtra("session",parsed.getString("session")).putExtra("action",action));
+                    return "{\"status\":\"ok\",\"phase\":\"requested\"}";
                 }
                 if("network_control".equals(op)){
                     if(!owner)return "{\"status\":\"error\",\"code\":\"permission_denied\"}";

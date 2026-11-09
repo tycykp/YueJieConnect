@@ -7,10 +7,8 @@ import android.nfc.NfcAdapter;
 import android.nfc.Tag;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
-import android.widget.Toast;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.json.JSONArray;
@@ -23,8 +21,6 @@ public final class NfcTapActivity extends Activity {
     static final String LOG = "YueJieNfc";
     private static String lastTarget;
     private static long lastTap;
-    private final Handler main = new Handler(Looper.getMainLooper());
-    private BridgeClient client;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -38,15 +34,9 @@ public final class NfcTapActivity extends Activity {
         if (target.equals(lastTarget) && now - lastTap < 3000) { finish(); return; }
         lastTarget = target;
         lastTap = now;
-        client = new BridgeClient();
-        client.attach(getApplicationContext());
-        waitForPeer(client, main, target, "screen_video", () -> !isFinishing() && !isDestroyed(), projection -> {
-            if (isFinishing()) return;
-            if (projection == null) { complete(R.string.nfc_tap_no_peer); return; }
-            request(client, projection, target, new JSONArray(), reply -> {
-                if (!isFinishing()) complete(accepted(reply) ? R.string.nfc_tap_mirror_started : R.string.nfc_tap_rejected);
-            });
-        });
+        try { startForegroundService(new Intent(this,NfcTapService.class).putExtra("target",target)); }
+        catch (RuntimeException unavailable) { Log.w(LOG,"background_tap_unavailable",unavailable); }
+        finally { finish(); }
     }
 
     private static String readTarget(Intent intent) {
@@ -56,27 +46,31 @@ public final class NfcTapActivity extends Activity {
 
     static void waitForPeer(BridgeClient client, Handler main, String target, String grant,
                             java.util.function.BooleanSupplier alive, Consumer<JSONObject> result) {
-        long deadline = SystemClock.elapsedRealtime() + 120_000;
+        long startedAt = SystemClock.elapsedRealtime();
+        long deadline = startedAt + 120_000;
+        BridgeClient.Subscription fast = client.accelerateProjection();
         main.post(new Runnable() {
             private boolean started, pending, done;
             private String selected = "";
             private long nextCommand;
             private void complete(JSONObject value) {
                 done = true;
+                fast.close();
+                Log.i(LOG, "peer_ready success=" + (value != null) + " elapsed_ms=" + (SystemClock.elapsedRealtime() - startedAt));
                 result.accept(value);
             }
             @Override public void run() {
-                if (done || !alive.getAsBoolean()) return;
+                if (done || !alive.getAsBoolean()) { fast.close(); return; }
                 long now = SystemClock.elapsedRealtime();
                 JSONObject projection = client.projection();
                 JSONObject peer = projection == null ? null : projection.optJSONObject("real");
                 if (peer != null && "hyper_os4".equals(peer.optString("platform")) && "tablet".equals(peer.optString("kind"))
                         && (selected.isEmpty() || selected.equals(projection.optString("id")))
-                        && client.hasLocalGrant(grant) && offers(projection, OPERATION)) { complete(projection); return; }
+                        && client.hasLocalGrant(grant) && offers(projection, grant) && offers(projection, OPERATION)) { complete(projection); return; }
                 if (now >= deadline) { complete(null); return; }
                 if (!pending && now >= nextCommand) {
                     pending = true;
-                    nextCommand = now + 750;
+                    nextCommand = now + 200;
                     try {
                         client.pairing(new JSONObject().put("action", started ? "status" : "start"), reply -> {
                             pending = false;
@@ -130,14 +124,4 @@ public final class NfcTapActivity extends Activity {
         return true;
     }
 
-    private void complete(int message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-        finish();
-    }
-
-    @Override protected void onDestroy() {
-        main.removeCallbacksAndMessages(null);
-        if (client != null) client.close();
-        super.onDestroy();
-    }
 }

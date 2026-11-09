@@ -3,12 +3,15 @@ package io.github.yuejie.connect;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.ComponentName;
+import android.content.ServiceConnection;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.IBinder;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import io.github.libxposed.api.XposedModule;
@@ -33,6 +36,12 @@ final class OplusNfcShare {
     private OplusNfcShareUi ui;
     private Object repository;
     private Attempt active;
+    private ServiceConnection sourceBinding;
+    private final Runnable releaseSource=this::releaseNativeSource;
+    private void releaseNativeSource(){
+        ServiceConnection binding=sourceBinding;sourceBinding=null;
+        if(binding!=null)try{context.unbindService(binding);}catch(IllegalArgumentException ignored){}
+    }
 
     private static final class Attempt {
         final Object agent;
@@ -72,6 +81,7 @@ final class OplusNfcShare {
                 if (!ACTION.equals(intent.getAction()) || !isOrderedBroadcast()) return;
                 String target = intent.getStringExtra("target");
                 if (!NativePairingPolicy.session(target) || host.getSystemService(KeyguardManager.class).isDeviceLocked()) return;
+                warmNativeSource();
                 try {
                     Object registration = call(repository, "getRegisterNfcData");
                     Object agent = registration == null ? null : call(registration, "getAgent");
@@ -85,6 +95,25 @@ final class OplusNfcShare {
             }
         }, new IntentFilter(ACTION), "android.permission.DISPATCH_NFC_MESSAGE", main, Context.RECEIVER_EXPORTED);
         Log.i(NfcTapActivity.LOG, "native_share_ready");
+    }
+
+    private void warmNativeSource() {
+        main.removeCallbacks(releaseSource);
+        if(sourceBinding==null){
+            ServiceConnection binding=new ServiceConnection(){
+                @Override public void onServiceConnected(ComponentName name,IBinder binder){Log.i(NfcTapActivity.LOG,"native_source_bound");}
+                @Override public void onServiceDisconnected(ComponentName name){}
+                @Override public void onBindingDied(ComponentName name){main.post(releaseSource);}
+                @Override public void onNullBinding(ComponentName name){main.post(releaseSource);}
+            };
+            try{
+                // Same UID, original persistent service in Linker's main process. Its
+                // existing SDK starts Cast; no settings/module activity is launched.
+                if(context.bindService(new Intent("com.heytap.accessory.PERSISTENT_BIND").setComponent(new ComponentName(
+                        CallerPolicy.OPLUS,"com.oplus.synergy.service.OplusAppServicesManagerClient")),binding,Context.BIND_AUTO_CREATE))sourceBinding=binding;
+            }catch(RuntimeException unavailable){Log.w(NfcTapActivity.LOG,"native_source_bind_failed",unavailable);}
+        }
+        main.postDelayed(releaseSource,120_000);
     }
 
     private synchronized void begin(Object agent, String target) throws ReflectiveOperationException {

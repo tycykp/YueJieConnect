@@ -12,7 +12,8 @@ oplus = Path("captures/device-interconnect-20261108/coloros17/analysis/jadx/link
 samples = {
     xiaomi / "com/miui/circulate/api/protocol/synergy/manager/CellularSynergyManager.java": [
         "void connectCellularTether(String str)", "void disconnectCellularTether(String str)",
-        "int getCellularTetherState(String str)", "void onCellularStateChange(String str, int i10)"],
+        "int getCellularTetherState(String str)", "void onCellularStateChange(String str, int i10)",
+        "boolean isSynergy(String str)"],
     xiaomi / "com/miui/circulate/api/protocol/synergy/cellular/CellularHelper.java": [
         '"miui.bluetooth.mible.EasyTetherCoreService"', '"com.xiaomi.bluetooth"',
         "connectHotspotForEasyTether(str, 6)", "disconnectCelluarTether(str)",

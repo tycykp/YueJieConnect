@@ -137,7 +137,14 @@ final class NativePairingService implements AutoCloseable {
                 return result;
             }
             case "hide" -> {stopDiscovery();}
-            case "status" -> { }
+            case "status" -> {
+                // A foreground NFC wait need not wait for the one-second recovery tick
+                // to restore an already paired peer's identity-bound grants.
+                if("awaiting_confirmation".equals(phase)&&!state.optBoolean("local_confirmed")){
+                    tick();
+                    state=host.dispatch(new JSONObject().put("op","bridge_status")).getJSONObject("bridge");
+                }
+            }
             default -> {return failure("invalid_request");}
         }
         if(SystemClock.elapsedRealtime()>=deadline||Settle.finished(state.optString("phase")))stopDiscovery();

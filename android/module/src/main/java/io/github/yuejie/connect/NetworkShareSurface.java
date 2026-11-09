@@ -22,6 +22,9 @@ final class NetworkShareSurface {
             return NetworkSharePolicy.xiaomi(phase,upstream,available);
         }
         boolean controls(String target,long now){return live(now)&&id.equals(target)&&state(now)!=0;}
+        boolean matches(String target,String currentSession,String transport,boolean granted){
+            return granted&&id.equals(target)&&session.equals(currentSession)&&"bluetooth".equals(transport);
+        }
     }
     private NetworkShareSurface(){}
 }

@@ -172,7 +172,7 @@ final class ScreenCastSinkRuntime {
     boolean start(String expectedPeer,String expectedSession){try{
         JSONObject p=client.projection();
         if(p==null||!expectedPeer.equals(p.optString("id"))||!expectedSession.equals(p.optString("session_id"))
-                ||!client.hasLocalGrant("screen_video"))return false;
+                  ||!client.hasLocalGrant("screen_video"))return false;
         if(current()&&nativeSink!=null&&!closing&&bridge.streaming(view,scope)){
             Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);
             Object window=field(controller,"h").get(owner);

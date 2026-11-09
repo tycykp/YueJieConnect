@@ -34,6 +34,8 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
     private final Supplier<ScreenCastSinkRuntime> screen;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, Approval> approved = new HashMap<>();
+    private record MirrorWait(String session, BridgeClient.Subscription fast) {}
+    private final Map<String, MirrorWait> mirrorWaiters = new HashMap<>();
 
     NfcTapPad(BridgeClient client, FileTransferBridge files, Supplier<ScreenCastSinkRuntime> screen) {
         this.client = client;
@@ -77,10 +79,7 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
         var tokens = payload.optJSONArray("files");
         if (tokens == null) { completion.fail("invalid_payload"); return; }
         if (tokens.length() == 0) {
-            var sink = screen.get();
-            if (sink == null || !sink.start(id, session)) { completion.fail("executor_unavailable"); return; }
-            Log.i(NfcTapActivity.LOG, "mirror_requested");
-            accept(completion);
+            waitForScreenSource(task, id, session, completion);
             return;
         }
         approved.values().removeIf(approval -> SystemClock.elapsedRealtime() >= approval.expires());
@@ -106,16 +105,44 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
         return projection != null && id.equals(projection.optString("id")) && session.equals(projection.optString("session_id"));
     }
 
+    private void waitForScreenSource(JSONObject task, String id, String session, BridgeClient.TaskCompletion completion) {
+        String request=task.optString("request_id");
+        BridgeClient.Subscription fast=client.accelerateProjection();
+        MirrorWait wait=new MirrorWait(session,fast);
+        mirrorWaiters.put(request,wait);
+        main.post(new Runnable(){
+            private void end(){mirrorWaiters.remove(request);fast.close();}
+            @Override public void run(){
+                if(mirrorWaiters.get(request)!=wait)return;
+                if(!current(id,session)){end();completion.fail("session_expired");return;}
+                if(SystemClock.elapsedRealtime()>=task.optLong("deadline_elapsed_ms")){end();completion.fail("request_timeout");return;}
+                JSONObject projection=client.projection();
+                var operations=projection==null?null:projection.optJSONArray("operations");
+                boolean ready=false;
+                if(operations!=null)for(int i=0;i<operations.length();i++)if("screen_request".equals(operations.optString(i)))ready=true;
+                if(!ready){main.postDelayed(this,100);return;}
+                end();
+                var sink=screen.get();
+                if(sink==null||!sink.start(id,session)){completion.fail("executor_unavailable");return;}
+                Log.i(NfcTapActivity.LOG,"mirror_requested");accept(completion);
+            }
+        });
+    }
+
     private static void accept(BridgeClient.TaskCompletion completion) {
         try { completion.success(new JSONObject().put("accepted", true)); }
         catch (JSONException invalid) { completion.fail("invalid_result"); }
     }
 
     @Override public void cancel(String session, String request) {
+        MirrorWait wait=mirrorWaiters.remove(request);if(wait!=null)wait.fast().close();
         approved.values().removeIf(approval -> session.equals(approval.session()) && request.equals(approval.request()));
     }
 
     @Override public void sessionChanged() {
+        JSONObject projection=client.projection();
+        String session=projection==null?"":projection.optString("session_id");
+        mirrorWaiters.values().removeIf(wait->{if(wait.session().equals(session))return false;wait.fast().close();return true;});
         approved.values().removeIf(approval -> !current(approval.peer(), approval.session()));
     }
 

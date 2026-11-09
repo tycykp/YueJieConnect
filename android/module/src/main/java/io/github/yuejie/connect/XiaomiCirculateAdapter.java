@@ -35,6 +35,7 @@ final class XiaomiCirculateAdapter {
     private Method found,lost,circulateFailure,closeCard,available;
     private XiaomiFinderUiSupport finderUi;
     private XiaomiScreenCardState screenCard;
+    private XiaomiNetworkCardState networkCard;
     private BridgeClient.Subscription pairingSubscription;
     private static final class Discovery {
         final WeakReference<Object> owner;
@@ -92,6 +93,7 @@ final class XiaomiCirculateAdapter {
             installCardLifetime();
             screenCard=new XiaomiScreenCardState(module,client,loader,allowed);
             finderUi=new XiaomiFinderUiSupport(module,client,loader,allowed);
+            networkCard=new XiaomiNetworkCardState(module,client,loader,allowed);
             client.onProjection(this::update);log("xiaomi_ui_adapter_installed");
             pairingSubscription=client.nativePairing().listen(value->{if(projection==null){for(Discovery d:discoveries)withdraw(d);for(Discovery d:discoveries)publish(d);}});
         }catch(ReflectiveOperationException|RuntimeException error){close();throw error;}
@@ -199,6 +201,7 @@ final class XiaomiCirculateAdapter {
         closed=true;client.onProjection(null);
         if(finderUi!=null)finderUi.close();
         if(screenCard!=null)screenCard.close();
+        if(networkCard!=null)networkCard.close();
         main.post(()->{closeCards();for(Discovery d:discoveries)withdraw(d);discoveries.clear();projection=null;});
         for(HookHandle hook:hooks)hook.unhook();hooks.clear();
     }

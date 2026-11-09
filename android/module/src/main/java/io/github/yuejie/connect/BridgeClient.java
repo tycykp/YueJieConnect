@@ -54,6 +54,7 @@ final class BridgeClient implements AutoCloseable {
     private long sequence,leaseDeadline,nextOpen,nextBind,nextProjection,nextRegistration;
     private boolean bound,pollStarted;
     private volatile long fileBurstUntil;
+    private final java.util.concurrent.atomic.AtomicInteger fastProjectionUsers=new java.util.concurrent.atomic.AtomicInteger();
     private final ThreadPoolExecutor worker=new ThreadPoolExecutor(1,1,30,TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(64),r->{Thread t=new Thread(r,"yj-control");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());
     private record Pending(String id,String session,String operation,String request,Consumer<JSONObject> completion,long deadline) {}
@@ -94,6 +95,11 @@ final class BridgeClient implements AutoCloseable {
         return ()->listeners.remove(listener);
     }
     JSONObject projection(){return projection;}
+    Subscription accelerateProjection(){
+        fastProjectionUsers.incrementAndGet();enqueue(()->{nextProjection=0;nextOpen=0;});
+        AtomicBoolean released=new AtomicBoolean();
+        return ()->{if(released.compareAndSet(false,true))fastProjectionUsers.decrementAndGet();};
+    }
     NativePairingClient nativePairing(){if(nativePairing==null)nativePairing=new NativePairingClient(this);return nativePairing;}
     void browserRelay(JSONObject command, Consumer<JSONObject> completion) {
         browserRelay(command).thenAccept(result -> deliver(completion, result));
@@ -304,7 +310,7 @@ final class BridgeClient implements AutoCloseable {
         ensureBound();IBridge current=bridge;if(current==null)return null;
         long now=SystemClock.elapsedRealtime();
         if(token==null||now>=leaseDeadline){
-            if(now<nextOpen)return null;nextOpen=now+5_000;
+            if(now<nextOpen)return null;nextOpen=now+(fastProjectionUsers.get()>0?150:5_000);
             JSONObject opened=new JSONObject(current.transactJson(new JSONObject().put("op","open").put("runtime_revision",runtimeRevision()).toString()));
             if(!"ok".equals(opened.optString("status"))){ipcStatus("lease_rejected "+opened.optString("code"));return null;}
             token=opened.getString("token");sequence=0;leaseDeadline=now+opened.getLong("lease_ms")-1000;nextRegistration=0;ipcStatus("lease_opened");
@@ -321,7 +327,7 @@ final class BridgeClient implements AutoCloseable {
         if(closed)return;
         try{
             long now=SystemClock.elapsedRealtime();
-            if(now>=nextProjection){nextProjection=now+1000;JSONObject response=authenticated(new JSONObject().put("op","bridge_projections"));publish(response==null?null:response.optJSONObject("projection"));}
+            if(now>=nextProjection){nextProjection=now+(fastProjectionUsers.get()>0?150:1000);JSONObject response=authenticated(new JSONObject().put("op","bridge_projections"));publish(response==null?null:response.optJSONObject("projection"));}
             JSONArray operations=new JSONArray();boolean businessReady;synchronized(executors){for(String operation:executors.keySet())operations.put(operation);businessReady=executors.keySet().stream().anyMatch(NativeLogicalSessions.BUSINESS::contains);}
             // The mailbox routes each logical channel to its requested business's process.
             if(businessReady){operations.put("logical_open").put("logical_close").put("logical_state");}
@@ -330,7 +336,19 @@ final class BridgeClient implements AutoCloseable {
                 String reason=registered==null?"no_response":registered.optString("code");
                 if(!reason.equals(lastRegistrationError)){lastRegistrationError=reason;android.util.Log.w("YueJieClient","executor_registration_failed "+reason+" operations="+operations);}
             }else lastRegistrationError="";}
-            if(operations.length()>0){JSONObject reply=authenticated(new JSONObject().put("op","bridge_poll_executor"));if(reply!=null&&"ok".equals(reply.optString("status"))){JSONObject task=reply.optJSONObject("task");JSONArray cancelled=reply.optJSONArray("cancelled");if(cancelled!=null&&cancelled.length()>0)main.post(()->cancelTasks(cancelled));if(task!=null){task.put("deadline_elapsed_ms",SystemClock.elapsedRealtime()+task.getLong("remaining_ms"));main.post(()->executeTask(task));}}}
+            if(operations.length()>0){JSONObject reply=authenticated(new JSONObject().put("op","bridge_poll_executor"));if(reply!=null&&"ok".equals(reply.optString("status"))){JSONObject task=reply.optJSONObject("task");JSONArray cancelled=reply.optJSONArray("cancelled");if(cancelled!=null&&cancelled.length()>0)main.post(()->cancelTasks(cancelled));if(task!=null){
+                task.put("deadline_elapsed_ms",SystemClock.elapsedRealtime()+task.getLong("remaining_ms"));
+                // A newly authenticated session can deliver its first task before the
+                // periodic projection refresh. Refresh from the authenticated control
+                // lane, never infer authority from the task's claimed session itself.
+                JSONObject cached=projection;
+                if(cached==null||!task.optString("session_id").equals(cached.optString("session_id"))
+                        ||!task.optString("projection_id").equals(cached.optString("id"))){
+                    JSONObject fresh=authenticated(new JSONObject().put("op","bridge_projections"));
+                    publish(fresh==null?null:fresh.optJSONObject("projection"));
+                }
+                main.post(()->executeTask(task));
+            }}}
             for(Pending pending:new ArrayList<>(requests.values())){
                 if("file_chunk".equals(pending.operation))fileBurstUntil=now+250;
                 JSONObject selected=projection,response;
