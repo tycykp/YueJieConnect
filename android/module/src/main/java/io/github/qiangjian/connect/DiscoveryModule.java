@@ -31,6 +31,12 @@ public final class DiscoveryModule extends XposedModule {
     }
     @Override public void onPackageReady(PackageReadyParam param) {
         String pkg=param.getPackageName();
+        if(CallerPolicy.OPLUS_PAIRING.equals(pkg)){
+            if(installed||getApiVersion()<102||!param.isFirstPackage())return;installed=true;
+            try{OplusNativePairing.install(this,client,param.getClassLoader(),processName);}
+            catch(ReflectiveOperationException failure){log(Log.ERROR,TAG,"native_pairing_signature_unsupported");}
+            return;
+        }
         boolean mirror=CallerPolicy.MIRROR.equals(pkg);
         boolean finder=CallerPolicy.OPLUS_FINDER.equals(pkg),cast=CallerPolicy.OPLUS_CAST.equals(pkg);
         if((finder||cast)&&!pkg.equals(processName))return;
@@ -50,6 +56,7 @@ public final class DiscoveryModule extends XposedModule {
                         allowed=mirror?CallerVerifier.mirrorUid(context.getPackageManager())==Process.myUid():CallerVerifier.verify(context.getPackageManager(),Process.myUid())==expected;
                         if(allowed) {
                             client.attach(context);
+                            if(!mirror&&!finder&&!cast)client.nativePairing().register((Application)chain.getThisObject());
                             if(finder||(expected==1&&"com.milink.service:core".equals(processName))){
                                 Application app=(Application)chain.getThisObject();
                                 handles.add(hook(app.getClass().getMethod("onCreate")).setId("qj.finder.lifecycle").intercept(create->{

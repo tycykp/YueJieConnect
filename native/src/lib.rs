@@ -136,6 +136,9 @@ enum BridgeCommand {
         operations: Option<BTreeSet<Operation>>,
     },
     BridgeStop,
+    BridgeAbort {
+        session: String,
+    },
     BridgeDisconnect {
         token: String,
         sequence: u64,
@@ -816,6 +819,10 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
         }
         _ if !caller.owner => Err("forbidden"),
         BridgeCommand::BridgeStatus => Ok(json!({"status":"ok","bridge":bridge.snapshot()})),
+        BridgeCommand::BridgeAbort { session } => {
+            bridge.abort(&session)?;
+            Ok(json!({"status":"ok"}))
+        }
         BridgeCommand::BridgeConfirm {
             session,
             operations,

@@ -14,7 +14,7 @@ with zipfile.ZipFile(apk) as z:
     prop = dict(line.split('=', 1) for line in z.read('META-INF/xposed/module.prop').decode().splitlines() if '=' in line)
     assert prop['minApiVersion'] == prop['targetApiVersion'] == '102'
     assert prop['autoHotReload'] == 'false'
-    assert set(z.read('META-INF/xposed/scope.list').decode().splitlines()) == {'com.milink.service', 'com.oplus.linker', 'com.xiaomi.mirror', 'com.coloros.findmyphone', 'com.oplus.cast'}
+    assert set(z.read('META-INF/xposed/scope.list').decode().splitlines()) == {'com.milink.service', 'com.oplus.linker', 'com.xiaomi.mirror', 'com.coloros.findmyphone', 'com.oplus.cast', 'com.heytap.accessory'}
     libs = [n for n in z.namelist() if n.endswith('.so')]
     assert libs == ['lib/arm64-v8a/libqj_jni.so'], libs
     info = z.getinfo(libs[0])

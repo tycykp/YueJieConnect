@@ -35,6 +35,8 @@ public final class JniSmoke {
         contains(call(true,0,"{\"op\":\"bridge_status\"}"),"stopped");
         contains(call(false,1,"{\"op\":\"bridge_status\"}"),"forbidden");
         contains(call(false,1,"{\"op\":\"bridge_listen\",\"port\":0}"),"forbidden");
+        contains(call(false,1,"{\"op\":\"bridge_abort\",\"session\":\"stale\"}"),"forbidden");
+        contains(call(true,0,"{\"op\":\"bridge_abort\",\"session\":\"stale\"}"),"stale_session");
         contains(call(true,0,"{\"op\":\"set_enabled\",\"enabled\":true}"),"ok");
         var vendor=Pattern.compile("\"token\":\"([0-9a-f]{64})\"").matcher(call(false,1,"{\"op\":\"open\"}"));
         if(!vendor.find())throw new AssertionError("Missing executor lease");

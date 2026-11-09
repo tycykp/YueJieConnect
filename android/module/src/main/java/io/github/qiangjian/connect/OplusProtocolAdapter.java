@@ -41,6 +41,10 @@ final class OplusProtocolAdapter {
     private final Map<Object,WeakReference<Object>> stateListeners=new java.util.WeakHashMap<>();
     private volatile boolean closed;
     private volatile Published published;
+    private volatile Published pairingPublished;
+    private BridgeClient.Subscription pairingSubscription;
+    private Object pairingReceiver,pairingDevice;
+    private String pairingTarget="";
     private Method found, lost, failure, success, stateChanged, optionConnection, optionChannel, idGetter, tempIdGetter, roleGetter, resultCode;
     private Constructor<?> connectionConstructor;
     private Method optionRoles, optionDuration;
@@ -84,6 +88,8 @@ final class OplusProtocolAdapter {
             probe = new OplusRuntimeProbe(module, loader, allowed, () -> currentProjection);
             probe.install();
             client.onProjection(value -> main.post(() -> update(value)));
+            pairingSubscription=client.nativePairing().listen(this::updatePairing);
+            client.nativePairing().watch();
             main.post(() -> update(client.projection()));
             main.post(channelMonitor);
             log("oplus_adapter_installed");
@@ -145,7 +151,7 @@ final class OplusProtocolAdapter {
                 Object original = chain.proceed();
                 if (!(original instanceof CompletableFuture<?> future)) return original;
                 return future.thenApply(value -> {
-                    Published current = published;
+                    Published current = published==null?pairingPublished:published;
                     if (closed || !allowed.getAsBoolean() || current == null || !(value instanceof List<?> list)) return value;
                     List<Object> copy = OplusPeerRegistry.overlay(list,current.device(),this::id);
                     log("oplus_projection_list_added");
@@ -162,6 +168,14 @@ final class OplusProtocolAdapter {
                 .setId("qj.oplus.connection.request").intercept(chain -> {
                     Object device = chain.getArg(0);
                     String target = id(device);
+                    if(published==null&&client.nativePairing().owns(target)){
+                        Object receiver=chain.getArg(2);main.post(()->{
+                            clearPairing("cancelled");pairingTarget=target;pairingReceiver=receiver;pairingDevice=device;
+                            try{type(BASE+"GlobalDeviceConnectionCallback").getMethod("onConnectionInitiated",deviceType).invoke(receiver,device);}catch(ReflectiveOperationException ignored){}
+                            client.nativePairing().select(target);
+                            main.postDelayed(()->{if(pairingReceiver==receiver)clearPairing("timeout");},30_000);
+                        });return null;
+                    }
                     if (!registry.owns(target)) return chain.proceed();
                     Object receiver = chain.getArg(2);
                     String connection=((Enum<?>)optionConnection.invoke(chain.getArg(1))).name(),channel=((Enum<?>)optionChannel.invoke(chain.getArg(1))).name();
@@ -178,6 +192,7 @@ final class OplusProtocolAdapter {
                 .setId("qj.oplus.connection.cancel").intercept(chain -> {
                     Object device = chain.getArg(0);
                     String target = id(device);
+                    if(published==null&&client.nativePairing().owns(target))return cancelPairing(target);
                     if (!registry.owns(target)) return chain.proceed();
                     if (!matchesSession(device)) return CompletableFuture.failedFuture(new IllegalStateException("QJ:stale_session"));
                     CompletableFuture<Boolean> result = new CompletableFuture<>();
@@ -188,6 +203,7 @@ final class OplusProtocolAdapter {
                 .setId("qj.oplus.connection.close").intercept(chain -> {
                     Object device = chain.getArg(0);
                     String target = id(device);
+                    if(published==null&&client.nativePairing().owns(target))return cancelPairing(target);
                     if (!registry.owns(target)) return chain.proceed();
                     if (!matchesSession(device)) return CompletableFuture.failedFuture(new IllegalStateException("QJ:stale_session"));
                     CompletableFuture<Boolean> result=new CompletableFuture<>();
@@ -263,6 +279,16 @@ final class OplusProtocolAdapter {
         Class<?> wrapper=type("com.oplus.linker.plugin.devicediscovery.thirdapi.ptc.PTCWrapper");
         Class<?> resultCallback=type("com.oplus.linker.connect.arch.ResultCallBack");
         Method resultMethod=resultCallback.getMethod("onResult",Object.class);
+        Class<?> discoveryPage=type("com.oplus.linker.plugin.devicediscovery.ui.DeviceDiscoveryPreferenceFragment");
+        Class<?> bean=type("com.oplus.linker.plugin.devicediscovery.bean.DeviceBean");
+        Method beanId=bean.getMethod("getDeviceId");
+        handles.add(module.hook(discoveryPage.getDeclaredMethod("isDuplicateDevice",bean,type("com.oplus.synergy.devicekit.bean.SynergyDeviceInfo")))
+            .setId("qj.oplus.pairing.rediscovery").intercept(chain->{
+                // OEM history is not a reusable QJ trust grant. Keep a currently discovered,
+                // unpaired bridge peer selectable so the user can authorize a fresh session.
+                if(published==null&&client.nativePairing().owns((String)beanId.invoke(chain.getArg(0))))return false;
+                return chain.proceed();
+            }));
         handles.add(module.hook(wrapper.getDeclaredMethod("getConnectInfo",deviceType,resultCallback))
             .setId("qj.oplus.logical.discovery.metadata").intercept(chain->{
                 Object device=chain.getArg(0),info=connectionInfo;
@@ -277,17 +303,25 @@ final class OplusProtocolAdapter {
         Class<?> utility=type("com.oplus.linker.synergy.wiseconnect.senseless.SenselessConnectionUtil");
         handles.add(module.hook(utility.getDeclaredMethod("deviceConnectOptions",Boolean.class,deviceType)).setId("qj.oplus.logical.route").intercept(chain->{
             Object original=chain.proceed(),device=chain.getArg(1);
-            if(!registry.owns(id(device))||!matchesSession(device)||!supports(client.projection(),"logical_open"))return original;
+            if(!client.nativePairing().owns(id(device))&&(!registry.owns(id(device))||!matchesSession(device)||!supports(client.projection(),"logical_open")))return original;
             return copy.invoke(original,enumeration("com.oplus.pantaconnect.sdk.connection.ConnectionType","WLAN"),enumeration(BASE+"ChannelType","CHANNEL_TYPE_LOGICAL"),extra.invoke(original),direct.invoke(original));
         }));
         Class<?> page=type("com.oplus.linker.synergy.ui.fragment.DeviceConnectPreferenceFragment");
         java.lang.reflect.Field selected=page.getDeclaredField("mONetDevice");selected.setAccessible(true);
         handles.add(module.hook(page.getDeclaredMethod("isLanDevice",deviceType)).setId("qj.oplus.logical.ui.route").intercept(chain->{
-            Object device=chain.getArg(0);if(registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
+            Object device=chain.getArg(0);if(client.nativePairing().owns(id(device))||registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
             return chain.proceed();
         }));
         handles.add(module.hook(page.getDeclaredMethod("isWlanType",type("com.oplus.pantaconnect.sdk.DeviceType"))).setId("qj.oplus.logical.ui.type").intercept(chain->{
-            Object device=selected.get(chain.getThisObject());if(registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
+            Object device=selected.get(chain.getThisObject());if(client.nativePairing().owns(id(device))||registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
+            return chain.proceed();
+        }));
+        Class<?> remote=type("com.oplus.linker.mac.client.data.source.remote.MacRemoteDataSource");
+        handles.add(module.hook(remote.getDeclaredMethod("isWlanType",deviceType)).setId("qj.oplus.logical.result.route").intercept(chain->{
+            Object device=chain.getArg(0);
+            // The same PAD-over-WLAN decision must reach the result consumer; otherwise
+            // its real onConnectionSuccess callback drops the panel completion as non-PC.
+            if(client.nativePairing().owns(id(device))||registry.owns(id(device))&&matchesSession(device)&&supports(client.projection(),"logical_open"))return true;
             return chain.proceed();
         }));
     }
@@ -393,10 +427,29 @@ final class OplusProtocolAdapter {
         currentProjection = next == null ? null : projection;
         if (deviceKit != null) deviceKit.sessionChanged();
         for (Discovery discovery : discoveries) publish(discovery);
+        if(next!=null&&next.id().equals(pairingTarget)&&pairingReceiver!=null){Object receiver=pairingReceiver;pairingReceiver=null;pairingDevice=null;pairingTarget="";request(next.id(),next.device(),receiver);}
+    }
+
+    private void clearPairing(String error){Object receiver=pairingReceiver,device=pairingDevice;pairingReceiver=null;pairingDevice=null;pairingTarget="";if(receiver!=null)fail(receiver,device,error);}
+    private CompletableFuture<Boolean> cancelPairing(String target){
+        CompletableFuture<Boolean> result=new CompletableFuture<>();main.post(()->{
+            clearPairing("cancelled");client.nativePairing().cancel(target,value->result.complete("ok".equals(value.optString("status"))));
+        });return result;
+    }
+    private void updatePairing(JSONObject snapshot){
+        JSONObject state=snapshot.optJSONObject("pairing");String phase=state==null?"":state.optString("phase");
+        if("disconnected".equals(phase)||"stopped".equals(phase))clearPairing("peer_offline");
+        if(published!=null)return;
+        JSONObject candidate=client.nativePairing().candidate();Published next=null;
+        try{if(candidate!=null)next=new Published(candidate.getString("id"),candidate.optString("session_id"),candidate.toString(),build(candidate));}
+        catch(ReflectiveOperationException|JSONException failure){log("oplus_pairing_candidate_rejected");}
+        if(java.util.Objects.equals(pairingPublished==null?null:pairingPublished.fingerprint(),next==null?null:next.fingerprint()))return;
+        for(Discovery discovery:discoveries)withdraw(discovery);pairingPublished=next;
+        for(Discovery discovery:discoveries)publish(discovery);
     }
 
     private void publish(Discovery discovery) {
-        Published current = published;
+        Published current = published==null?pairingPublished:published;
         Object receiver = discovery.receiver.get();
         if (current == null || receiver == null || SystemClock.elapsedRealtime() >= discovery.deadline) return;
         try {
@@ -449,6 +502,7 @@ final class OplusProtocolAdapter {
     private void log(String event) { module.log(Log.INFO, "QiangJian", event + " source=2");android.util.Log.i("QiangJianOplus",event); }
 
     void close() {
+        if(pairingSubscription!=null)pairingSubscription.close();
         if (closed) return;
         closed = true;
         if (deviceKit != null) deviceKit.close();

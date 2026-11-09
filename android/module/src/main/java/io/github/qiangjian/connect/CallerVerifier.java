@@ -29,7 +29,7 @@ final class CallerVerifier {
             if (packages == null || packages.length != 1) return null;
             String pkg = packages[0];
             if (!CallerPolicy.XIAOMI.equals(pkg) && !CallerPolicy.OPLUS.equals(pkg)
-                    && !CallerPolicy.OPLUS_FINDER.equals(pkg) && !CallerPolicy.OPLUS_CAST.equals(pkg)) return null;
+                    && !CallerPolicy.OPLUS_FINDER.equals(pkg) && !CallerPolicy.OPLUS_CAST.equals(pkg) && !CallerPolicy.OPLUS_PAIRING.equals(pkg)) return null;
             PackageInfo p = pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES);
             if (p.applicationInfo == null || p.applicationInfo.uid != uid || p.signingInfo == null) return null;
             Signature[] signers = p.signingInfo.getApkContentsSigners();

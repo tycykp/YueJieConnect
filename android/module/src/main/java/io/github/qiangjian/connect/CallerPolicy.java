@@ -7,6 +7,7 @@ final class CallerPolicy {
     static final String MIRROR = "com.xiaomi.mirror";
     static final String OPLUS_FINDER = "com.coloros.findmyphone";
     static final String OPLUS_CAST = "com.oplus.cast";
+    static final String OPLUS_PAIRING = "com.heytap.accessory";
     static boolean mirrorPackage(long version,String name,String cert){
         return version==180201L&&"18.02.01-26.09.10".equals(name)
                 &&"c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025".equals(cert);
@@ -34,6 +35,8 @@ final class CallerPolicy {
         if (OPLUS_FINDER.equals(pkg) && version==100008L && "10.0.8".equals(versionName)
                 && "159e6f37c336f2f41272542dbc1dc85721dd567ed4ac68ac13f2e43003ce0dce".equals(cert)) return 2;
         if (OPLUS_CAST.equals(pkg) && version==170017L && "17.0.017".equals(versionName)
+                && "e49802409584ce53152a9000820a51e4fa8a723b7bcc263e335240acf100bf9e".equals(cert)) return 2;
+        if (OPLUS_PAIRING.equals(pkg) && version==170060016L && "17.6.16".equals(versionName)
                 && "e49802409584ce53152a9000820a51e4fa8a723b7bcc263e335240acf100bf9e".equals(cert)) return 2;
         return 0;
     }

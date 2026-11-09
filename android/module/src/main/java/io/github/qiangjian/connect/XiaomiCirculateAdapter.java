@@ -2,7 +2,6 @@ package io.github.qiangjian.connect;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 import io.github.libxposed.api.XposedInterface.HookHandle;
 import io.github.libxposed.api.XposedModule;
 import java.lang.ref.WeakReference;
@@ -33,11 +32,9 @@ final class XiaomiCirculateAdapter {
     private volatile boolean closed;
     private Class<?> deviceType,serviceType,builderType;
     private Field idField,callbackField,discoveringField,requestedServiceField,protocolField;
-    private Method found,lost,circulateFailure,cardInfo,closeCard,available;
-    private final List<Integer> hiddenControls=new ArrayList<>();
-    private final Set<Integer> finderControls=new LinkedHashSet<>();
+    private Method found,lost,circulateFailure,closeCard,available;
     private XiaomiFinderUiSupport finderUi;
-    private int finderContainerId,finderViewId;
+    private BridgeClient.Subscription pairingSubscription;
     private static final class Discovery {
         final WeakReference<Object> owner;
         Object device,service;
@@ -91,9 +88,10 @@ final class XiaomiCirculateAdapter {
                     log("ui_operation_unsupported");
                     return selected.nativeTargets().isEmpty()?null:chain.proceed(new Object[]{sources,selected.nativeTargets(),param});
                 }));
-            installCardPolicy();
+            installCardLifetime();
             finderUi=new XiaomiFinderUiSupport(module,client,loader,allowed);
             client.onProjection(this::update);log("xiaomi_ui_adapter_installed");
+            pairingSubscription=client.nativePairing().listen(value->{if(projection==null){for(Discovery d:discoveries)withdraw(d);for(Discovery d:discoveries)publish(d);}});
         }catch(ReflectiveOperationException|RuntimeException error){close();throw error;}
     }
     private boolean registered(Object device){
@@ -101,17 +99,13 @@ final class XiaomiCirculateAdapter {
         try{synchronized(registered){return registered.contains((String)idField.get(device));}}
         catch(IllegalAccessException error){return false;}
     }
-    private boolean ownCard(Object card){
-        try{return registered(cardInfo.invoke(card));}catch(ReflectiveOperationException|RuntimeException error){return false;}
-    }
-    private void installCardPolicy()throws ReflectiveOperationException{
-        Class<?> card=type("com.miui.circulate.world.sticker.blecard.PhoneCard");
-        Class<?> base=type("com.miui.circulate.world.sticker.blecard.BleView");
-        cardInfo=base.getMethod("getMInfo");
+    private void installCardLifetime()throws ReflectiveOperationException{
         Class<?> mainCard=type("com.miui.circulate.world.sticker.MainCardView");
         closeCard=mainCard.getMethod("p",boolean.class);
         hooks.add(module.hook(mainCard.getMethod("k",deviceType,String.class,String.class,type("pf.a"),
             type("com.miui.circulate.world.base.h"),type("gf.g"))).setId("qj.xiaomi.ui.card_lifetime").intercept(chain->{
+                String requested=(String)idField.get(chain.getArg(0));
+                if(projection==null&&client.nativePairing().owns(requested)){main.post(()->client.nativePairing().select(requested));return null;}
                 Object result=chain.proceed();Object view=chain.getThisObject();boolean owned=registered(chain.getArg(0));
                 JSONObject ticket=projection;
                 String selectedId=owned?(String)idField.get(chain.getArg(0)):null;
@@ -123,41 +117,10 @@ final class XiaomiCirculateAdapter {
                     }else if(openCards.size()<16)openCards.add(new WeakReference<>(view));
                 });return result;
             }));
-        Class<?> ids=type("com.miui.circulate.world.R$id");
-        finderContainerId=ids.getField("container").getInt(null);finderViewId=ids.getField("ringing_view").getInt(null);
-        finderControls.add(finderViewId);finderControls.add(ids.getField("ringing_view_bottom").getInt(null));
-        for(String name:new String[]{"use_home_screen","ringing_view","ringing_view_bottom","use_cam","use_cam_top",
-            "use_cellular","use_cellular_top","cam_in_use","in_use_top","in_use","remote_control","remote_control_top","device_synergy","container"})
-            hiddenControls.add(ids.getField(name).getInt(null));
-        // Only this facade has a restricted capability set. Real OEM devices keep their flags.
-        hooks.add(module.hook(card.getDeclaredMethod("H2")).setId("qj.xiaomi.ui.card_capabilities").intercept(chain->{
-            if(!ownCard(chain.getThisObject()))return chain.proceed();return null;
-        }));
-        hooks.add(module.hook(card.getDeclaredMethod("J2")).setId("qj.xiaomi.ui.card_render").intercept(chain->{
-            Object result=chain.proceed();if(ownCard(chain.getThisObject()))hideUnsupported(chain.getThisObject());return result;
-        }));
-        for(String name:new String[]{"J3","M3","O3","P3"})
-            hooks.add(module.hook(card.getDeclaredMethod(name)).setId("qj.xiaomi.ui.card_gate."+name).intercept(chain->{
-                if(!ownCard(chain.getThisObject())||("M3".equals(name)&&finderAllowed()))return chain.proceed();return null;
-            }));
-        for(String name:new String[]{"I3","K3","L3","N3","w1"})
-            hooks.add(module.hook(base.getDeclaredMethod(name)).setId("qj.xiaomi.ui.card_gate."+name).intercept(chain->{
-                if(!ownCard(chain.getThisObject())||("w1".equals(name)&&finderAllowed()))return chain.proceed();return null;
-            }));
-        hooks.add(module.hook(base.getDeclaredMethod("j4")).setId("qj.xiaomi.ui.finder.render").intercept(chain->{
-            Object cardView=chain.getThisObject();if(!ownCard(cardView))return chain.proceed();
-            if(!finderAllowed())return null;
-            Object result=chain.proceed();showFinderContainer(cardView);return result;
-        }));
-        // The native battery path (gg.a -> DeviceProfileManager -> :core) is deliberately preserved.
+        // Let PhoneCard/BleView initialize and render their original capability controls.
+        // H2/J2 and the native layout/status callbacks also own the original click listeners;
+        // blocking them or hiding their container leaves a connected phone card empty.
     }
-    private void hideUnsupported(Object card){
-        if(!(card instanceof View root))return;
-        // Phone layouts omit some controls present in other BleView subclasses. A missing
-        // resource is not a failure and must not evaluate their non-null lazy getters.
-        for(int id:hiddenControls){View view=root.findViewById(id);if(view!=null){if(finderControls.contains(id)&&finderAllowed()){view.setEnabled(true);continue;}if(id==finderContainerId&&showFinderContainer(card))continue;view.setEnabled(false);view.setVisibility(View.GONE);}}
-    }
-    private boolean showFinderContainer(Object card){if(!(card instanceof View root)||!finderAllowed())return false;View ring=root.findViewById(finderViewId),container=root.findViewById(finderContainerId);if(ring==null||container==null||ring.getVisibility()!=View.VISIBLE)return false;container.setEnabled(true);container.setVisibility(View.VISIBLE);return true;}
     private boolean finderAllowed(){JSONObject p=projection;if(p==null)return false;var operations=p.optJSONArray("operations");if(operations!=null)for(int i=0;i<operations.length();i++)if("device_finder".equals(operations.optString(i)))return true;return false;}
     private void start(Object owner){
         if(closed||!allowed.getAsBoolean()||!discovering(owner))return;
@@ -180,15 +143,16 @@ final class XiaomiCirculateAdapter {
         for(Discovery d:discoveries)publish(d);
     }
     private void publish(Discovery d){
-        JSONObject p=projection;Object owner=d.owner.get();
+        JSONObject p=projection==null?client.nativePairing().candidate():projection;Object owner=d.owner.get();
         if(p==null||owner==null||closed||!allowed.getAsBoolean()||!discovering(owner))return;
         try{
-            if(!p.getString("session_id").matches("[0-9a-f]{64}")||!"hyper_os4".equals(p.getString("target_sdk")))return;
+            boolean unpaired=p.optBoolean("unpaired");
+            if((!unpaired&&!p.getString("session_id").matches("[0-9a-f]{64}"))||!"hyper_os4".equals(p.getString("target_sdk")))return;
             JSONObject real=p.getJSONObject("real");
             if(!"phone".equals(real.getString("kind")))return;
             boolean profile=false;var operations=p.getJSONArray("operations");
             for(int i=0;i<operations.length();i++)if("device_profile".equals(operations.getString(i)))profile=true;
-            if(!profile)return;
+            if(!profile&&!unpaired)return;
             Object callback=callbackField.get(owner);if(callback==null)return;
             Object device=deviceType.getConstructor().newInstance();String id=p.getString("id");
             idField.set(device,id);deviceType.getField("idHash").set(device,id);
@@ -229,6 +193,7 @@ final class XiaomiCirculateAdapter {
         openCards.clear();
     }
     void close(){
+        if(pairingSubscription!=null)pairingSubscription.close();
         closed=true;client.onProjection(null);
         if(finderUi!=null)finderUi.close();
         main.post(()->{closeCards();for(Discovery d:discoveries)withdraw(d);discoveries.clear();projection=null;});

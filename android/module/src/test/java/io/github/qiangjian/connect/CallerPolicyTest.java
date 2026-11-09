@@ -2,6 +2,15 @@ package io.github.qiangjian.connect;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 public class CallerPolicyTest {
+    @Test public void nativePairingHostIsPinnedAndCannotExecuteBusinessOperations(){
+        String signer="e49802409584ce53152a9000820a51e4fa8a723b7bcc263e335240acf100bf9e";
+        assertEquals(2,CallerPolicy.source(CallerPolicy.OPLUS_PAIRING,170060016,"17.6.16",signer,1));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_PAIRING,170060017,"17.6.16",signer,1));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_PAIRING,170060016,"17.6.16",signer,2));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.OPLUS_PAIRING,170060016,"17.6.16","fake",1));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.OPLUS_PAIRING,"clipboard_write"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.OPLUS_PAIRING,"logical_open"));
+    }
     private final String cert="c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025";
     @Test public void exactIdentityOnly() {
         assertEquals(1,CallerPolicy.source("com.milink.service",180020300L,"18.2.3.0.2610211842",cert,1));

@@ -20,6 +20,7 @@ import org.json.JSONObject;
 /** JNI and all persistent state live only in this process, never in Hook callbacks. */
 public final class BridgeService extends Service {
     private WifiRoute wifiRoute;
+    private NativePairingService nativePairing;
     private VendorProcessProof mirrorProof;
     private SystemNotificationBridge notifications;
     private int hostSource;
@@ -31,6 +32,7 @@ public final class BridgeService extends Service {
     private final android.os.Handler monitor=new android.os.Handler(android.os.Looper.getMainLooper());
     private String lastState="";
     private final Runnable monitorTask=new Runnable(){public void run(){
+        if(nativePairing!=null)nativePairing.tick();
         try{JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}"));
             JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);if(state!=null){String marker="phase="+state.optString("phase")+" error="+state.optString("last_error")+" errno="+state.optString("socket_errno")+" rpc="+state.optLong("requests_sent")+"/"+state.optLong("requests_received")+"/"+state.optLong("responses_received");
                 if(!marker.equals(lastState)){lastState=marker;android.util.Log.i("QiangJianBridge",marker);}}
@@ -39,6 +41,19 @@ public final class BridgeService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         wifiRoute=new WifiRoute(getSystemService(android.net.ConnectivityManager.class));
+        nativePairing=new NativePairingService(this,new NativePairingService.Host(){
+            public JSONObject dispatch(JSONObject command)throws org.json.JSONException{
+                JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,hostSource,SystemClock.elapsedRealtime(),command.toString()));
+                if("bridge_abort".equals(command.optString("op"))&&"ok".equals(result.optString("status"))){wifiRoute.release();stopForeground(STOP_FOREGROUND_REMOVE);}
+                return result;
+            }
+            public void prepare()throws org.json.JSONException{
+                if(!"ok".equals(new JSONObject(initialization).optString("status")))throw new IllegalStateException("profile_unavailable");
+                if(checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK")!=PackageManager.PERMISSION_GRANTED)throw new IllegalStateException("local_network_permission_required");
+                if(!wifiRoute.acquire())throw new IllegalStateException("wifi_route_unavailable");
+                foreground();
+            }
+        });
         mirrorProof=new VendorProcessProof(this);
         mirrorProof.start();
         try {
@@ -162,11 +177,12 @@ public final class BridgeService extends Service {
             if (!owner && source == 0) return "{\"status\":\"error\",\"code\":\"caller_rejected\"}";
             try {
                 JSONObject parsed=new JSONObject(command);String op=parsed.optString("op");
-                if(owner&&"bridge_runtime_status".equals(op))return runtimes.snapshot(BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime()).toString();
+                if(owner&&"bridge_runtime_status".equals(op))return runtimes.snapshot(BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime()).put("native_pairing",nativePairing.inspect()).toString();
                 if(!owner){
                     // Bind revision agreement to Rust's actual kernel-caller IPC lease. Content
                     // requests keep their existing JSON budget and still undergo Rust replay checks.
-                    boolean opening="open".equals(op),direct=op.startsWith("screen_request_")||"file_cleanup_state".equals(op);
+                    boolean opening="open".equals(op),direct=op.startsWith("screen_request_")||"file_cleanup_state".equals(op)
+                            ||("native_pairing".equals(op)&&"start".equals(parsed.optString("action")));
                     boolean current=opening||direct
                         ?runtimes.observe(uid,pid,verified.packageName(),parsed.optString("runtime_revision",""),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime())
                         :runtimes.accepts(uid,pid,parsed.optString("token",""),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime());
@@ -174,6 +190,20 @@ public final class BridgeService extends Service {
                     parsed.remove("runtime_revision");command=parsed.toString();
                 }
                 if(op.startsWith("screen_request_"))return screenRequest(verified,uid,pid,parsed);
+                if("native_pairing".equals(op)){
+                    if(owner||!NativePairingPolicy.caller(verified.packageName()))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    // Consume the real Rust IPC sequence before invoking the narrowly scoped
+                    // pairing controller. Package/revision checks alone are not a replay fence.
+                    // Starting discovery is the consent entry point while the IPC engine is
+                    // disabled. It is idempotent and cannot replace an in-flight/active peer.
+                    if(!"start".equals(parsed.optString("action"))){
+                    JSONObject authorized=new JSONObject(NativeCore.dispatch(uid,pid,false,source,SystemClock.elapsedRealtime(),
+                            new JSONObject().put("op","bridge_projections").put("token",parsed.getString("token")).put("sequence",parsed.getLong("sequence")).toString()));
+                    if(!"ok".equals(authorized.optString("status")))return authorized.toString();
+                    }
+                    try{return nativePairing.command(parsed).toString();}
+                    catch(RuntimeException failure){String code=failure.getMessage();return new JSONObject().put("status","error").put("code",code!=null&&code.matches("[a-z_]{1,64}")?code:"pairing_unavailable").toString();}
+                }
                 if("bridge_disconnect".equals(op)&&(owner||!CallerPolicy.OPLUS.equals(verified.packageName())))
                     return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                 if("bridge_media_register".equals(op)&&!mediaCaller(verified,owner,uid,pid,parsed))
@@ -232,6 +262,7 @@ public final class BridgeService extends Service {
     };
     @Override public IBinder onBind(Intent intent) { return binder; }
     @Override public void onDestroy() {
+        if(nativePairing!=null)nativePairing.close();
         monitor.removeCallbacks(monitorTask);
         if(notifications!=null)notifications.close();
         screenProofs.scope("","",false);

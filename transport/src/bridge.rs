@@ -74,6 +74,8 @@ pub struct Snapshot {
     pub phase: &'static str,
     pub session: String,
     pub comparison_code: String,
+    /// Noise-authenticated public identity; full profile still requires bilateral consent.
+    pub pending_peer_key: Option<[u8; 32]>,
     pub local_confirmed: bool,
     pub remote_confirmed: bool,
     pub granted_operations: BTreeSet<Operation>,
@@ -306,6 +308,7 @@ impl Bridge {
             phase: "stopped",
             session: String::new(),
             comparison_code: String::new(),
+            pending_peer_key: None,
             local_confirmed: false,
             remote_confirmed: false,
             granted_operations: BTreeSet::new(),
@@ -355,6 +358,7 @@ impl Bridge {
         state.view.phase = phase;
         state.view.session.clear();
         state.view.comparison_code.clear();
+        state.view.pending_peer_key = None;
         state.view.local_confirmed = false;
         state.view.remote_confirmed = false;
         state.view.granted_operations.clear();
@@ -371,6 +375,18 @@ impl Bridge {
     }
     pub fn stop(&self) {
         self.reset("stopped");
+    }
+    /// Cancel exactly the handshake/session shown in a pairing dialog. A late dialog must
+    /// never terminate a new session, including one that has not yet been confirmed.
+    pub fn abort(&self, session: &str) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if session.is_empty() || state.view.session != session
+            || !matches!(state.view.phase, "awaiting_confirmation" | "active")
+        {
+            return Err("stale_session");
+        }
+        self.reset_locked(&mut state, "stopped");
+        Ok(())
     }
     /// A native device action may only stop the exact projected session it displayed.
     /// Check and reset under one lock so a delayed click cannot stop a replacement peer.
@@ -824,6 +840,7 @@ impl Bridge {
             s.view.last_error = Some(reason);
             s.view.socket_errno = IO_ERROR.get();
             s.view.remote = None;
+            s.view.pending_peer_key = None;
             s.view.projection = None;
             s.view.transport_address = None;
             s.view.comparison_code.clear();
@@ -962,6 +979,7 @@ impl Bridge {
             s.view.phase = "awaiting_confirmation";
             s.view.session = session.clone();
             s.view.comparison_code = code;
+            s.view.pending_peer_key = Some(peer);
             s.jobs = Some(tx);
         });
         self.exchange(
@@ -1427,6 +1445,45 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+    #[test]
+    fn pairing_abort_rejects_old_dialog_and_reconnect_requires_fresh_confirmation() {
+        let a = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let b = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        assert_eq!(a.abort(""), Err("stale_session"));
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap()).unwrap();
+        wait(&a, "awaiting_confirmation");
+        wait(&b, "awaiting_confirmation");
+        let old = a.snapshot().session;
+        assert_eq!(old, b.snapshot().session);
+        assert_eq!(a.snapshot().pending_peer_key, Some(b.snapshot().local.peer_key));
+        assert_eq!(b.snapshot().pending_peer_key, Some(a.snapshot().local.peer_key));
+        assert!(a.snapshot().remote.is_none());
+        assert!(b.snapshot().remote.is_none());
+        a.abort(&old).unwrap();
+        assert!(a.snapshot().pending_peer_key.is_none());
+        wait(&b, "disconnected");
+        let port = a.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        b.connect(format!("127.0.0.1:{port}").parse().unwrap()).unwrap();
+        wait(&a, "awaiting_confirmation");
+        wait(&b, "awaiting_confirmation");
+        let fresh = a.snapshot().session;
+        assert_ne!(old, fresh);
+        assert_eq!(a.abort(&old), Err("stale_session"));
+        assert_eq!(a.confirm(&old), Err("stale_confirmation"));
+        a.confirm(&fresh).unwrap();
+        assert_eq!(b.snapshot().phase, "awaiting_confirmation");
+        b.confirm(&fresh).unwrap();
+        wait(&a, "active");
+        wait(&b, "active");
+        assert_eq!(a.abort(&old), Err("stale_session"));
+        assert_eq!(a.snapshot().phase, "active");
+        a.abort(&fresh).unwrap();
+        wait(&b, "disconnected");
+        assert!(a.snapshot().projection.is_none());
+        assert!(b.snapshot().projection.is_none());
+        b.stop();
     }
     #[test]
     fn confirmed_identity_does_not_grant_unselected_vendor_operations() {

@@ -47,6 +47,7 @@ final class BridgeClient implements AutoCloseable {
     private final Map<String,VendorExecutor> executors=new LinkedHashMap<>();
     private final Map<String,Pending> requests=new LinkedHashMap<>();
     private final NativeLogicalSessions logical=new NativeLogicalSessions();
+    private NativePairingClient nativePairing;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean polling=new AtomicBoolean();
     private String token,lastIpcStatus="";
@@ -81,6 +82,21 @@ final class BridgeClient implements AutoCloseable {
         return ()->listeners.remove(listener);
     }
     JSONObject projection(){return projection;}
+    NativePairingClient nativePairing(){if(nativePairing==null)nativePairing=new NativePairingClient(this);return nativePairing;}
+    void pairing(JSONObject command,Consumer<JSONObject> completion){
+        String copied=command.toString();
+        if(!enqueue(()->{
+            try{JSONObject value=new JSONObject(copied).put("op","native_pairing");
+                JSONObject response;
+                if("start".equals(value.optString("action"))){
+                    ensureBound();IBridge current=bridge;
+                    response=current==null?null:new JSONObject(current.transactJson(value.put("runtime_revision",runtimeRevision()).toString()));
+                    if(response!=null&&"ok".equals(response.optString("status"))){token=null;nextOpen=0;}
+                }else response=authenticated(value);
+                deliver(completion,response==null?error("service_unavailable","",""):response);
+            }catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable","",""));}
+        }))deliver(completion,error("busy","",""));
+    }
     void disconnect(String id,String session,Consumer<JSONObject> completion){
         if(!enqueue(()->{
             try{
@@ -356,6 +372,7 @@ final class BridgeClient implements AutoCloseable {
     }
     @Override public void close(){
         if(closed)return;
+        if(nativePairing!=null)nativePairing.close();
         for(MediaPipe pipe:mediaPipes)pipe.close();mediaPipes.clear();
         main.removeCallbacks(poll);
         enqueue(()->{
