@@ -29,6 +29,7 @@ final class XiaomiNetworkCardState implements AutoCloseable {
     private final BridgeClient.Subscription subscription;
     private volatile NetworkShareSurface.Snapshot snapshot;
     private volatile boolean closed;
+    private boolean receiverRegistered;
     private final Runnable expire=new Runnable(){public void run(){
         if(closed)return;
         var value=snapshot;
@@ -85,10 +86,17 @@ final class XiaomiNetworkCardState implements AutoCloseable {
                     return null;
                 }));
             }
-            client.context().registerReceiver(receiver,new IntentFilter(NetworkShareSurface.STATE),
-                NetworkShareSurface.MODULE_PERMISSION,main,Context.RECEIVER_EXPORTED);
         }catch(ReflectiveOperationException|RuntimeException failure){for(var hook:hooks)hook.unhook();throw failure;}
         subscription=client.addProjectionListener(value->main.post(this::refresh));
+        // Package hooks install before Application.attach provides the Context.
+        main.post(()->{
+            if(closed)return;
+            try{
+                client.context().registerReceiver(receiver,new IntentFilter(NetworkShareSurface.STATE),
+                    NetworkShareSurface.MODULE_PERMISSION,main,Context.RECEIVER_EXPORTED);
+                receiverRegistered=true;
+            }catch(RuntimeException failure){android.util.Log.e("YueJieNetwork","card_receiver_unavailable",failure);}
+        });
         main.post(expire);
     }
     private boolean owns(String peer){
@@ -114,7 +122,7 @@ final class XiaomiNetworkCardState implements AutoCloseable {
     }
     @Override public void close(){
         closed=true;subscription.close();main.removeCallbacks(expire);
-        client.context().unregisterReceiver(receiver);
+        if(receiverRegistered)client.context().unregisterReceiver(receiver);
         for(var hook:hooks)hook.unhook();hooks.clear();
         synchronized(managers){managers.clear();}snapshot=null;
     }

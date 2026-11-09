@@ -94,10 +94,11 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
             View view = state.view();
             if (recoveredOwner && view != null && view.phase() == Phase.RECOVERY_REQUIRED && ownsAp())
                 beginRestore("owner_process_restarted");
+            tickSafely();
         }
         // System API on the reviewed Android 17 ROMs; verify presence before registering.
         // Intentionally no @Override: the public SDK omits this system callback.
-        public void onUpstreamChanged(Network network) { actualUpstream = network; }
+        public void onUpstreamChanged(Network network) { actualUpstream = network; tickSafely(); }
         public void onClientsChanged(Collection<?> clients) {
             int count = 0;
             try {
@@ -189,6 +190,7 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
                         providerStarted = true; providerStartSettled = true;
                         if (state.view().phase() == Phase.RECOVERY_REQUIRED) beginRestore("late_provider_start");
                         else if (state.view().phase() == Phase.STOPPING) stopNativeProvider();
+                        tickSafely();
                     }
                     @Override public void onTetheringFailed(int error) {
                         if (!current(ticket)) return;
@@ -243,6 +245,11 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
                 WifiConfiguration config = new WifiConfiguration();
                 config.SSID = quote(remote.ssid()); config.preSharedKey = quote(remote.passphrase());
                 config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
+                // Each offer has a fresh SSID, absent from the tablet's scan cache.
+                // Request SSID-directed probes even though the AP broadcasts its name;
+                // otherwise supplicant can wait for a later wildcard scan to discover it.
+                // This temporary profile is removed by the normal ownership cleanup.
+                config.hiddenSSID = true;
                 consumerChanged = true;
                 recovery.prepare(recoveryEntry()); // Covers death between addNetwork and recording its returned ID.
                 consumerMutationIssued = true;
@@ -269,6 +276,7 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
             if (state.view().phase() == Phase.ACTIVE) { result.complete(state.view()); return; }
             if (state.view().phase() != Phase.READY) throw new IllegalStateException("provider_not_ready");
             if (confirmResult != null) pipe(confirmResult, result); else confirmResult = result;
+            tick();
         });
         return result;
     }
