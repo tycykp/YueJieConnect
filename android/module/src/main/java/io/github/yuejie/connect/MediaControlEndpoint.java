@@ -19,6 +19,9 @@ import org.json.JSONObject;
 /** One instance per authorized OEM executor; call only on its worker, never Binder/main. */
 class MediaControlEndpoint implements MediaControlSession.Backend {
     static final String PROXY_SESSION_EXTRA = "io.github.yuejie.connect.remote_media_proxy.v1";
+    // Whole-screen casting has no OEM app selection. This target resolves locally and
+    // only exposes the state of a single unambiguous playback session.
+    static final String ACTIVE_SESSION = "io.github.yuejie.connect.active_session";
     protected final Context context;
     protected final AudioManager audio;
     private final MediaSessionManager sessions;
@@ -116,13 +119,18 @@ class MediaControlEndpoint implements MediaControlSession.Backend {
 
     private MediaController controller(String packageName) {
         if (sessions == null) throw new IllegalStateException("media_unavailable");
+        boolean selectActive = ACTIVE_SESSION.equals(packageName);
         MediaController match = null;
         for (MediaController candidate : sessions.getActiveSessions(null)) {
-            if (!packageName.equals(candidate.getPackageName())) continue;
+            if (!selectActive && !packageName.equals(candidate.getPackageName())) continue;
             // A native system-control proxy is not a source player. Selecting another proxy as
             // a source would bounce controls between devices instead of executing real playback.
             android.os.Bundle extras = candidate.getExtras();
             if (extras != null && extras.getBoolean(PROXY_SESSION_EXTRA, false)) continue;
+            if (selectActive) {
+                PlaybackState playback = candidate.getPlaybackState();
+                if (playback == null || playback.getActions() == 0) continue;
+            }
             if (match != null) throw new IllegalStateException("ambiguous_media_session");
             match = candidate;
         }

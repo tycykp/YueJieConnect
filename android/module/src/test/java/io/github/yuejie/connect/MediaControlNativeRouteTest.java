@@ -89,6 +89,14 @@ public class MediaControlNativeRouteTest {
         assertEquals("busy", h.route.volume(h.peer, 60).join().code());
         assertEquals("invalid_volume", h.route.volume(h.peer, 10000).join().code()); assertEquals(1, h.calls.size());
     }
+    @Test public void controlForTheDisplayedPlayerCannotRetargetToAReplacement() {
+        Harness h = new Harness(); h.bind(PKG);
+        var result = h.route.control(h.peer, MediaControlSession.Action.PLAY, 0, "old-player");
+        h.reply(0, 4, "new-player", false);
+        assertEquals("stale_media_session", result.join().code());
+        assertFalse(result.join().dispatched());
+        assertEquals(1, h.calls.size());
+    }
     @Test public void noReplyDeadlineCancelsAndCompletes() {
         Harness h = new Harness(); h.bind(""); var result = h.route.volume(h.peer, 50);
         h.now = 15_000; h.route.tick(); assertEquals("cast_inactive", result.join().code());

@@ -5,6 +5,25 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class NativeScreenProofsTest {
+    @Test public void mediaRequiresRenderedReceiptFromTheClaimedCaptureProcess(){
+        long[] now={1};
+        NativeScreenProofs proofs=new NativeScreenProofs(new SecureRandom(),()->now[0]);
+        String s="a".repeat(64);
+        proofs.scope(s,"yj:peer",true);
+        String token=proofs.issue(issuer,s,"yj:peer","native-target","SYNERGY_PAD",7);
+        proofs.claim(receiver,issuer,token,"native-target","SYNERGY_PAD");
+        rejected(()->proofs.rendered(receiver,s,7));
+        proofs.nativeAllowed(receiver,s,7);
+        assertFalse(proofs.renderedForIssuer(issuer,s,7));
+        rejected(()->proofs.rendered(issuer,s,7));
+        proofs.rendered(receiver,s,7);
+        assertTrue(proofs.renderedForIssuer(issuer,s,7));
+        assertFalse(proofs.renderedForIssuer(receiver,s,7));
+        assertFalse(proofs.renderedForIssuer(issuer,s,8));
+        now[0]+=4000;
+        assertFalse(proofs.renderedForIssuer(issuer,s,7));
+        rejected(()->proofs.rendered(receiver,s,7));
+    }
     @Test public void dragIssuerCanOnlyObserveItsCurrentApprovedCapture(){
         long[] now={1};NativeScreenProofs proofs=new NativeScreenProofs(new SecureRandom(),()->now[0]);String s="a".repeat(64);
         proofs.scope(s,"yj:peer",true);String token=proofs.issue(issuer,s,"yj:peer","native-target","SYNERGY_PAD",7);

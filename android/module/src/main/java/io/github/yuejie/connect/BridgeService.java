@@ -145,6 +145,14 @@ public final class BridgeService extends Service {
                 screenProofs.nativeAllowed(caller,command.getString("session_id"),exactLong(command,"stream_id"));
                 return "{\"status\":\"ok\"}";
             }
+            if("screen_request_rendered".equals(op)&&command.length()==3&&CallerPolicy.OPLUS_CAST.equals(verified.packageName())){
+                screenProofs.rendered(caller,command.getString("session_id"),exactLong(command,"stream_id"));
+                return "{\"status\":\"ok\"}";
+            }
+            if("screen_request_media".equals(op)&&command.length()==3&&CallerPolicy.OPLUS.equals(verified.packageName())){
+                boolean rendered=screenProofs.renderedForIssuer(caller,command.getString("session_id"),exactLong(command,"stream_id"));
+                return new JSONObject().put("status","ok").put("rendered",rendered).toString();
+            }
             if("screen_request_renew".equals(op)&&command.length()==3&&CallerPolicy.OPLUS_CAST.equals(verified.packageName())){
                 screenProofs.renew(caller,command.getString("session_id"),exactLong(command,"stream_id"));return "{\"status\":\"ok\"}";
             }

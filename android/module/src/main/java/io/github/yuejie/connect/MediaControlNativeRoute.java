@@ -30,12 +30,13 @@ final class MediaControlNativeRoute implements AutoCloseable {
         final MediaControlSession.Action action;
         final long value, deadline;
         final VolumeMode volumeMode;
+        final String expectedToken;
         final CompletableFuture<MediaControlSession.Result> future = new CompletableFuture<>();
         String requestId;
         boolean dispatched;
-        Pending(Binding binding, MediaControlSession.Action action, long value, long deadline, VolumeMode volumeMode) {
+        Pending(Binding binding, MediaControlSession.Action action, long value, long deadline, VolumeMode volumeMode, String expectedToken) {
             this.binding = binding; this.action = action; this.value = value; this.deadline = deadline;
-            this.volumeMode = volumeMode;
+            this.volumeMode = volumeMode; this.expectedToken = expectedToken;
         }
     }
     private final Transport transport;
@@ -51,7 +52,7 @@ final class MediaControlNativeRoute implements AutoCloseable {
     }
     /** Called only after ScreenCastSession.onStreaming for the original peer/request.
      * active must recheck grant, exact native owner, session/stream and streaming state on EVERY call.
-     * Empty targetPackage permits only cast volume; a media target must be explicitly selected by OEM. */
+     * Empty targetPackage permits only cast volume. */
     synchronized void bind(Scope scope, Object originalPeer, String targetPackage, BooleanSupplier active) {
         Objects.requireNonNull(scope); Objects.requireNonNull(originalPeer); Objects.requireNonNull(active);
         String pkg = targetPackage == null ? "" : targetPackage;
@@ -95,10 +96,17 @@ final class MediaControlNativeRoute implements AutoCloseable {
         return begin(peer, MediaControlSession.Action.SET_VOLUME, direction, VolumeMode.RELATIVE);
     }
     CompletableFuture<MediaControlSession.Result> control(Object peer, MediaControlSession.Action action, long value) {
-        if (!MediaControlSession.isMedia(action)) return completed("invalid_action");
-        return begin(peer, action, value, VolumeMode.ABSOLUTE);
+        return control(peer, action, value, null);
     }
-    private synchronized CompletableFuture<MediaControlSession.Result> begin(Object peer, MediaControlSession.Action action, long value, VolumeMode volumeMode) {
+    CompletableFuture<MediaControlSession.Result> control(Object peer, MediaControlSession.Action action, long value, String expectedToken) {
+        if (!MediaControlSession.isMedia(action)) return completed("invalid_action");
+        return begin(peer, action, value, VolumeMode.ABSOLUTE, expectedToken);
+    }
+    private CompletableFuture<MediaControlSession.Result> begin(Object peer, MediaControlSession.Action action, long value, VolumeMode volumeMode) {
+        return begin(peer, action, value, volumeMode, null);
+    }
+    private synchronized CompletableFuture<MediaControlSession.Result> begin(Object peer, MediaControlSession.Action action, long value,
+            VolumeMode volumeMode, String expectedToken) {
         if (!live(binding) || binding.peer != peer) return completed("cast_inactive");
         if (pending != null) return completed("busy");
         boolean media = MediaControlSession.isMedia(action);
@@ -106,7 +114,7 @@ final class MediaControlNativeRoute implements AutoCloseable {
         try { new MediaControlSession.Request(action, media ? binding.targetPackage : "", media ? "pending" : "",
                 volumeMode == VolumeMode.RELATIVE ? 0 : value, -1); }
         catch (RuntimeException invalid) { return completed("invalid_media_request"); }
-        Pending next = new Pending(binding, action, value, elapsed.getAsLong() + 15_000, volumeMode);
+        Pending next = new Pending(binding, action, value, elapsed.getAsLong() + 15_000, volumeMode, expectedToken);
         pending = next;
         query(next);
         return next.future;
@@ -122,6 +130,9 @@ final class MediaControlNativeRoute implements AutoCloseable {
             if (media && result.state().token().isEmpty()) { finish(p, failure(p, "invalid_result")); return; }
             if (p.action == MediaControlSession.Action.QUERY || p.action == MediaControlSession.Action.VOLUME_QUERY) { finish(p, result); return; }
             MediaControlSession.State state = result.state();
+            if (p.expectedToken != null && !p.expectedToken.equals(state.token())) {
+                finish(p, failure(p, "stale_media_session")); return;
+            }
             long value = p.value;
             if (!media) {
                 value = switch (p.volumeMode) {

@@ -27,7 +27,14 @@ final class ScreenCastSourceRuntime {
         projectionOwner=projectionType.getMethod("d",android.content.Context.class).invoke(null,client.context());
         ScreenCastBridgeTransport transport=new ScreenCastBridgeTransport(client);
         bridge=new ScreenCastBridge(transport,new ScreenCastBridge.Listener(){
-            public void onStreaming(Object owner,ScreenCastSession.Scope scope,ScreenCastSession.Receipt receipt){ScreenCastLog.i("YueJieScreen","source_render_confirmed");}
+            public void onStreaming(Object owner,ScreenCastSession.Scope owned,ScreenCastSession.Receipt receipt){
+                ScreenCastLog.i("YueJieScreen","source_render_confirmed");
+                main.post(()->{
+                    if(current(owned)&&approved&&bridge.streaming(owner,owned)
+                            &&!command("screen_request_rendered",owned))
+                        ScreenCastLog.w("YueJieMedia","render_proof_rejected");
+                });
+            }
             public void onClosed(Object owner,ScreenCastSession.Scope scope,String code){ScreenCastLog.w("YueJieScreen","source_closed "+code);}
         },SystemClock::elapsedRealtime);
         requests=new OplusScreenRequestAdapter(module,loader,this::resolve);requests.install();transport.attach(bridge);

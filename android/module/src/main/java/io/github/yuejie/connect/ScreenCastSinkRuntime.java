@@ -4,6 +4,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Surface;
+import android.view.WindowManager;
 import io.github.libxposed.api.XposedModule;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
@@ -11,18 +12,21 @@ import org.json.JSONObject;
 
 /** Adapts the selected, authenticated peer to the OEM floating screen window. */
 final class ScreenCastSinkRuntime {
+    private static final int OEM_MAGNIFICATION_OVERLAY=2027;
     private final BridgeClient client;
     private final ScreenCastInputRuntime input;
     private final ClassLoader loader;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ScreenCastBridge bridge;
     private final XiaomiScreenSinkAdapter sinks;
+    private final MediaControlSystemSession media;
     private final Class<?> viewType;
     private volatile ScreenCastSession.Scope scope;
     private String peerId;
     private Object peer,view,nativeSink;
     private ScreenCastFormat format;
     private ScreenCastAudio.Playback playback;
+    private ScreenCastSession.Scope mediaStream;
     private boolean consent;
     private boolean closing;
     private Boolean lastCardQuery;
@@ -34,6 +38,9 @@ final class ScreenCastSinkRuntime {
     ScreenCastSinkRuntime(XposedModule module,BridgeClient client,ClassLoader loader)throws Exception{
         this.client=client;this.loader=loader;
         input=new ScreenCastInputRuntime(client);
+        media=new MediaControlSystemSession(client.context(),
+            new MediaControlNativeRoute(new MediaControlBridgeTransport(client),SystemClock::elapsedRealtime),
+            (scope,code,attempted)->ScreenCastLog.w("YueJieMedia","control_failed "+code+" attempted="+attempted));
         new XiaomiScreenTouchAdapter(module,loader,input,actual->actual==view&&owns(actual),actual->actual==peer&&current());
         viewType=type("com.xiaomi.mirror.sink.SinkView");
         ScreenCastBridgeTransport transport=new ScreenCastBridgeTransport(client);
@@ -71,6 +78,7 @@ final class ScreenCastSinkRuntime {
         hooksClose(module,helper.getDeclaredMethod("j"),false);
         hooksClose(module,helper.getDeclaredMethod("k",String.class),true);
         Class<?> windowType=type("com.xiaomi.mirror.sink.SinkWindow");
+        installWindowLayer(module,windowType);
         module.hook(windowType.getMethod("f1")).setId("yj.screen.window.close").intercept(chain->{
             var owned=scope;boolean selected=owned!=null&&view!=null&&field(windowType,"h").get(chain.getThisObject())==view;
             Object result=chain.proceed();if(selected)stopOnly(owned);return result;
@@ -91,8 +99,55 @@ final class ScreenCastSinkRuntime {
             if(!owns(chain.getThisObject()))return chain.proceed();
             Object actual=chain.getThisObject();main.post(()->bind(actual));return null;
         });
-        main.post(new Runnable(){public void run(){bridge.tick();if(scope!=null&&!current()){dismiss(scope);sinks.sessionChanged();}main.postDelayed(this,250);}});
+        main.post(new Runnable(){public void run(){
+            bridge.tick();
+            if(scope!=null&&!current()){dismiss(scope);sinks.sessionChanged();}
+            refreshMedia();
+            main.postDelayed(this,250);
+        }});
         ScreenCastLog.i("YueJieScreen","sink_installed");
+    }
+    private void installWindowLayer(XposedModule module,Class<?> windowType)throws Exception{
+        Field sink=field(windowType,"h"), layout=field(windowType,"y1");
+        ThreadLocal<Object> opening=new ThreadLocal<>();
+        module.hook(windowType.getDeclaredMethod("y1",int.class,int.class)).setId("yj.screen.window.layout").intercept(chain->{
+            Object owner=chain.getThisObject();
+            if(!owns(sink.get(owner)))return chain.proceed();
+            Object previous=opening.get();
+            opening.set(owner);
+            try{return chain.proceed();}
+            finally{if(previous==null)opening.remove();else opening.set(previous);}
+        });
+        // The OEM prepares these same params immediately before adding the window. Set the
+        // type before attachment so native moves and resizing keep the same window type.
+        module.hook(type("q4.u0").getDeclaredMethod("H0",WindowManager.LayoutParams.class)).setId("yj.screen.window.layer").intercept(chain->{
+            Object result=chain.proceed(), owner=opening.get();
+            var params=(WindowManager.LayoutParams)chain.getArg(0);
+            if(owner!=null&&layout.get(owner)==params&&params.type==OEM_MAGNIFICATION_OVERLAY)
+                params.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+            return result;
+        });
+    }
+    private void refreshMedia(){
+        media.tick();
+        var owned=dragScope();
+        if(owned==null||mediaStream==owned||!client.hasLocalGrant(MediaControlTasks.OPERATION))return;
+        JSONObject projection=client.projection();
+        var operations=projection==null?null:projection.optJSONArray("operations");
+        boolean ready=false;
+        if(operations!=null)for(int i=0;i<operations.length();i++)
+            if(MediaControlTasks.OPERATION.equals(operations.optString(i)))ready=true;
+        if(!ready)return;
+        Object nativePeer=peer,nativeView=view;
+        var controlScope=new MediaControlNativeRoute.Scope(peerId,owned.sessionId(),peerId,owned.streamId(),0);
+        mediaStream=owned;
+        try{
+            media.start(controlScope,nativePeer,MediaControlEndpoint.ACTIVE_SESSION,
+                ()->scope==owned&&peer==nativePeer&&view==nativeView&&dragScope()==owned
+                    &&client.hasLocalGrant(MediaControlTasks.OPERATION));
+        }catch(RuntimeException unavailable){
+            ScreenCastLog.w("YueJieMedia","sink_control_unavailable "+unavailable.getMessage());
+        }
     }
     private void sendAudioControl(ScreenCastBridgeTransport transport,ScreenCastSession.Scope owned,Object owner,ScreenCastBridge.Action action){
         if(scope!=owned||view!=owner||closing||!current())return;
@@ -131,7 +186,7 @@ final class ScreenCastSinkRuntime {
         });
     }catch(Exception e){ScreenCastLog.e("YueJieScreen","start_failed",e);}}
     private void dismiss(ScreenCastSession.Scope owned){main.post(()->{
-        if(scope!=owned||closing)return;closing=true;input.revoke();
+        if(scope!=owned||closing)return;closing=true;input.revoke();media.stop();mediaStream=null;
         try{Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);
             if(view!=null&&field(controller,"g").get(owner)==view)controller.getMethod("O").invoke(owner);
         }catch(Exception error){ScreenCastLog.e("YueJieScreen","window_close_failed",error);}

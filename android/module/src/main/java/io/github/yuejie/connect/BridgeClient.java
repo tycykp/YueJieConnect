@@ -256,7 +256,8 @@ final class BridgeClient implements AutoCloseable {
     // These fixed, local Binder operations carry only a one-use request association. They never
     // wait for a network peer, grant capture, or share the authenticated control-lane sequence.
     JSONObject nativeScreenRequest(JSONObject command){
-        if(closed||!java.util.Set.of("screen_request_issue","screen_request_claim","screen_request_allowed","screen_request_renew","screen_request_revoke","screen_request_active").contains(command.optString("op")))return error("permission_denied","","");
+        if(closed||!java.util.Set.of("screen_request_issue","screen_request_claim","screen_request_allowed","screen_request_renew","screen_request_revoke","screen_request_active",
+                "screen_request_rendered","screen_request_media").contains(command.optString("op")))return error("permission_denied","","");
         try{IBridge current=bridge;return current==null?error("service_unavailable","",""):new JSONObject(current.transactJson(new JSONObject(command.toString()).put("runtime_revision",runtimeRevision()).toString()));}
         catch(org.json.JSONException|RemoteException failure){return error("service_unavailable","","");}
     }

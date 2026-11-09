@@ -18,7 +18,7 @@ final class NativeScreenProofs {
     private final Map<String,Pending> pending=new HashMap<>();
     private final Map<Long,Claim> claims=new HashMap<>();
     private final Map<Long,Long> deadlines=new HashMap<>();
-    private final Set<Long> used=new HashSet<>(),approved=new HashSet<>();
+    private final Set<Long> used=new HashSet<>(),approved=new HashSet<>(),rendered=new HashSet<>();
     private String session="",projection="";
     private boolean permitted;
     NativeScreenProofs(){this(new SecureRandom(),android.os.SystemClock::elapsedRealtime);}
@@ -26,9 +26,9 @@ final class NativeScreenProofs {
     synchronized void scope(String nextSession,String nextProjection,boolean granted){
         String s=nextSession==null?"":nextSession,p=nextProjection==null?"":nextProjection;
         if(!session.equals(s)||!projection.equals(p)){
-            pending.clear();claims.clear();deadlines.clear();used.clear();approved.clear();session=s;projection=p;
+            pending.clear();claims.clear();deadlines.clear();used.clear();approved.clear();rendered.clear();session=s;projection=p;
         }
-        if(!granted){pending.clear();claims.clear();deadlines.clear();approved.clear();}
+        if(!granted){pending.clear();claims.clear();deadlines.clear();approved.clear();rendered.clear();}
         permitted=granted&&!s.isEmpty()&&!p.isEmpty();
     }
     synchronized String issue(Caller issuer,String expectedSession,String expectedProjection,String nativeUid,String type,long stream){
@@ -68,6 +68,15 @@ final class NativeScreenProofs {
         if(!approved(receiver,expectedSession,stream))throw new IllegalStateException("screen_request_unproved");
         deadlines.put(stream,clock.getAsLong()+4000);
     }
+    synchronized void rendered(Caller receiver,String expectedSession,long stream){
+        if(!approved(receiver,expectedSession,stream))throw new IllegalStateException("screen_request_unproved");
+        rendered.add(stream);
+    }
+    synchronized boolean renderedForIssuer(Caller issuer,String expectedSession,long stream){
+        expire();
+        Claim claim=claims.get(stream);
+        return permitted&&session.equals(expectedSession)&&claim!=null&&claim.issuer.equals(issuer)&&rendered.contains(stream);
+    }
     synchronized long activeForIssuer(Caller issuer,String expectedSession){
         expire(); if(!permitted||!session.equals(expectedSession))return 0;
         for(Claim claim:claims.values())if(claim.issuer.equals(issuer)&&approved.contains(claim.stream))return claim.stream;
@@ -76,11 +85,11 @@ final class NativeScreenProofs {
     synchronized void revoke(Caller caller,String expectedSession,long stream){
         if(!session.equals(expectedSession))return;
         Claim claim=claims.get(stream);
-        if(claim!=null&&(claim.issuer.equals(caller)||claim.receiver.equals(caller))){claims.remove(stream);deadlines.remove(stream);approved.remove(stream);}
+        if(claim!=null&&(claim.issuer.equals(caller)||claim.receiver.equals(caller))){claims.remove(stream);deadlines.remove(stream);approved.remove(stream);rendered.remove(stream);}
         pending.values().removeIf(p->p.stream==stream&&p.issuer.equals(caller));
     }
     private void expire(){long now=clock.getAsLong();pending.values().removeIf(p->now>=p.deadline);
-        deadlines.entrySet().removeIf(e->{if(now<e.getValue())return false;claims.remove(e.getKey());approved.remove(e.getKey());return true;});
+        deadlines.entrySet().removeIf(e->{if(now<e.getValue())return false;claims.remove(e.getKey());approved.remove(e.getKey());rendered.remove(e.getKey());return true;});
     }
     private void require(String s,String p){if(!permitted||!session.equals(s)||!projection.equals(p))throw new IllegalStateException("screen_request_unproved");}
 }

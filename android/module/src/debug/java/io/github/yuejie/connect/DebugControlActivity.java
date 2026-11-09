@@ -24,7 +24,7 @@ public final class DebugControlActivity extends Activity {
                 String response;
                 try{response=IBridge.Stub.asInterface(b).transactJson(command);}
                 catch(Exception e){response="{\"status\":\"error\",\"code\":\"debug_ipc_failed\"}";}
-                Log.i("YueJieTest",requestId+" "+Base64.encodeToString(response.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP));
+                logResponse(response);
                 runOnUiThread(()->finish());
             },"yj-debug-control").start();
         }
@@ -37,12 +37,20 @@ public final class DebugControlActivity extends Activity {
             if(requestId==null||!requestId.matches("[a-f0-9]{32}"))throw new IllegalArgumentException();
             String input=getIntent().getStringExtra("command_b64");if(input==null||input.length()>12000)throw new IllegalArgumentException();
             command=new String(Base64.decode(input,Base64.DEFAULT),StandardCharsets.UTF_8);
-            String op=new JSONObject(command).getString("op");
+            JSONObject inputCommand=new JSONObject(command);
+            String op=inputCommand.getString("op");
+            if("media_fixture".equals(op)){
+                logResponse(MediaControlFixture.command(getApplicationContext(),inputCommand.getString("action")));
+                finish();return;
+            }
             if(!Set.of("bridge_status","bridge_runtime_status","bridge_listen","bridge_connect","bridge_confirm","bridge_query_peer","bridge_stop","notification_fixture","notification_packages").contains(op))throw new IllegalArgumentException();
             TextView message=new TextView(this);message.setText("越界互联：正在执行已授权的调试操作");setContentView(message);
             if(op.equals("bridge_listen")||op.equals("bridge_connect"))startService(new Intent(this,BridgeService.class));
             bound=bindService(new Intent(this,BridgeService.class),connection,Context.BIND_AUTO_CREATE);
         }catch(Exception e){finish();}
+    }
+    private void logResponse(String response){
+        Log.i("YueJieTest",requestId+" "+Base64.encodeToString(response.getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP));
     }
     @Override public void onDestroy(){if(bound)try{unbindService(connection);}catch(IllegalArgumentException ignored){}super.onDestroy();}
 }

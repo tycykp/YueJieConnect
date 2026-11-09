@@ -13,9 +13,12 @@ final class ScreenCastLinkerRuntime implements BridgeClient.VendorExecutor {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Object sdk;
     private final Class<?> sdkType,deviceType,callbackType;
+    private final MediaControlRuntime media;
     private boolean ready;
     private long stream;
     private String session;
+    private Object requestedPeer;
+    private MediaControlCastRegistry.Lease mediaLease;
     ScreenCastLinkerRuntime(BridgeClient client,ClassLoader loader)throws Exception {
         this.client=client;this.loader=loader;
         sdkType=Class.forName("com.oplus.cast.service.sdk.api.HeyCastClientManager",false,loader);
@@ -30,6 +33,41 @@ final class ScreenCastLinkerRuntime implements BridgeClient.VendorExecutor {
         }));
         sdkType.getMethod("open").invoke(sdk);
         client.registerExecutor("screen_request",this);
+        // Linker holds MEDIA_CONTENT_CONTROL. The capture process attests the rendered stream.
+        media=new MediaControlRuntime(client,new MediaControlEndpoint(client.context(),CallerPolicy.OPLUS));
+        main.post(new Runnable(){public void run(){refreshMedia();main.postDelayed(this,500);}});
+    }
+    private boolean rendered(MediaControlNativeRoute.Scope scope){
+        try{
+            JSONObject result=client.nativeScreenRequest(new JSONObject().put("op","screen_request_media")
+                .put("session_id",scope.sessionId()).put("stream_id",scope.streamId()));
+            return "ok".equals(result.optString("status"))&&result.optBoolean("rendered");
+        }catch(org.json.JSONException invalid){return false;}
+    }
+    private void refreshMedia(){
+        if(mediaLease!=null){
+            if(mediaLease.current())return;
+            clearMedia();
+        }
+        JSONObject projection=client.projection();
+        Object peer=requestedPeer;
+        if(peer==null||projection==null||!projection.optString("session_id").equals(session)
+                ||!client.hasLocalGrant(MediaControlTasks.OPERATION))return;
+        String id=projection.optString("id");
+        var scope=new MediaControlNativeRoute.Scope(id,session,id,stream,0);
+        if(!rendered(scope))return;
+        try{
+            String target=MediaControlEndpoint.ACTIVE_SESSION;
+            mediaLease=media.bind(scope,peer,sdk,target,()->new MediaControlCastRegistry.NativeState(
+                scope,peer,sdk,rendered(scope),client.hasLocalGrant("screen_video"),false,true,target));
+            media.refresh();
+            ScreenCastLog.i("YueJieMedia","source_control_ready");
+        }catch(IllegalStateException unavailable){
+            ScreenCastLog.w("YueJieMedia","source_control_unavailable "+unavailable.getMessage());
+        }
+    }
+    private void clearMedia(){
+        if(mediaLease!=null){mediaLease.close();mediaLease=null;media.refresh();}
     }
     static Object objectMethod(Object proxy,String name,Object[] args){
         return switch(name){case "toString"->"YJ native screen callback";case "hashCode"->System.identityHashCode(proxy);case "equals"->proxy==args[0];default->null;};
@@ -41,7 +79,7 @@ final class ScreenCastLinkerRuntime implements BridgeClient.VendorExecutor {
                 ||!task.getString("projection_id").equals(p.getString("id"))||!client.hasLocalGrant("screen_video"))throw new IllegalStateException("screen_request_unavailable");
             long next=task.getJSONObject("payload").getLong("stream_id");
             if(next==stream&&p.getString("session_id").equals(session))throw new IllegalStateException("screen_scope_reused");
-            stream=next;session=p.getString("session_id");
+            clearMedia();requestedPeer=null;stream=next;session=p.getString("session_id");
             String id=p.getString("id");
             JSONObject proof=client.nativeScreenRequest(new JSONObject().put("op","screen_request_issue").put("session_id",session)
                 .put("projection_id",id).put("stream_id",stream).put("native_uid",id).put("device_type","SYNERGY_PAD"));
@@ -57,9 +95,10 @@ final class ScreenCastLinkerRuntime implements BridgeClient.VendorExecutor {
             });
             Object result=sdkType.getMethod("startMirror",deviceType,callbackType,Bundle.class).invoke(sdk,device,callback,extras);
             if(!(result instanceof Integer code)||code!=0)throw new IllegalStateException("native_start_"+result);
+            requestedPeer=device;
             completion.success(new JSONObject().put("stream_id",stream).put("accepted",true));
         }catch(Exception error){ScreenCastLog.e("YueJieScreen","request_failed",error);completion.fail("native_unavailable");}});
     }
     public void cancel(String session,String request){}
-    public void sessionChanged(){session=null;stream=0;}
+    public void sessionChanged(){requestedPeer=null;session=null;stream=0;clearMedia();}
 }

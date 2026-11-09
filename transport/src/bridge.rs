@@ -502,6 +502,13 @@ impl Bridge {
             .extend(self.mailbox.lock().unwrap().operations(self.now()));
         if profile.operations.contains(&Operation::ScreenControl) {
             profile.operations.insert(Operation::ScreenVideo);
+            // The HyperOS tablet's cast sink can send media controls. ColorOS advertises
+            // the receiving capability separately, while its rendered cast executor is live.
+            if profile.platform == Source::HyperOs4
+                && profile.kind == yj_core::gateway::DeviceKind::Tablet
+            {
+                profile.operations.insert(Operation::MediaControl);
+            }
         }
         profile
     }
