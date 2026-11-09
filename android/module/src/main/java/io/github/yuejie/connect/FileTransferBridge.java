@@ -48,6 +48,7 @@ public final class FileTransferBridge implements AutoCloseable {
     }
     private final BridgeClient client;
     private final BooleanSupplier allowed;
+    private final boolean sendOnly;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final FileTransferEndpoint endpoint;
     private final FileTransferNegotiation negotiation;
@@ -72,12 +73,20 @@ public final class FileTransferBridge implements AutoCloseable {
     private boolean endpointClosed;
 
     public FileTransferBridge(Context context, BridgeClient client, BooleanSupplier verifiedNativeContextAllowed) throws IOException {
-        this.client = client; allowed = verifiedNativeContextAllowed;
+        this(context, client, verifiedNativeContextAllowed, false);
+    }
+
+    static FileTransferBridge nfcSender(Context context, BridgeClient client) throws IOException {
+        return new FileTransferBridge(context, client, () -> true, true);
+    }
+
+    private FileTransferBridge(Context context, BridgeClient client, BooleanSupplier allowed, boolean sendOnly) throws IOException {
+        this.client = client; this.allowed = allowed; this.sendOnly = sendOnly;
         String pkg = context.getPackageName();
-        if (!("com.xiaomi.mirror".equals(pkg) || "com.oplus.linker".equals(pkg)))
+        if (sendOnly ? !"io.github.yuejie.connect".equals(pkg) : !("com.xiaomi.mirror".equals(pkg) || "com.oplus.linker".equals(pkg)))
             throw new SecurityException("invalid_executor_context");
         negotiation = new FileTransferNegotiation(this::current, SystemClock::elapsedRealtime);
-        endpoint = new FileTransferEndpoint(context, this::current);
+        endpoint = sendOnly ? null : new FileTransferEndpoint(context, this::current);
         fileClient = new FileTransferClient(new FileTransferClient.Transport() {
             public boolean current(FileTransferEngine.Key key) { return outgoingCurrent(key); }
             public CompletableFuture<JSONObject> request(FileTransferEngine.Key key, String operation, JSONObject payload) {
@@ -95,7 +104,7 @@ public final class FileTransferBridge implements AutoCloseable {
     /** Main/native setup only. A registered receiver must have its actual OEM provider/sink ready. */
     public Registration registerReceiver(FileTransferNegotiation.Purpose purpose, NativeReceiver receiver) {
         synchronized (receivers) {
-            if (closed || receivers.putIfAbsent(purpose, receiver) != null) throw new IllegalStateException("file_receiver_already_registered");
+            if (closed || sendOnly || receivers.putIfAbsent(purpose, receiver) != null) throw new IllegalStateException("file_receiver_already_registered");
         }
         updateRegistration();
         return () -> {
@@ -109,7 +118,7 @@ public final class FileTransferBridge implements AutoCloseable {
     }
     public boolean ready() {
         JSONObject p = client.projection();
-        synchronized (registrations) { return !closed && contextAllowed() && registrations.size() == OPERATIONS.size()
+        synchronized (registrations) { return !closed && contextAllowed() && (sendOnly ? client.hasLocalGrant("file_prepare") : registrations.size() == OPERATIONS.size())
                 && p != null && p.optString("session_id").matches("[0-9a-f]{64}") && operations(p.optJSONArray("operations")); }
     }
     public boolean current(FileTransferEngine.Key key) {
@@ -175,7 +184,8 @@ public final class FileTransferBridge implements AutoCloseable {
     }
     /** Allows a real native event to take a previously allocated key without provider/network I/O. */
     public boolean bindOutgoing(FileTransferEngine.Key key, FileTransferNegotiation.Purpose purpose, String token) {
-        if (purpose == null || token == null || !token.matches("[0-9a-f]{32}") || !current(key)) return false;
+        if (purpose == null || (sendOnly && purpose != FileTransferNegotiation.Purpose.NFC_TAP)
+                || token == null || !token.matches("[0-9a-f]{32}") || !current(key)) return false;
         synchronized (outgoing) {
             Outgoing work=outgoing.get(key);
             if(work==null||work.released||work.releaseRequested||work.failed)return false;
@@ -373,7 +383,8 @@ public final class FileTransferBridge implements AutoCloseable {
     }
     public void sessionChanged(){
         JSONObject p=client.projection();String actual=p==null?null:p.optString("session_id");
-        negotiation.sessionChanged(actual!=null&&actual.matches("[0-9a-f]{64}")?actual:null);endpoint.sessionChanged();
+        negotiation.sessionChanged(actual!=null&&actual.matches("[0-9a-f]{64}")?actual:null);
+        if(endpoint!=null)endpoint.sessionChanged();
         synchronized(outgoing){for(Outgoing work:new ArrayList<>(outgoing.values()))if(!current(work.key)){cancel(work.key);release(work.key);}}
         synchronized(receivers){for(NativeReceiver receiver:receivers.values())main.post(receiver::sessionChanged);}
         maintain();
@@ -401,7 +412,7 @@ public final class FileTransferBridge implements AutoCloseable {
                 client.releaseFile(key.session(),key.transfer(),"incoming",response->{synchronized(incomingReleased){incomingReleasing.remove(key);if(releasedReply(key,response)||endedSession(key,response))incomingReleased.add(key);}});
             }
             if(closed&&negotiation.resourcesReleased()){
-                if(!endpointClosed){endpointClosed=true;endpoint.close();sendWorker.shutdown();}
+                if(!endpointClosed){endpointClosed=true;if(endpoint!=null)endpoint.close();sendWorker.shutdown();}
                 synchronized(outgoing){if(allocating==0&&outgoing.values().stream().allMatch(o->o.released)&&sendWorker.isTerminated()){
                     timer.shutdown();retired.complete(null);}}
             }

@@ -182,6 +182,7 @@ pub fn supported(operation: Operation) -> bool {
             | Operation::ScreenInput
             | Operation::ScreenControl
             | Operation::ScreenRequest
+            | Operation::NfcTap
             | Operation::ScreenDrag
     )
 }
@@ -209,6 +210,7 @@ pub fn logical_business(operation: Operation) -> bool {
                 | Operation::ScreenInput
             | Operation::ScreenControl
                 | Operation::ScreenRequest
+                | Operation::NfcTap
                 | Operation::ScreenDrag
         )
 }
@@ -254,6 +256,7 @@ pub fn timeout_ms(operation: Operation) -> u64 {
         | Operation::TelephonySmsStatus => 10_000,
         Operation::FileCommit => 15_000,
         Operation::AppRelay => 20_000,
+        Operation::NfcTap => 25_000,
         _ => 5_000,
     }
 }
@@ -277,6 +280,21 @@ fn uri_file_payload(payload: &Value) -> Result<Value> {
 
 /// Only this typed operation is enabled; adding a name does not grant a generic RPC channel.
 pub fn validate_payload(operation: Operation, payload: &Value) -> Result<()> {
+    if operation == Operation::NfcTap {
+        let fields = payload.as_object().ok_or("invalid_payload")?;
+        let files = fields.get("files").and_then(Value::as_array).ok_or("invalid_payload")?;
+        if fields.len() != 2 || !fields.get("target").and_then(Value::as_str)
+            .is_some_and(|value| value.len() == 64 && value.as_bytes().iter()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))) || files.len() > 4 {
+            return Err("invalid_payload");
+        }
+        let mut seen = BTreeSet::new();
+        for file in files {
+            let token = file.as_str().ok_or("invalid_payload")?;
+            if !valid_channel(token) || !seen.insert(token) { return Err("invalid_payload"); }
+        }
+        return Ok(());
+    }
     if operation == Operation::ScreenDrag { return if crate::screen_drag::valid(payload) {Ok(())} else {Err("invalid_payload")}; }
     if operation == Operation::ScreenRequest {
         return if crate::screen_control::request(payload) { Ok(()) } else { Err("invalid_payload") };
@@ -456,6 +474,7 @@ pub(crate) fn rich_clipboard_bytes(payload: &Value) -> Result<usize> {
 
 pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) -> bool {
     match value {
+        OperationResult::NfcTap(result) => return nfc_tap_receipt(result),
         OperationResult::ScreenRequest(result) => {
             return crate::screen_control::request(payload) && crate::screen_control::request_receipt(result)
                 && payload["stream_id"] == result["stream_id"];
@@ -520,6 +539,10 @@ pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) 
         }
         _ => true,
     }
+}
+
+pub(crate) fn nfc_tap_receipt(value: &Value) -> bool {
+    value.as_object().is_some_and(|fields| fields.len() == 1 && fields.get("accepted") == Some(&Value::Bool(true)))
 }
 
 impl VendorMailbox {
@@ -890,6 +913,20 @@ mod tests {
     use super::*;
     use crate::bridge::ClipboardReceipt;
     use serde_json::json;
+
+    #[test]
+    fn nfc_tap_accepts_one_target_and_bounded_unique_file_tokens() {
+        let target = "a".repeat(64);
+        let token = "b".repeat(32);
+        for files in [json!([]), json!([token])] {
+            assert!(validate_payload(Operation::NfcTap, &json!({"target":target,"files":files})).is_ok());
+        }
+        for files in [json!([token,token]), json!(["invalid"]), json!(null)] {
+            assert!(validate_payload(Operation::NfcTap, &json!({"target":target,"files":files})).is_err());
+        }
+        assert!(!nfc_tap_receipt(&json!({"accepted":false})));
+        assert!(!nfc_tap_receipt(&json!({"accepted":true,"extra":0})));
+    }
     fn owner() -> ExecutorOwner {
         ExecutorOwner {
             uid: 123,

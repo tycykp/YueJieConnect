@@ -36,6 +36,13 @@ public final class DiscoveryModule extends XposedModule {
     }
     @Override public void onPackageReady(PackageReadyParam param) {
         String pkg=param.getPackageName();
+        if(OplusNfcTap.PACKAGE.equals(pkg)&&pkg.equals(processName)){
+            if(installed||getApiVersion()<102||!param.isFirstPackage())return;
+            installed=true;
+            try{OplusNfcTap.install(this,param.getClassLoader());}
+            catch(ReflectiveOperationException failure){log(Log.WARN,TAG,"nfc_dispatch_signature_unsupported");}
+            return;
+        }
         if(CallerPolicy.OPLUS_PAIRING.equals(pkg)){
             if(installed||getApiVersion()<102||!param.isFirstPackage())return;installed=true;
             try{OplusNativePairing.install(this,client,param.getClassLoader(),processName);}
@@ -117,7 +124,9 @@ public final class DiscoveryModule extends XposedModule {
                                 // Run after the current Application launch transaction. Do not
                                 // depend on whether an OEM overrides/inherits Application.onCreate.
                                 new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
-                                    if(allowed&&relayRuntime==null)relayRuntime=new AppRelayRuntime(this,client,cl,expected,()->allowed,fileBridge);
+                                    if(!allowed)return;
+                                    if(mirror)new NfcTapPad(client,fileBridge,()->screenSink);
+                                    if(relayRuntime==null)relayRuntime=new AppRelayRuntime(this,client,cl,expected,()->allowed,fileBridge);
                                 });
                             }
                             if(expected==1&&"com.milink.service:core".equals(processName))try {

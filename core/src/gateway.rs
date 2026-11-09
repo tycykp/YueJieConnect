@@ -43,6 +43,7 @@ pub enum Operation {
     ScreenInput,
     ScreenRequest,
     ScreenDrag,
+    NfcTap,
     CameraVideo,
     TelephonyCallState,
     TelephonyCallControl,

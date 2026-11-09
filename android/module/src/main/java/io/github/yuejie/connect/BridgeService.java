@@ -78,10 +78,12 @@ public final class BridgeService extends Service {
             catch(SecurityException restricted){android.util.Log.i("YueJieBridge","device_name_restricted_using_model");}
             if(name==null || name.isBlank()) name=Build.MODEL;
             JSONArray key=new JSONArray();for(int i=0;i<32;i++)key.put(0);
+            JSONArray operations = new JSONArray();
+            if (source == 2 && getPackageManager().hasSystemFeature(PackageManager.FEATURE_NFC)) operations.put("nfc_tap");
             JSONObject profile=new JSONObject().put("peer_key",key).put("platform",source==1?"hyper_os4":"color_os17")
                 .put("kind",getResources().getConfiguration().smallestScreenWidthDp>=600?"tablet":"phone")
                 .put("name",name).put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL)
-                .put("os_build",Build.VERSION.INCREMENTAL).put("operations",new JSONArray());
+                .put("os_build",Build.VERSION.INCREMENTAL).put("operations",operations);
             NativeCore.setBatteryReader(()->LocalDeviceOperations.battery(getApplicationContext()));
             initialization=NativeCore.initialize(new java.io.File(getFilesDir(),"bridge-identity.key").getAbsolutePath(),profile.toString());
             if("ok".equals(new JSONObject(initialization).optString("status")))try{notifications=new SystemNotificationBridge(this);}
@@ -308,14 +310,16 @@ public final class BridgeService extends Service {
                 if("bridge_media_register".equals(op)&&!mediaCaller(verified,owner,uid,pid,parsed))
                     return "{\"status\":\"error\",\"code\":\"media_native_consent_required\"}";
                 if("file_cleanup_state".equals(op)){
-                    if(owner||parsed.length()!=2||!CallerPolicy.executorAllowed(verified.packageName(),"file_offer"))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    if(parsed.length()!=2||(owner?source!=2:!CallerPolicy.executorAllowed(verified.packageName(),"file_offer")))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                     JSONObject state=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}")).optJSONObject("bridge");
                     if(state==null)return "{\"status\":\"error\",\"code\":\"service_unavailable\"}";
                     return "active".equals(state.optString("phase"))&&parsed.getString("session_id").equals(state.optString("session"))
                         ?"{\"status\":\"ok\",\"active\":true}":"{\"status\":\"error\",\"code\":\"stale_session\"}";
                 }
-                if(("bridge_file_allocate".equals(op)||"bridge_file_release".equals(op))
-                        &&(owner||!CallerPolicy.executorAllowed(verified.packageName(),"file_offer")))
+                boolean fileAllocate="bridge_file_allocate".equals(op),fileRelease="bridge_file_release".equals(op);
+                if((fileAllocate||fileRelease) && (owner
+                        ? source!=2 || (fileRelease && !"outgoing".equals(parsed.optString("direction")))
+                        : !CallerPolicy.executorAllowed(verified.packageName(),"file_offer")))
                     return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                 if(owner&&"notification_fixture".equals(op)){
                     try{return ((JSONObject)Class.forName("io.github.yuejie.connect.NotificationSyncFixture").getMethod("execute",android.content.Context.class,JSONObject.class).invoke(null,BridgeService.this,parsed)).toString();}

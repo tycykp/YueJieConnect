@@ -14,7 +14,7 @@ import java.util.function.LongSupplier;
 public final class FileTransferNegotiation implements AutoCloseable {
     public static final int SESSION_TRANSFERS = 256;
     public enum Purpose {
-        DRAG("drag"), CLIPBOARD("clipboard"), APP_RELAY("app_relay");
+        DRAG("drag"), CLIPBOARD("clipboard"), APP_RELAY("app_relay"), NFC_TAP("nfc_tap");
         private final String wire;
         Purpose(String wire) { this.wire = wire; }
         public String wireName() { return wire; }

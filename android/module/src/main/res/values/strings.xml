@@ -25,4 +25,15 @@
     <string name="confirm_yes">两端一致，确认</string>
     <string name="connecting">正在连接本机服务…</string>
     <string name="unavailable">本机服务未连接，请重新打开应用。</string>
+    <string name="nfc_tap_share">越界互联 · 一碰秒传</string>
+    <string name="nfc_tap_waiting">请用手机 NFC 感应区轻碰已连接的小米平板右上角。</string>
+    <string name="nfc_tap_unsupported">当前设备或标签不支持一碰秒传。</string>
+    <string name="nfc_tap_no_peer">请先连接小米平板并开启投屏或文件传输权限。</string>
+    <string name="nfc_tap_mirror_started">已向平板请求投屏，请查看手机的投屏授权提示。</string>
+    <string name="nfc_tap_invalid_files">请选择 1 至 4 个可读取的文件，并通过分享发送。</string>
+    <string name="nfc_tap_reading">正在准备要分享的文件…</string>
+    <string name="nfc_tap_file_pending">请在平板上确认接收文件。</string>
+    <string name="nfc_tap_file_failed">文件发送未完成（已发送 %1$d/%2$d）。</string>
+    <string name="nfc_tap_file_complete">文件已发送。</string>
+    <string name="nfc_tap_rejected">平板未接受一碰秒传请求。</string>
 </resources>

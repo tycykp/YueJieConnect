@@ -13,6 +13,7 @@ final class CallerPolicy {
                 &&"c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025".equals(cert);
     }
     static boolean executorAllowed(String pkg,String operation){
+        if("nfc_tap".equals(operation))return MIRROR.equals(pkg);
         if("screen_drag".equals(operation))return MIRROR.equals(pkg)||OPLUS.equals(pkg);
         if("screen_request".equals(operation))return OPLUS.equals(pkg);
         if("screen_input".equals(operation))return MIRROR.equals(pkg)||OPLUS_CAST.equals(pkg);

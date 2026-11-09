@@ -187,6 +187,7 @@ pub enum OperationResult {
     ScreenControl(Value),
     ScreenInput(Value),
     ScreenRequest(Value),
+    NfcTap(Value),
     ScreenDrag(Value),
 }
 
@@ -229,6 +230,7 @@ impl OperationResult {
             (Operation::ScreenInput, Self::ScreenInput(r)) => crate::screen_input::receipt(r),
             (Operation::ScreenControl, Self::ScreenControl(r)) => crate::screen_control::receipt(r),
             (Operation::ScreenRequest, Self::ScreenRequest(r)) => crate::screen_control::request_receipt(r),
+            (Operation::NfcTap, Self::NfcTap(r)) => crate::executor::nfc_tap_receipt(r),
             (Operation::TelephonyCallState, Self::TelephonyCallState(r))
             | (Operation::TelephonyCallControl, Self::TelephonyCallControl(r))
             | (Operation::TelephonySmsStatus, Self::TelephonySmsStatus(r)) => {
@@ -304,8 +306,14 @@ impl Bridge {
         battery_reader: Option<BatteryReader>,
     ) -> Result<Arc<Self>> {
         profile.peer_key = identity.public;
+        let nfc_reader = profile.platform == Source::ColorOs17
+            && profile.kind == yj_core::gateway::DeviceKind::Phone
+            && profile.operations.contains(&Operation::NfcTap);
         // Advertise only actual local executors; incoming metadata cannot enable code.
         profile.operations = BTreeSet::from([Operation::DeviceProfile]);
+        if nfc_reader {
+            profile.operations.insert(Operation::NfcTap);
+        }
         if battery_reader.is_some() {
             profile.operations.insert(Operation::BatteryStatus);
         }
@@ -698,6 +706,9 @@ impl Bridge {
                 Operation::FileCommit,
                 Operation::FileCancel,
             ]);
+        }
+        if granted.contains(&Operation::ScreenVideo) || granted.contains(&Operation::FileTransfer) {
+            granted.insert(Operation::NfcTap);
         }
         if granted
             .iter()

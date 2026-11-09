@@ -265,7 +265,7 @@ final class BridgeClient implements AutoCloseable {
         if(!"clipboard_write".equals(operation)&&!"clipboard_rich_write".equals(operation)&&!"device_finder".equals(operation)
                 &&!"notification_post".equals(operation)&&!"notification_remove".equals(operation)&&!"notification_action".equals(operation)&&!"app_relay".equals(operation)
                 &&!java.util.Set.of("file_prepare","file_offer","file_chunk","file_commit","file_cancel","clipboard_uri_write","media_control",
-                    "telephony_call_state","telephony_call_control","telephony_sms_status","screen_control","screen_request","screen_input","screen_drag").contains(operation))throw new IllegalArgumentException("Operation not implemented");
+                    "telephony_call_state","telephony_call_control","telephony_sms_status","screen_control","screen_request","screen_input","screen_drag","nfc_tap").contains(operation))throw new IllegalArgumentException("Operation not implemented");
         synchronized(executors){if(executors.containsKey(operation))throw new IllegalStateException("Executor already registered");executors.put(operation,executor);}
         enqueue(()->nextRegistration=0);
         return ()->{synchronized(executors){executors.remove(operation,executor);}enqueue(()->nextRegistration=0);main.post(executor::sessionChanged);};
@@ -376,7 +376,7 @@ final class BridgeClient implements AutoCloseable {
             }catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable",requestId,session));}
         }))deliver(completion,error("busy",requestId,session));
     }
-    private static long requestBudget(String operation){return switch(operation){case "file_commit"->16_500;case "app_relay"->21_500;case "network_share"->36_500;case "telephony_call_state","telephony_call_control","telephony_sms_status"->11_500;default->6500;};}
+    private static long requestBudget(String operation){return switch(operation){case "file_commit"->16_500;case "app_relay"->21_500;case "nfc_tap"->26_500;case "network_share"->36_500;case "telephony_call_state","telephony_call_control","telephony_sms_status"->11_500;default->6500;};}
     void cancel(String session,String requestId,Consumer<JSONObject> completion){
         if(!enqueue(()->{try{JSONObject response=authenticated(new JSONObject().put("op","bridge_cancel").put("session_id",session).put("request_id",requestId));deliver(completion,response==null?error("service_unavailable",requestId,session):response);}catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable",requestId,session));}}))deliver(completion,error("busy",requestId,session));
     }

@@ -25,6 +25,7 @@ pub enum Purpose {
     Drag,
     Clipboard,
     AppRelay,
+    NfcTap,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -210,6 +211,7 @@ pub fn parse(operation: &str, payload: &Value) -> Result<Command, &'static str> 
                 "drag" => Purpose::Drag,
                 "clipboard" => Purpose::Clipboard,
                 "app_relay" => Purpose::AppRelay,
+                "nfc_tap" => Purpose::NfcTap,
                 _ => return Err("invalid_file_payload"),
             };
             let token = text(object, "native_owner_token")?;
@@ -472,7 +474,7 @@ mod tests {
     #[test]
     fn file_schema_prepare_native_owner_and_purpose_are_explicit() {
         let mut p = prepare();
-        for purpose in ["drag", "clipboard", "app_relay"] {
+        for purpose in ["drag", "clipboard", "app_relay", "nfc_tap"] {
             p["purpose"] = json!(purpose);
             assert!(parse("file_prepare", &p).is_ok());
         }

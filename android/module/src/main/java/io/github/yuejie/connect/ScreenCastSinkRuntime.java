@@ -86,7 +86,7 @@ final class ScreenCastSinkRuntime {
         module.hook(type("com.xiaomi.mirror.j0").getDeclaredMethod("b0",String.class,int.class)).setId("yj.screen.entry").intercept(chain->{
             JSONObject p=client.projection();
             if(p==null||!p.optString("id").equals(chain.getArg(0)))return chain.proceed();
-            main.post(this::start);return 0;
+            main.post(()->start(p.optString("id"),p.optString("session_id")));return 0;
         });
         module.hook(type("com.xiaomi.mirror.connection.G").getDeclaredMethod("t0",String.class)).setId("yj.screen.peer").intercept(chain->{
             if(current()&&peerId.equals(chain.getArg(0))&&peer!=null)return peer;
@@ -169,22 +169,25 @@ final class ScreenCastSinkRuntime {
     private static Field field(Class<?> type,String name)throws Exception{Field f=type.getDeclaredField(name);f.setAccessible(true);return f;}
     private boolean current(){JSONObject p=client.projection();return scope!=null&&p!=null&&scope.sessionId().equals(p.optString("session_id"))&&peerId.equals(p.optString("id"))&&client.hasLocalGrant("screen_video");}
     private boolean owns(Object actual){try{return current()&&consent&&peerId.equals(viewType.getMethod("getDeviceId").invoke(actual));}catch(Exception e){return false;}}
-    private void start(){try{
-        JSONObject p=client.projection();if(p==null||!client.hasLocalGrant("screen_video"))return;
+    boolean start(String expectedPeer,String expectedSession){try{
+        JSONObject p=client.projection();
+        if(p==null||!expectedPeer.equals(p.optString("id"))||!expectedSession.equals(p.optString("session_id"))
+                ||!client.hasLocalGrant("screen_video"))return false;
         if(current()&&nativeSink!=null&&!closing&&bridge.streaming(view,scope)){
             Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);
             Object window=field(controller,"h").get(owner);
             if(window!=null)window.getClass().getMethod("e2").invoke(window);
-            return;
+            return true;
         }
-        if(scope!=null&&closing){main.postDelayed(this::start,250);return;}
+        if(scope!=null&&closing){main.postDelayed(()->start(expectedPeer,expectedSession),250);return true;}
         if(scope!=null){bridge.sessionChanged();sinks.sessionChanged();}
         peerId=p.getString("id");scope=new ScreenCastSession.Scope(p.getString("session_id"),(new java.security.SecureRandom().nextLong()&Long.MAX_VALUE)|1);
         consent=false;closing=false;view=null;nativeSink=null;peer=null;playback=null;
         client.request(peerId,scope.sessionId(),"screen_request","screen-request:"+scope.streamId(),new JSONObject().put("stream_id",scope.streamId()),r->{
             ScreenCastLog.i("YueJieScreen","request_result "+r.optString("status")+" "+r.optString("code"));
         });
-    }catch(Exception e){ScreenCastLog.e("YueJieScreen","start_failed",e);}}
+        return true;
+    }catch(Exception e){ScreenCastLog.e("YueJieScreen","start_failed",e);return false;}}
     private void dismiss(ScreenCastSession.Scope owned){main.post(()->{
         if(scope!=owned||closing)return;closing=true;input.revoke();media.stop();mediaStream=null;
         try{Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);

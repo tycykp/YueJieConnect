@@ -73,9 +73,19 @@ final class ScreenCastLinkerRuntime implements BridgeClient.VendorExecutor {
         return switch(name){case "toString"->"YJ native screen callback";case "hashCode"->System.identityHashCode(proxy);case "equals"->proxy==args[0];default->null;};
     }
     public void execute(JSONObject task,BridgeClient.TaskCompletion completion){
-        main.post(()->{try{
+        main.post(()->{
+            if(ready){start(task,completion);return;}
+            // ColorOS can miss the first callback when Linker and Cast start together.
+            try{sdkType.getMethod("open").invoke(sdk);}
+            catch(ReflectiveOperationException unavailable){completion.fail("native_unavailable");return;}
+            main.postDelayed(()->start(task,completion),750);
+        });
+    }
+    private void start(JSONObject task,BridgeClient.TaskCompletion completion){
+        try{
             JSONObject p=client.projection();
-            if(!ready||p==null||!task.getString("session_id").equals(p.getString("session_id"))
+            if(!ready||p==null||android.os.SystemClock.elapsedRealtime()>=task.optLong("deadline_elapsed_ms")
+                ||!task.getString("session_id").equals(p.getString("session_id"))
                 ||!task.getString("projection_id").equals(p.getString("id"))||!client.hasLocalGrant("screen_video"))throw new IllegalStateException("screen_request_unavailable");
             long next=task.getJSONObject("payload").getLong("stream_id");
             if(next==stream&&p.getString("session_id").equals(session))throw new IllegalStateException("screen_scope_reused");
@@ -97,7 +107,7 @@ final class ScreenCastLinkerRuntime implements BridgeClient.VendorExecutor {
             if(!(result instanceof Integer code)||code!=0)throw new IllegalStateException("native_start_"+result);
             requestedPeer=device;
             completion.success(new JSONObject().put("stream_id",stream).put("accepted",true));
-        }catch(Exception error){ScreenCastLog.e("YueJieScreen","request_failed",error);completion.fail("native_unavailable");}});
+        }catch(Exception error){ScreenCastLog.e("YueJieScreen","request_failed",error);completion.fail("native_unavailable");}
     }
     public void cancel(String session,String request){}
     public void sessionChanged(){requestedPeer=null;session=null;stream=0;clearMedia();}
