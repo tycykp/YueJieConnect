@@ -43,7 +43,8 @@ final class OplusNetworkAdapter {
         Method selectedId = Class.forName("com.oplus.linker.synergy.ui.base.MyDeviceMessage", false, loader).getMethod("getDeviceIdStr");
         Class<?> action = Class.forName(BASE + name + "$QuickActionType", false, loader);
         Class<?> nativeState = Class.forName(BASE + "QuickActionItemView$State", false, loader);
-        hooks.add(module.hook(card.getMethod("setActionState", action, nativeState)).setId("yj.oplus.network.state." + name).intercept(chain -> {
+        Method setAction=card.getDeclaredMethod("setActionState", action, nativeState);setAction.setAccessible(true);
+        hooks.add(module.hook(setAction).setId("yj.oplus.network.state." + name).intercept(chain -> {
             Object instance = chain.getThisObject(), selected = message.get(instance);
             NetworkShareController.Target t = target.get();
             if (closed || selected == null || t == null || !t.id().equals(selectedId.invoke(selected))
@@ -97,7 +98,8 @@ final class OplusNetworkAdapter {
                 if (view instanceof android.view.View nativeView) nativeView.setEnabled(controller.ready(t));
                 Class<? extends Enum> state = (Class<? extends Enum>) Class.forName(BASE + "QuickActionItemView$State", false, loader);
                 String value = stateName(phase);
-                card.getClass().getMethod("setActionState", action, state).invoke(card,
+                Method setAction=card.getClass().getDeclaredMethod("setActionState", action, state);setAction.setAccessible(true);
+                setAction.invoke(card,
                         Enum.valueOf(action, "SHARE_NETWORK"), Enum.valueOf(state, value));
             } catch (ReflectiveOperationException ignored) { /* Retain actual result; never replace it with UI success. */ }
         });

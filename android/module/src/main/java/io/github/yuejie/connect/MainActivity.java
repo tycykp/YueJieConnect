@@ -29,7 +29,7 @@ public final class MainActivity extends Activity {
     private volatile IBridge bridge;
     private TextView output,operationResult;
     private EditText address;
-    private Button confirm,query;
+    private Button confirm,query,shareStart,shareStop;
     private String session="",code="";
     private boolean bound,visible;
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -54,6 +54,10 @@ public final class MainActivity extends Activity {
         button(layout,R.string.listen,()->networkCommand("{\"op\":\"bridge_listen\",\"port\":38271}"));
         button(layout,R.string.connect_peer,()->{try{String remote=address.getText().toString().trim();if(!remote.contains(":"))remote+=":38271";
             networkCommand(new JSONObject().put("op","bridge_connect").put("address",remote).toString());}catch(org.json.JSONException ignored){}});
+        Button bluetoothListen=new Button(this);bluetoothListen.setText("网络共享：等待蓝牙连接（手机）");
+        bluetoothListen.setOnClickListener(v->bluetoothStart(null));layout.addView(bluetoothListen);
+        Button bluetoothConnect=new Button(this);bluetoothConnect.setText("网络共享：选择已配对设备（平板）");
+        bluetoothConnect.setOnClickListener(v->chooseBluetooth());layout.addView(bluetoothConnect);
         confirm=button(layout,R.string.confirm_pair,()->{
             final String selectedSession=session,selectedCode=code;
             LinearLayout consent=new LinearLayout(this);consent.setOrientation(LinearLayout.VERTICAL);consent.setPadding(pad,pad,pad,pad);
@@ -70,13 +74,18 @@ public final class MainActivity extends Activity {
             android.widget.CheckBox screenConsent=new android.widget.CheckBox(this);screenConsent.setText("投屏与远程触控（每次仍需原厂录屏许可）");consent.addView(screenConsent);
             android.widget.CheckBox mediaConsent=new android.widget.CheckBox(this);mediaConsent.setText("投屏期间的媒体与音量控制");consent.addView(mediaConsent);
             android.widget.CheckBox cameraConsent=new android.widget.CheckBox(this);cameraConsent.setText("相机共享（每次单独确认）");consent.addView(cameraConsent);
+            android.widget.CheckBox networkConsent=new android.widget.CheckBox(this);networkConsent.setText("网络共享（允许 Wi-Fi 和移动数据，可能消耗套餐流量）");consent.addView(networkConsent);
             ScrollView consentScroll=new ScrollView(this);consentScroll.addView(consent);
             new AlertDialog.Builder(this).setTitle(R.string.compare_title)
                 .setView(consentScroll)
                 .setNegativeButton(android.R.string.cancel,null)
-                .setPositiveButton(R.string.confirm_yes,(d,w)->{try{org.json.JSONArray operations=new org.json.JSONArray().put("device_profile");if(batteryConsent.isChecked())operations.put("battery_status");if(clipboardConsent.isChecked())operations.put("clipboard_write");if(richClipboardConsent.isChecked())operations.put("clipboard_rich_write");if(finderConsent.isChecked())operations.put("device_finder");if(notificationConsent.isChecked())operations.put("notification_post").put("notification_remove");if(notificationActionConsent.isChecked())operations.put("notification_action");if(fileConsent.isChecked()||uriConsent.isChecked())operations.put("file_transfer");if(uriConsent.isChecked())operations.put("clipboard_uri_write");if(relayConsent.isChecked())operations.put("app_relay");if(screenConsent.isChecked())operations.put("screen_video").put("screen_input");if(mediaConsent.isChecked())operations.put("media_control");if(cameraConsent.isChecked())operations.put("camera_video");request(new JSONObject().put("op","bridge_confirm").put("session",selectedSession).put("operations",operations).toString(),false);}catch(org.json.JSONException ignored){}}).show();
+                .setPositiveButton(R.string.confirm_yes,(d,w)->{try{org.json.JSONArray operations=new org.json.JSONArray().put("device_profile");if(batteryConsent.isChecked())operations.put("battery_status");if(clipboardConsent.isChecked())operations.put("clipboard_write");if(richClipboardConsent.isChecked())operations.put("clipboard_rich_write");if(finderConsent.isChecked())operations.put("device_finder");if(notificationConsent.isChecked())operations.put("notification_post").put("notification_remove");if(notificationActionConsent.isChecked())operations.put("notification_action");if(fileConsent.isChecked()||uriConsent.isChecked())operations.put("file_transfer");if(uriConsent.isChecked())operations.put("clipboard_uri_write");if(relayConsent.isChecked())operations.put("app_relay");if(screenConsent.isChecked())operations.put("screen_video").put("screen_input");if(mediaConsent.isChecked())operations.put("media_control");if(cameraConsent.isChecked())operations.put("camera_video");if(networkConsent.isChecked())operations.put("network_share");request(new JSONObject().put("op","bridge_confirm").put("session",selectedSession).put("operations",operations).toString(),false);}catch(org.json.JSONException ignored){}}).show();
         });confirm.setEnabled(false);
         query=button(layout,R.string.query_peer,()->request("{\"op\":\"bridge_query_peer\"}",false));query.setEnabled(false);
+        shareStart=new Button(this);shareStart.setEnabled(false);shareStart.setText("开始共享手机当前网络（Wi-Fi / 移动数据）");
+        shareStart.setOnClickListener(v->request("{\"op\":\"network_control\",\"action\":\"start\"}",false));layout.addView(shareStart);
+        shareStop=new Button(this);shareStop.setEnabled(false);shareStop.setText("停止网络共享并恢复连接");
+        shareStop.setOnClickListener(v->request("{\"op\":\"network_control\",\"action\":\"stop\"}",false));layout.addView(shareStop);
         button(layout,R.string.disconnect,()->request("{\"op\":\"bridge_stop\"}",false));
         button(layout,R.string.status,()->request("{\"op\":\"bridge_status\"}",true));
         Button notificationApps=new Button(this);notificationApps.setText("选择同步通知的应用");notificationApps.setOnClickListener(v->chooseNotificationApps());layout.addView(notificationApps);
@@ -88,6 +97,26 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.addView(layout);setContentView(scroll);
         getWindow().getInsetsController().setSystemBarsAppearance(android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
         bound=bindService(new Intent(this,BridgeService.class),connection,Context.BIND_AUTO_CREATE);
+    }
+    private boolean bluetoothPermission(){
+        if(checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED)return true;
+        requestPermissions(new String[]{android.Manifest.permission.BLUETOOTH_CONNECT},3);return false;
+    }
+    private void bluetoothStart(String address){
+        if(!bluetoothPermission())return;
+        try{JSONObject command=new JSONObject().put("op","bridge_bluetooth_start").put("mode",address==null?"listen":"connect");
+            if(address!=null)command.put("address",address);request(command.toString(),false);
+        }catch(org.json.JSONException ignored){}
+    }
+    @android.annotation.SuppressLint("MissingPermission")
+    private void chooseBluetooth(){
+        if(!bluetoothPermission())return;
+        var adapter=getSystemService(android.bluetooth.BluetoothManager.class).getAdapter();
+        if(adapter==null||!adapter.isEnabled()){startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS));return;}
+        var devices=new java.util.ArrayList<>(adapter.getBondedDevices());
+        if(devices.isEmpty()){startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS));return;}
+        String[] names=devices.stream().map(d->d.getName()+" ("+d.getAddress()+")").toArray(String[]::new);
+        new AlertDialog.Builder(this).setTitle("选择共享网络的手机").setItems(names,(dialog,index)->bluetoothStart(devices.get(index).getAddress())).show();
     }
     private Button button(LinearLayout layout,int label,Runnable action){Button b=new Button(this);b.setText(label);b.setFilterTouchesWhenObscured(true);b.setOnClickListener(v->action.run());layout.addView(b);return b;}
     private void chooseNotificationApps(){
@@ -146,6 +175,20 @@ public final class MainActivity extends Activity {
         if(!code.isEmpty())text+="\n校验码："+code+"\n本机确认："+state.optBoolean("local_confirmed")+"  对端确认："+state.optBoolean("remote_confirmed")+"\n";
         JSONObject peer=state.optJSONObject("remote");if(peer!=null)text+="\n真实对端：\n"+summary(peer);
         text+="\n资料请求 发出/收到/响应："+state.optLong("requests_sent")+" / "+state.optLong("requests_received")+" / "+state.optLong("responses_received");
+        JSONObject projection=state.optJSONObject("projection");
+        boolean networkGranted=false;
+        if(projection!=null){var ops=projection.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)networkGranted|="network_share".equals(ops.optString(i));}
+        boolean networkReady=networkGranted&&"active".equals(state.optString("phase"))&&"bluetooth".equals(state.optString("control_transport"));
+        shareStart.setEnabled(networkReady);shareStop.setEnabled(networkReady);
+        JSONObject network=response.optJSONObject("network_share");
+        if(network!=null){
+            String sharing=switch(network.optString("phase")){
+                case "ACTIVE" -> "共享中";case "REQUESTED","STARTING","READY" -> "正在连接";
+                case "STOPPING" -> "正在恢复原网络";case "STOPPED" -> "已停止";
+                case "RECOVERY_REQUIRED" -> "恢复未完成，请保持互联服务运行";default -> "未成功";};
+            text+="\n网络共享："+sharing+("CELLULAR".equals(network.optString("upstream"))?"（移动数据）":"（Wi-Fi）");
+            if(!network.optString("error").isEmpty())text+="\n共享状态："+network.optString("error");
+        }
         if(!state.isNull("last_error"))text+="\n原因："+state.optString("last_error");
         if(!state.isNull("socket_errno"))text+=" (socket errno="+state.optInt("socket_errno")+")";output.setText(text);
     }

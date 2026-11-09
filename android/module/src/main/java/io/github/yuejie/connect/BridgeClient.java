@@ -50,7 +50,7 @@ final class BridgeClient implements AutoCloseable {
     private NativePairingClient nativePairing;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean polling=new AtomicBoolean();
-    private String token,lastIpcStatus="";
+    private String token,lastIpcStatus="",lastRegistrationError="";
     private long sequence,leaseDeadline,nextOpen,nextBind,nextProjection,nextRegistration;
     private boolean bound,pollStarted;
     private volatile long fileBurstUntil;
@@ -79,7 +79,14 @@ final class BridgeClient implements AutoCloseable {
         try{worker.execute(()->{try{task.run();}catch(RuntimeException failure){token=null;publish(null);android.util.Log.w("YueJieClient","worker_error "+failure.getClass().getSimpleName());}});return true;}
         catch(java.util.concurrent.RejectedExecutionException busy){return false;}
     }
-    void attach(Context value){context=value.getApplicationContext();enqueue(this::ensureBound);if(!pollStarted){pollStarted=true;main.post(poll);}}
+    void attach(Context value){
+        // Application.attach runs before ContextImpl exposes the Application on some ROMs.
+        // Keep its process context until getApplicationContext becomes available.
+        Context application=value.getApplicationContext();
+        context=application!=null?application:value;
+        enqueue(this::ensureBound);
+        if(!pollStarted){pollStarted=true;main.post(poll);}
+    }
     Context context(){return context;}
     void onProjection(Consumer<JSONObject> listener){legacyListener=listener;if(listener!=null)main.post(()->{if(legacyListener==listener)listener.accept(projection);});}
     Subscription addProjectionListener(Consumer<JSONObject> listener){
@@ -104,10 +111,13 @@ final class BridgeClient implements AutoCloseable {
         if(!enqueue(()->{
             try{JSONObject value=new JSONObject(copied).put("op","native_pairing");
                 JSONObject response;
-                if("start".equals(value.optString("action"))){
+                if(java.util.Set.of("start","forget").contains(value.optString("action"))){
                     ensureBound();IBridge current=bridge;
                     response=current==null?null:new JSONObject(current.transactJson(value.put("runtime_revision",runtimeRevision()).toString()));
-                    if(response!=null&&"ok".equals(response.optString("status"))){token=null;nextOpen=0;}
+                    if(response!=null&&"ok".equals(response.optString("status"))){
+                        token=null;nextOpen=0;
+                        if("forget".equals(value.optString("action")))publish(null);
+                    }
                 }else response=authenticated(value);
                 deliver(completion,response==null?error("service_unavailable","",""):response);
             }catch(org.json.JSONException|RemoteException|RuntimeException failure){deliver(completion,error("service_unavailable","",""));}
@@ -270,7 +280,7 @@ final class BridgeClient implements AutoCloseable {
         if(!"clipboard_write".equals(operation)&&!"clipboard_rich_write".equals(operation)&&!"device_finder".equals(operation)
                 &&!"notification_post".equals(operation)&&!"notification_remove".equals(operation)&&!"notification_action".equals(operation)&&!"app_relay".equals(operation)
                 &&!java.util.Set.of("file_prepare","file_offer","file_chunk","file_commit","file_cancel","clipboard_uri_write","media_control",
-                    "telephony_call_state","telephony_call_control","telephony_sms_status","screen_control","screen_request","screen_input","screen_drag","nfc_tap").contains(operation))throw new IllegalArgumentException("Operation not implemented");
+                    "telephony_call_state","telephony_call_control","telephony_sms_status","screen_control","screen_request","screen_input","screen_drag","nfc_tap","network_share").contains(operation))throw new IllegalArgumentException("Operation not implemented");
         synchronized(executors){if(executors.containsKey(operation))throw new IllegalStateException("Executor already registered");executors.put(operation,executor);}
         enqueue(()->nextRegistration=0);
         return ()->{synchronized(executors){executors.remove(operation,executor);}enqueue(()->nextRegistration=0);main.post(executor::sessionChanged);};
@@ -316,7 +326,10 @@ final class BridgeClient implements AutoCloseable {
             // The mailbox routes each logical channel to its requested business's process.
             if(businessReady){operations.put("logical_open").put("logical_close").put("logical_state");}
             else if(logical.hasRecords()){operations.put("logical_close").put("logical_state");}
-            if(now>=nextRegistration){nextRegistration=now+1000;JSONObject registered=authenticated(new JSONObject().put("op","bridge_register_executor").put("operations",operations));if(registered==null||!"ok".equals(registered.optString("status")))nextRegistration=now+300;}
+            if(now>=nextRegistration){nextRegistration=now+1000;JSONObject registered=authenticated(new JSONObject().put("op","bridge_register_executor").put("operations",operations));if(registered==null||!"ok".equals(registered.optString("status"))){nextRegistration=now+300;
+                String reason=registered==null?"no_response":registered.optString("code");
+                if(!reason.equals(lastRegistrationError)){lastRegistrationError=reason;android.util.Log.w("YueJieClient","executor_registration_failed "+reason+" operations="+operations);}
+            }else lastRegistrationError="";}
             if(operations.length()>0){JSONObject reply=authenticated(new JSONObject().put("op","bridge_poll_executor"));if(reply!=null&&"ok".equals(reply.optString("status"))){JSONObject task=reply.optJSONObject("task");JSONArray cancelled=reply.optJSONArray("cancelled");if(cancelled!=null&&cancelled.length()>0)main.post(()->cancelTasks(cancelled));if(task!=null){task.put("deadline_elapsed_ms",SystemClock.elapsedRealtime()+task.getLong("remaining_ms"));main.post(()->executeTask(task));}}}
             for(Pending pending:new ArrayList<>(requests.values())){
                 if("file_chunk".equals(pending.operation))fileBurstUntil=now+250;

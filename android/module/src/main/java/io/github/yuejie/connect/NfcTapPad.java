@@ -1,6 +1,5 @@
 package io.github.yuejie.connect;
 
-import android.app.AlertDialog;
 import android.app.KeyguardManager;
 import android.bluetooth.BluetoothManager;
 import android.content.ContentValues;
@@ -11,7 +10,6 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.util.Log;
-import android.view.WindowManager;
 import android.widget.Toast;
 import java.io.File;
 import java.io.IOException;
@@ -24,7 +22,7 @@ import org.json.JSONObject;
 
 /** Executes tap requests inside the authenticated Xiaomi Mirror process. */
 final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge.NativeReceiver {
-    private record Approval(String peer, String session, long expires) {
+    private record Approval(String peer, String session, String request, long expires) {
         boolean allows(FileTransferEngine.Key key) {
             return peer.equals(key.peer()) && session.equals(key.session()) && SystemClock.elapsedRealtime() < expires;
         }
@@ -36,8 +34,6 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
     private final Supplier<ScreenCastSinkRuntime> screen;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, Approval> approved = new HashMap<>();
-    private AlertDialog dialog;
-    private String pendingRequest, pendingSession;
 
     NfcTapPad(BridgeClient client, FileTransferBridge files, Supplier<ScreenCastSinkRuntime> screen) {
         this.client = client;
@@ -47,7 +43,16 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
         if (localTarget() == null) return;
         if (files != null) files.registerReceiver(FileTransferNegotiation.Purpose.NFC_TAP, this);
         client.registerExecutor(NfcTapActivity.OPERATION, this);
+        advertiseTarget();
         Log.i(NfcTapActivity.LOG, "pad_executor_ready");
+    }
+
+    private void advertiseTarget() {
+        try {
+            client.pairing(new JSONObject().put("action", "nfc_target").put("target", localTarget()), reply -> {
+                if (reply == null || !"ok".equals(reply.optString("status"))) main.postDelayed(this::advertiseTarget, 5000);
+            });
+        } catch (JSONException ignored) { }
     }
 
     @android.annotation.SuppressLint("MissingPermission")
@@ -83,39 +88,17 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
             completion.fail("receive_consent_required");
             return;
         }
-        if (dialog != null) { completion.fail("busy"); return; }
-
-        long deadline = task.optLong("deadline_elapsed_ms");
-        pendingRequest = task.optString("request_id");
-        pendingSession = session;
-        AlertDialog confirmation = new AlertDialog.Builder(context, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("一碰秒传")
-                .setMessage("接收「" + peer.optString("name") + "」发送的 " + tokens.length() + " 个文件？")
-                .setNegativeButton("拒绝", (ignored, which) -> completion.fail("cancelled"))
-                .setPositiveButton("接收", (ignored, which) -> {
-                    if (!current(id, session) || SystemClock.elapsedRealtime() >= deadline) {
-                        completion.fail("request_timeout");
-                        return;
-                    }
-                    Approval approval = new Approval(id, session, SystemClock.elapsedRealtime() + 300_000);
-                    approved.clear();
-                    for (int i = 0; i < tokens.length(); i++) approved.put(tokens.optString(i), approval);
-                    accept(completion);
-                }).create();
-        confirmation.setOnDismissListener(ignored -> {
-            if (dialog == confirmation) { dialog = null; pendingRequest = null; pendingSession = null; }
-            completion.fail("cancelled");
-        });
-        try {
-            confirmation.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
-            confirmation.show();
-            confirmation.getButton(AlertDialog.BUTTON_POSITIVE).setFilterTouchesWhenObscured(true);
-            dialog = confirmation;
-            main.postAtTime(() -> {
-                if (dialog == confirmation) { completion.fail("request_timeout"); confirmation.dismiss(); }
-            }, SystemClock.uptimeMillis() + Math.max(0, deadline - SystemClock.elapsedRealtime()));
-            Log.i(NfcTapActivity.LOG, "file_consent_shown");
-        } catch (RuntimeException unavailable) { completion.fail("executor_unavailable"); }
+        if (SystemClock.elapsedRealtime() >= task.optLong("deadline_elapsed_ms")) {
+            completion.fail("request_timeout");
+            return;
+        }
+        // The paired phone sends this request only after the native upward swipe.
+        // Keep each single-use token bound to the authenticated peer/session and request.
+        approved.clear();
+        Approval approval = new Approval(id, session, task.optString("request_id"), SystemClock.elapsedRealtime() + 600_000);
+        for (int i = 0; i < tokens.length(); i++) approved.put(tokens.optString(i), approval);
+        Log.i(NfcTapActivity.LOG, "file_receive_authorized");
+        accept(completion);
     }
 
     private boolean current(String id, String session) {
@@ -129,13 +112,11 @@ final class NfcTapPad implements BridgeClient.VendorExecutor, FileTransferBridge
     }
 
     @Override public void cancel(String session, String request) {
-        if (dialog != null && request.equals(pendingRequest)) dialog.dismiss();
+        approved.values().removeIf(approval -> session.equals(approval.session()) && request.equals(approval.request()));
     }
 
     @Override public void sessionChanged() {
         approved.values().removeIf(approval -> !current(approval.peer(), approval.session()));
-        JSONObject projection = client.projection();
-        if (dialog != null && (projection == null || !pendingSession.equals(projection.optString("session_id")))) dialog.dismiss();
     }
 
     @Override public void prepared(FileTransferNegotiation.Prepared prepared, FileTransferEndpoint endpoint,

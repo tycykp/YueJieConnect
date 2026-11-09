@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission android:name="io.github.yuejie.connect.permission.NETWORK_CONTROL" android:protectionLevel="signature" />
+    <uses-permission android:name="io.github.yuejie.connect.permission.NETWORK_CONTROL" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -53,15 +55,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="vnd.android.nfc" android:host="ext"
                     android:path="/com.xiaomi.mi_connect_service:externaltype" />
-            </intent-filter>
-        </activity>
-        <activity android:name=".NfcShareActivity" android:exported="true" android:excludeFromRecents="true"
-            android:label="@string/nfc_tap_share">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
         <activity android:name=".BridgeBootstrapActivity" android:exported="true" android:process=":bridge"

@@ -24,6 +24,8 @@ public final class DiscoveryModule extends XposedModule {
     private ScreenDragRuntime screenDrag;
     private ClipboardUriBridge clipboardUris;
     private DeviceFinderBinding finderBinding;
+    private NetworkShareRuntime networkRuntime;
+    private XiaomiControlCenterNetwork controlCenterNetwork;
     private AppRelayRuntime relayRuntime;
     private ScreenCastLinkerRuntime screenLinker;
     private ScreenCastSourceRuntime screenSource;
@@ -36,6 +38,16 @@ public final class DiscoveryModule extends XposedModule {
     }
     @Override public void onPackageReady(PackageReadyParam param) {
         String pkg=param.getPackageName();
+        if(NetworkShareSurface.SYSTEM_UI.equals(pkg)&&pkg.equals(processName)){
+            if(installed||getApiVersion()<102||!param.isFirstPackage())return;installed=true;
+            try{handles.add(hook(Application.class.getDeclaredMethod("attach",Context.class)).setId("yj.systemui.context").intercept(chain->{
+                Object result=chain.proceed();Context context=(Context)chain.getArg(0);
+                try{controlCenterNetwork=new XiaomiControlCenterNetwork(this,context,param.getClassLoader());}
+                catch(Exception failure){android.util.Log.e("YueJieNetworkUi","control_center_install_failed",failure);}
+                return result;
+            }));}catch(Exception failure){log(Log.WARN,TAG,"control_center_context_unavailable");}
+            return;
+        }
         if(OplusNfcTap.PACKAGE.equals(pkg)&&pkg.equals(processName)){
             if(installed||getApiVersion()<102||!param.isFirstPackage())return;
             installed=true;
@@ -68,6 +80,16 @@ public final class DiscoveryModule extends XposedModule {
                         allowed=mirror?CallerVerifier.mirrorUid(context.getPackageManager())==Process.myUid():CallerVerifier.verify(context.getPackageManager(),Process.myUid())==expected;
                         if(allowed) {
                             client.attach(context);
+                            if("com.oplus.linker:service".equals(processName))
+                                new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                    try{new OplusNfcShare(this,client,cl).install();}
+                                    catch(Exception failure){android.util.Log.e("YueJieNfc","native_share_install_failed",failure);}
+                                });
+                            if("com.milink.service:core".equals(processName)||CallerPolicy.OPLUS.equals(processName))
+                                new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                    try{networkRuntime=new NetworkShareRuntime(this,client,cl);}
+                                    catch(Exception failure){android.util.Log.e("YueJieNetwork","runtime_install_failed",failure);}
+                                });
                             if(mirror)new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
                                 try{screenSink=new ScreenCastSinkRuntime(this,client,cl);}
                                 catch(Exception error){android.util.Log.e("YueJieScreen","sink_install_failed",error);}

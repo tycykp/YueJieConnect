@@ -21,6 +21,9 @@ import org.json.JSONObject;
 /** JNI and all persistent state live only in this process, never in Hook callbacks. */
 public final class BridgeService extends Service {
     private WifiRoute wifiRoute;
+    private NetworkBluetoothSession networkBluetooth;
+    private volatile JSONObject networkStatus;
+    private volatile long networkObservedAt;
     private NativePairingService nativePairing;
     private VendorProcessProof mirrorProof;
     private SystemNotificationBridge notifications;
@@ -40,7 +43,7 @@ public final class BridgeService extends Service {
             java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r->new Thread(r,"yj-pairing-recovery"));
     private final Runnable monitorTask=new Runnable(){public void run(){
         try{JSONObject result=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}"));
-            JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);
+            JSONObject state=result.optJSONObject("bridge");refreshScreenScope(state);publishNetworkSurface(state);
             browserRelay.session(state != null && "active".equals(state.optString("phase")) ? state.optString("session") : "");
             browserNotice.session(state != null && "active".equals(state.optString("phase"))
                     && relayGranted(state.optJSONArray("granted_operations")) ? state.optString("session") : "");
@@ -48,6 +51,23 @@ public final class BridgeService extends Service {
                 if(!marker.equals(lastState)){lastState=marker;android.util.Log.i("YueJieBridge",marker);}}
         }catch(org.json.JSONException|RuntimeException ignored){}monitor.postDelayed(this,1000);
     }};
+    private void publishNetworkSurface(JSONObject state)throws org.json.JSONException{
+        if(hostSource!=1)return;
+        JSONObject network=networkStatus,projection=state==null?null:state.optJSONObject("projection");
+        boolean eligible=state!=null&&"active".equals(state.optString("phase"))&&"bluetooth".equals(state.optString("control_transport"))
+            &&projection!=null&&network!=null&&state.optString("session").equals(network.optString("session"))
+            &&SystemClock.elapsedRealtime()-networkObservedAt<6500;
+        boolean granted=false;
+        if(projection!=null){JSONArray ops=projection.optJSONArray("operations");if(ops!=null)for(int i=0;i<ops.length();i++)granted|="network_share".equals(ops.optString(i));}
+        JSONObject data=new JSONObject().put("eligible",eligible&&granted);
+        if(eligible&&granted){
+            data.put("session",network.getString("session")).put("id",projection.getString("id"))
+                .put("name",projection.getJSONObject("real").getString("name")).put("phase",network.getString("phase"))
+                .put("upstream",network.getString("upstream")).put("available",network.optBoolean("available"))
+                .put("observed_at",networkObservedAt);
+        }
+        sendBroadcast(new Intent(NetworkShareSurface.STATE).setPackage(NetworkShareSurface.SYSTEM_UI).putExtra("state",data.toString()));
+    }
     @Override public void onCreate() {
         super.onCreate();
         browserNotice = new BrowserRelayNotice(this);
@@ -100,7 +120,7 @@ public final class BridgeService extends Service {
         } finally {android.util.Log.i("YueJieBridge","initialization="+initialization);monitor.post(monitorTask);
             pairingWorker.scheduleWithFixedDelay(()->{
                 if(!lifecycle.tryLock())return;
-                try{nativePairing.tick();releaseEndedConnection();}
+                try{if(networkBluetooth==null)nativePairing.tick();releaseEndedConnection();}
                 catch(org.json.JSONException|RuntimeException failure){android.util.Log.w("YueJieBridge","pairing_recovery_unavailable");}
                 finally{lifecycle.unlock();}
             },0,1,java.util.concurrent.TimeUnit.SECONDS);
@@ -126,6 +146,7 @@ public final class BridgeService extends Service {
         }
     }
     private synchronized void releaseConnection(){
+        if(networkBluetooth!=null){networkBluetooth.close();networkBluetooth=null;}
         wifiRoute.release();
         stopForeground(STOP_FOREGROUND_REMOVE);
         if(connectionStarted){connectionStarted=false;stopSelf();}
@@ -136,7 +157,7 @@ public final class BridgeService extends Service {
         try{
             JSONObject state=new JSONObject(NativeCore.dispatch(Process.myUid(),Process.myPid(),true,0,
                     SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}")).optJSONObject("bridge");
-            if(state!=null && !nativePairing.reconnecting() && ("stopped".equals(state.optString("phase")) || "disconnected".equals(state.optString("phase"))))releaseConnection();
+            if(state!=null && !(networkBluetooth!=null&&networkBluetooth.pending()) && !nativePairing.reconnecting() && ("stopped".equals(state.optString("phase")) || "disconnected".equals(state.optString("phase"))))releaseConnection();
         }finally{lifecycle.unlock();}
     }
     @Override public synchronized int onStartCommand(Intent intent,int flags,int startId){
@@ -316,15 +337,52 @@ public final class BridgeService extends Service {
             if (!owner && source == 0) return "{\"status\":\"error\",\"code\":\"caller_rejected\"}";
             try {
                 JSONObject parsed=new JSONObject(command);String op=parsed.optString("op");
-                changingLifecycle=java.util.Set.of("native_pairing","bridge_listen","bridge_connect","bridge_stop","bridge_disconnect","bridge_abort").contains(op);
+                changingLifecycle=java.util.Set.of("bridge_bluetooth_start","native_pairing","bridge_listen","bridge_connect","bridge_stop","bridge_disconnect","bridge_abort").contains(op);
                 if(changingLifecycle)lifecycle.lock();
+                if("bridge_bluetooth_start".equals(op)){
+                    if(!owner)return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    if(!"ok".equals(new JSONObject(initialization).optString("status")))return initialization;
+                    nativePairing.pause();
+                    NativeCore.dispatch(uid,pid,true,source,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_stop\"}");
+                    if(networkBluetooth!=null)networkBluetooth.close();
+                    wifiRoute.release();foreground();
+                    NativeCore.dispatch(uid,pid,true,source,SystemClock.elapsedRealtime(),"{\"op\":\"set_enabled\",\"enabled\":true}");
+                    networkBluetooth=new NetworkBluetoothSession(BridgeService.this);
+                    try{return networkBluetooth.start(parsed).toString();}
+                    catch(Exception failure){networkBluetooth.close();networkBluetooth=null;
+                        return new JSONObject().put("status","error").put("code",failure.getMessage()).toString();}
+                }
+                if("network_status_publish".equals(op)){
+                    if(owner||!CallerPolicy.executorAllowed(verified.packageName(),"network_share"))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    JSONObject authorized=new JSONObject(NativeCore.dispatch(uid,pid,false,source,SystemClock.elapsedRealtime(),
+                        new JSONObject().put("op","bridge_projections").put("token",parsed.getString("token")).put("sequence",parsed.getLong("sequence")).toString()));
+                    JSONObject projection=authorized.optJSONObject("projection");
+                    if(projection==null||!projection.optString("session_id").equals(parsed.optString("session")))return "{\"status\":\"error\",\"code\":\"stale_session\"}";
+                    String phase=parsed.getString("phase"),upstream=parsed.getString("upstream"),error=parsed.getString("error");
+                    if(!java.util.Set.of("REQUESTED","STARTING","READY","ACTIVE","STOPPING","STOPPED","FAILED","RECOVERY_REQUIRED").contains(phase)
+                        ||!java.util.Set.of("","WIFI","CELLULAR").contains(upstream)||!error.matches("[a-z_]{0,128}"))throw new org.json.JSONException("invalid_state");
+                    networkStatus=new JSONObject().put("session",parsed.getString("session")).put("phase",phase).put("upstream",upstream).put("error",error).put("available",parsed.optBoolean("available"));
+                    networkObservedAt=SystemClock.elapsedRealtime();
+                    return "{\"status\":\"ok\"}";
+                }
+                if("network_control".equals(op)){
+                    if(!owner)return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    JSONObject state=new JSONObject(NativeCore.dispatch(uid,pid,true,source,SystemClock.elapsedRealtime(),"{\"op\":\"bridge_status\"}")).getJSONObject("bridge");
+                    if(!"active".equals(state.optString("phase"))||!"bluetooth".equals(state.optString("control_transport")))
+                        return "{\"status\":\"error\",\"code\":\"bluetooth_session_required\"}";
+                    String action=parsed.getString("action");if(!java.util.Set.of("start","stop").contains(action))throw new IllegalArgumentException();
+                    sendBroadcast(new Intent("io.github.yuejie.connect.NETWORK_CONTROL").setPackage(source==1?CallerPolicy.XIAOMI:CallerPolicy.OPLUS)
+                        .putExtra("session",state.getString("session")).putExtra("action",action));
+                    return "{\"status\":\"ok\",\"phase\":\"requested\"}";
+                }
+                if(owner&&"bridge_bluetooth_status".equals(op))return networkBluetooth==null?"{\"status\":\"ok\",\"phase\":\"stopped\"}":networkBluetooth.status().toString();
                 if(owner&&"bridge_runtime_status".equals(op))return runtimes.snapshot(BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime()).put("native_pairing",nativePairing.inspect())
                     .put("host_initialization",new JSONObject(initialization)).put("xiaomi_package",CallerVerifier.inspect(getPackageManager(),CallerPolicy.XIAOMI)).toString();
                 if(!owner){
                     // Bind revision agreement to Rust's actual kernel-caller IPC lease. Content
                     // requests keep their existing JSON budget and still undergo Rust replay checks.
                     boolean opening="open".equals(op),direct=op.startsWith("screen_request_")||"file_cleanup_state".equals(op)
-                            ||("native_pairing".equals(op)&&"start".equals(parsed.optString("action")));
+                            ||("native_pairing".equals(op)&&java.util.Set.of("start","forget").contains(parsed.optString("action")));
                     boolean current=opening||direct
                         ?runtimes.observe(uid,pid,verified.packageName(),parsed.optString("runtime_revision",""),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime())
                         :runtimes.accepts(uid,pid,parsed.optString("token",""),BridgeClient.runtimeRevision(),SystemClock.elapsedRealtime());
@@ -334,12 +392,15 @@ public final class BridgeService extends Service {
                 if(op.startsWith("screen_request_"))return screenRequest(verified,uid,pid,parsed);
                 if(op.startsWith("browser_relay_"))return browserRelayRequest(verified,owner,uid,pid,source,parsed);
                 if("native_pairing".equals(op)){
-                    if(owner||!NativePairingPolicy.caller(verified.packageName()))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    boolean nfcTarget="nfc_target".equals(parsed.optString("action"));
+                    if(!owner&&!NativePairingPolicy.caller(verified.packageName())&&!(nfcTarget&&CallerPolicy.MIRROR.equals(verified.packageName())))return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
+                    if(nfcTarget&&(owner||!CallerPolicy.MIRROR.equals(verified.packageName())))
+                        return "{\"status\":\"error\",\"code\":\"permission_denied\"}";
                     // Consume the real Rust IPC sequence before invoking the narrowly scoped
                     // pairing controller. Package/revision checks alone are not a replay fence.
                     // Starting discovery is the consent entry point while the IPC engine is
                     // disabled. It is idempotent and cannot replace an in-flight/active peer.
-                    if(!"start".equals(parsed.optString("action"))){
+                    if(!owner&&!java.util.Set.of("start","forget").contains(parsed.optString("action"))){
                     JSONObject authorized=new JSONObject(NativeCore.dispatch(uid,pid,false,source,SystemClock.elapsedRealtime(),
                             new JSONObject().put("op","bridge_projections").put("token",parsed.getString("token")).put("sequence",parsed.getLong("sequence")).toString()));
                     if(!"ok".equals(authorized.optString("status")))return authorized.toString();
@@ -402,6 +463,11 @@ public final class BridgeService extends Service {
                     if("ok".equals(opened.optString("status")))runtimes.opened(uid,pid,opened.optString("token",""),SystemClock.elapsedRealtime());
                 }
                 if(owner && op.equals("bridge_stop")) {releaseConnection();}
+                if(owner&&"bridge_status".equals(op)&&networkStatus!=null){
+                    JSONObject response=new JSONObject(result),state=response.optJSONObject("bridge"),network=networkStatus;
+                    if(state!=null&&state.optString("session").equals(network.optString("session")))response.put("network_share",network);
+                    return response.toString();
+                }
                 return result;
             } catch(org.json.JSONException e) {return "{\"status\":\"error\",\"code\":\"invalid_request\"}";}
             } finally {if(changingLifecycle)lifecycle.unlock();Binder.restoreCallingIdentity(identity);}

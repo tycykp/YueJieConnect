@@ -19,7 +19,6 @@ import org.json.JSONObject;
 
 /** The system NFC dispatcher is the only external caller of this activity. */
 public final class NfcTapActivity extends Activity {
-    static final String SHARE_TOKEN = "io.github.yuejie.connect.NFC_SHARE_TOKEN";
     static final String OPERATION = "nfc_tap";
     static final String LOG = "YueJieNfc";
     private static String lastTarget;
@@ -35,19 +34,13 @@ public final class NfcTapActivity extends Activity {
         String target = readTarget(intent);
         if (target == null) { finish(); return; }
         Log.i(LOG, "factory_tag_read");
-        String token = intent.getStringExtra(SHARE_TOKEN);
-        if (token != null) {
-            NfcShareActivity.tap(token, target);
-            finish();
-            return;
-        }
         long now = SystemClock.elapsedRealtime();
         if (target.equals(lastTarget) && now - lastTap < 3000) { finish(); return; }
         lastTarget = target;
         lastTap = now;
         client = new BridgeClient();
         client.attach(getApplicationContext());
-        waitForPeer(client, main, "screen_video", projection -> {
+        waitForPeer(client, main, target, "screen_video", () -> !isFinishing() && !isDestroyed(), projection -> {
             if (isFinishing()) return;
             if (projection == null) { complete(R.string.nfc_tap_no_peer); return; }
             request(client, projection, target, new JSONArray(), reply -> {
@@ -61,16 +54,56 @@ public final class NfcTapActivity extends Activity {
         catch (RuntimeException invalid) { return null; }
     }
 
-    static void waitForPeer(BridgeClient client, Handler main, String grant, Consumer<JSONObject> result) {
-        long deadline = SystemClock.elapsedRealtime() + 3000;
+    static void waitForPeer(BridgeClient client, Handler main, String target, String grant,
+                            java.util.function.BooleanSupplier alive, Consumer<JSONObject> result) {
+        long deadline = SystemClock.elapsedRealtime() + 120_000;
         main.post(new Runnable() {
+            private boolean started, pending, done;
+            private String selected = "";
+            private long nextCommand;
+            private void complete(JSONObject value) {
+                done = true;
+                result.accept(value);
+            }
             @Override public void run() {
+                if (done || !alive.getAsBoolean()) return;
+                long now = SystemClock.elapsedRealtime();
                 JSONObject projection = client.projection();
                 JSONObject peer = projection == null ? null : projection.optJSONObject("real");
                 if (peer != null && "hyper_os4".equals(peer.optString("platform")) && "tablet".equals(peer.optString("kind"))
-                        && client.hasLocalGrant(grant) && offers(projection, OPERATION)) result.accept(projection);
-                else if (SystemClock.elapsedRealtime() >= deadline) result.accept(null);
-                else main.postDelayed(this, 100);
+                        && (selected.isEmpty() || selected.equals(projection.optString("id")))
+                        && client.hasLocalGrant(grant) && offers(projection, OPERATION)) { complete(projection); return; }
+                if (now >= deadline) { complete(null); return; }
+                if (!pending && now >= nextCommand) {
+                    pending = true;
+                    nextCommand = now + 750;
+                    try {
+                        client.pairing(new JSONObject().put("action", started ? "status" : "start"), reply -> {
+                            pending = false;
+                            if (done || !alive.getAsBoolean() || SystemClock.elapsedRealtime() >= deadline) return;
+                            if (reply == null || !"ok".equals(reply.optString("status"))) return;
+                            started = true;
+                            JSONObject state = reply.optJSONObject("pairing");
+                            if (state == null) return;
+                            if (!selected.isEmpty()) {
+                                if ("disconnected".equals(state.optString("phase")) || "stopped".equals(state.optString("phase"))) complete(null);
+                                return;
+                            }
+                            if (!"listening".equals(state.optString("phase")) && !"awaiting_confirmation".equals(state.optString("phase"))) return;
+                            String id = NfcTapPeer.select(reply.optJSONArray("peers"), target);
+                            if (id == null) return;
+                            pending = true;
+                            try {
+                                client.pairing(new JSONObject().put("action", "select").put("peer", id), response -> {
+                                    pending = false;
+                                    if (done || !alive.getAsBoolean()) return;
+                                    if (response != null && "ok".equals(response.optString("status"))) selected = id;
+                                });
+                            } catch (JSONException invalid) { pending = false; complete(null); }
+                        });
+                    } catch (JSONException invalid) { pending = false; complete(null); return; }
+                }
+                main.postDelayed(this, 100);
             }
         });
     }

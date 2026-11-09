@@ -153,7 +153,8 @@ final class NetworkShareController {
                 if (ended || stopping) return;
                 if (view.phase() == Phase.STOPPING || view.phase() == Phase.STOPPED || view.phase() == Phase.FAILED
                         || view.phase() == Phase.RECOVERY_REQUIRED) {
-                    stopNow(view.error() == null ? "native_network_stopped" : view.error());
+                    stopNow(view.error() == null && (view.phase() == Phase.FAILED || view.phase() == Phase.RECOVERY_REQUIRED)
+                            ? "native_network_stopped" : view.error());
                 } else if (passive) publish(new Status(target, view.ticket().request(), view.phase(), view.upstream(), view.error()));
                 return;
             }

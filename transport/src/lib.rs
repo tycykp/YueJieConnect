@@ -103,3 +103,5 @@ mod tests {
         assert_eq!(PlainControl::decode(&extra), Err(Error::LengthMismatch));
     }
 }
+
+pub mod network_share;

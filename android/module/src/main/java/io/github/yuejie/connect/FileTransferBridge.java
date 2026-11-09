@@ -83,7 +83,7 @@ public final class FileTransferBridge implements AutoCloseable {
     private FileTransferBridge(Context context, BridgeClient client, BooleanSupplier allowed, boolean sendOnly) throws IOException {
         this.client = client; this.allowed = allowed; this.sendOnly = sendOnly;
         String pkg = context.getPackageName();
-        if (sendOnly ? !"io.github.yuejie.connect".equals(pkg) : !("com.xiaomi.mirror".equals(pkg) || "com.oplus.linker".equals(pkg)))
+        if (sendOnly ? !("io.github.yuejie.connect".equals(pkg) || CallerPolicy.OPLUS.equals(pkg)) : !("com.xiaomi.mirror".equals(pkg) || "com.oplus.linker".equals(pkg)))
             throw new SecurityException("invalid_executor_context");
         negotiation = new FileTransferNegotiation(this::current, SystemClock::elapsedRealtime);
         endpoint = sendOnly ? null : new FileTransferEndpoint(context, this::current);
@@ -227,6 +227,10 @@ public final class FileTransferBridge implements AutoCloseable {
     /** Takes source ownership, including approval failure. This method returns only file bytes ACK. */
     public CompletableFuture<FileTransferEngine.Receipt> send(FileTransferEngine.Key key, FileTransferSource source,
             FileTransferEngine.SessionGate actualNativeOwnerCurrent) {
+        return send(key, source, actualNativeOwnerCurrent, ignored -> {});
+    }
+    public CompletableFuture<FileTransferEngine.Receipt> send(FileTransferEngine.Key key, FileTransferSource source,
+            FileTransferEngine.SessionGate actualNativeOwnerCurrent, java.util.function.LongConsumer progress) {
         CompletableFuture<FileTransferEngine.Receipt> result=new CompletableFuture<>();
         var decision=awaitReceiver(key,source.offer());
         result.whenComplete((receipt,error)->{if(result.isCancelled()){decision.cancel(true);cancel(key);}});
@@ -237,7 +241,7 @@ public final class FileTransferBridge implements AutoCloseable {
                 cleanupSource(key,source);
                 result.completeExceptionally(new IOException("receive_consent_failed"));return;
             }
-            var sent=fileClient.send(key,source,actualNativeOwnerCurrent);
+            var sent=fileClient.send(key,source,actualNativeOwnerCurrent,progress);
             result.whenComplete((r,e)->{if(result.isCancelled())sent.cancel(true);});
             sent.whenComplete((receipt,failure)->{if(failure!=null)result.completeExceptionally(failure);else result.complete(receipt);});
         });

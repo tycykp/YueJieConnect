@@ -200,6 +200,20 @@ public class NetworkShareControllerTest {
             assertEquals(1, local.stops.get());
         } finally { controller.close(); }
     }
+    @Test public void peerRequestedStopDoesNotReportNativeFailure() throws Exception {
+        Local local=new Local();local.role=Role.PROVIDER;
+        Remote remote=new Remote();remote.role=Role.CONSUMER;
+        CompletableFuture<NetworkShareController.Status> stopped=new CompletableFuture<>();
+        NetworkShareController controller=new NetworkShareController(local,remote,s->{
+            if(s.phase()==Phase.STOPPED||s.phase()==Phase.FAILED)stopped.complete(s);
+        });
+        try{
+            controller.observeLocal(TARGET,result("synthetic:stop",Role.PROVIDER,Phase.ACTIVE));
+            controller.observeLocal(TARGET,result("synthetic:stop",Role.PROVIDER,Phase.STOPPING));
+            assertEquals(Phase.STOPPED,stopped.get(2,TimeUnit.SECONDS).phase());
+            assertNull(stopped.get().error());
+        }finally{controller.close();}
+    }
     @Test public void staleSessionEndpointObservationCannotPublishNativeSuccess() throws Exception {
         Local local = new Local(); Remote remote = new Remote();
         NetworkShareController controller = new NetworkShareController(local, remote, s -> {});

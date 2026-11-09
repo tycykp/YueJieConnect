@@ -2,6 +2,7 @@ package io.github.yuejie.connect;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -29,14 +30,30 @@ final class OplusNfcTap {
             if (PACKAGE.equals(context.getPackageName()) && verified(context.getPackageManager())) {
                 module.hook(method).setId("yj.nfc.dispatch").intercept(dispatch -> {
                     if (!matches((List<?>) dispatch.getArg(0), (Intent) dispatch.getArg(3))) return dispatch.proceed();
+                    Intent tagIntent = new Intent((Intent) dispatch.getArg(3));
+                    String target = XiaomiPadNfcTag.target(tagIntent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag.class));
+                    // Let the registered system share agent consume the tap without pausing the
+                    // chooser (onPause unregisters its native share content and URI permissions).
+                    context.sendOrderedBroadcast(new Intent(OplusNfcShare.ACTION).setPackage(CallerPolicy.OPLUS)
+                            .putExtra("target", target), null, new BroadcastReceiver() {
+                        @Override public void onReceive(Context ignored, Intent result) {
+                            if (getResultCode() == ActivityResult.HANDLED) return;
+                            tagIntent.setClassName(HANDLER_PACKAGE, NfcTapActivity.class.getName())
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            try { context.startActivity(tagIntent); }
+                            catch (RuntimeException unavailable) { Log.w(NfcTapActivity.LOG, "tap_dispatch_unavailable"); }
+                        }
+                    }, null, 0, null, null);
                     Log.i(NfcTapActivity.LOG, "coloros_direct_dispatch");
-                    return false;
+                    return true;
                 });
                 Log.i(NfcTapActivity.LOG, "coloros_dispatch_ready");
             }
             return result;
         });
     }
+
+    static final class ActivityResult { static final int HANDLED = 1; }
 
     private static boolean verified(PackageManager manager) {
         try {

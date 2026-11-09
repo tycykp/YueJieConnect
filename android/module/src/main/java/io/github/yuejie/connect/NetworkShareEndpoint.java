@@ -84,6 +84,7 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
     private String recoveryError, previousFingerprint;
     private boolean recoveredOwner, recoveryStarted, stopRequested, nativeStartIssued, consumerMutationIssued;
     private long snapshotGeneration, stopSnapshot;
+    private String lastDiagnostic="";
     private CompletableFuture<Offer> startResult;
     private CompletableFuture<View> joinResult, stopResult, confirmResult;
 
@@ -169,7 +170,7 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
                 if (upstream != available.upstream()) throw new IllegalStateException("upstream_unavailable");
                 if ((available.metered() || upstream == Upstream.CELLULAR) && !meteredAllowed)
                     throw new SecurityException("metered_network_not_authorized");
-                if (upstream == Upstream.WIFI && mobileDataEnabled()) throw new IllegalStateException("cellular_fallback_enabled");
+                if (upstream == Upstream.WIFI && !meteredAllowed && mobileDataEnabled()) throw new IllegalStateException("cellular_fallback_enabled");
             } catch (RuntimeException error) { rejectBeforeChange(ticket); throw error; }
             if (!state.confirm(ticket, now())) throw new IllegalStateException("request_already_finished");
             requestedUpstream = connectivity.getActiveNetwork();
@@ -360,8 +361,11 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
                     } catch (IOException | RuntimeException error) { failAndRestore("network_recovery_write_failed"); }
                 }
             } else if (v.phase() == Phase.READY || v.phase() == Phase.ACTIVE) {
-                if (!owned || !validUpstream(caps) || v.phase() == Phase.ACTIVE && wifiClients == 0) failAndRestore("shared_network_lost");
-                else if (confirmResult != null && !confirmResult.isDone() && wifiClients > 0) {
+                if (!owned || !validUpstream(caps)) failAndRestore("shared_network_lost");
+                // The authenticated consumer confirms its exact joined network and validated
+                // default route. ColorOS does not always expose DHCP clients to this UID;
+                // an aggregate client count is neither a peer identity nor a liveness proof.
+                else if (confirmResult != null && !confirmResult.isDone()) {
                     if (state.attached(v.ticket(), true, now())) confirmResult.complete(state.view());
                 }
             }
@@ -371,10 +375,14 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
             NetworkCapabilities caps = connectivity.getNetworkCapabilities(connectivity.getActiveNetwork());
             WifiInfo routedWifi = caps != null && caps.getTransportInfo() instanceof WifiInfo w ? w : null;
             boolean validated = joined && caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                    && routedWifi != null && routedWifi.getNetworkId() == addedNetwork
+                    && (routedWifi != null && routedWifi.getNetworkId() == addedNetwork
+                        || connectivity.getActiveNetwork()!=null && connectivity.getActiveNetwork().equals(currentWifiNetwork()))
                     && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                     && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                     && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            if(v.phase()==Phase.STARTING)diagnostic("consumer joined="+joined+" routed="+(routedWifi!=null&&routedWifi.getNetworkId()==addedNetwork)
+                +" default_wifi="+(connectivity.getActiveNetwork()!=null&&connectivity.getActiveNetwork().equals(currentWifiNetwork()))
+                +" validated="+(caps!=null&&caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)));
             if (validated && v.phase() == Phase.STARTING) {
                 if (state.ready(v.ticket(), offer.upstream(), true, now()) && state.attached(v.ticket(), true, now()))
                     joinResult.complete(state.view());
@@ -383,6 +391,13 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
         }
     }
 
+    private Network currentWifiNetwork() {
+        try{return (Network)WifiManager.class.getMethod("getCurrentNetwork").invoke(wifi);}
+        catch(ReflectiveOperationException|RuntimeException unavailable){return null;}
+    }
+    private void diagnostic(String value){
+        if(!value.equals(lastDiagnostic)){lastDiagnostic=value;android.util.Log.i("YueJieNetwork",value);}
+    }
     private boolean validUpstream(NetworkCapabilities caps) {
         return requestedUpstream != null && requestedUpstream.equals(actualUpstream)
                 && type(caps) == state.view().upstream() && (allowMetered
@@ -538,7 +553,24 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
         if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
                 || context.checkSelfPermission(Manifest.permission.ACCESS_WIFI_STATE) != PackageManager.PERMISSION_GRANTED)
             throw new SecurityException("wifi_permission_denied");
-        try { return wifi.getConfiguredNetworks(); }
+        try {
+            List<WifiConfiguration> raw=wifi.getConfiguredNetworks();
+            if(raw==null)return null;
+            // Android 17 can expose WPA2 and its auto-upgraded WPA3 security profile as
+            // separate rows with the same networkId. They are one owned saved network.
+            java.util.Map<Integer,WifiConfiguration> unique=new java.util.LinkedHashMap<>();
+            for(WifiConfiguration config:raw){
+                WifiConfiguration previous=unique.get(config.networkId);
+                if(previous==null){unique.put(config.networkId,new WifiConfiguration(config));continue;}
+                if(!java.util.Objects.equals(previous.SSID,config.SSID)
+                    || !java.util.Objects.equals(previous.preSharedKey,config.preSharedKey)
+                    || creatorUid(previous)!=creatorUid(config)
+                    || !java.util.Objects.equals(creatorPackage(previous),creatorPackage(config)))
+                    throw new SecurityException("wifi_snapshot_conflict");
+                previous.allowedKeyManagement.or(config.allowedKeyManagement);
+            }
+            return new java.util.ArrayList<>(unique.values());
+        } catch(ReflectiveOperationException unavailable){throw new SecurityException("wifi_snapshot_denied");}
         catch (SecurityException revoked) { throw new SecurityException("wifi_permission_denied"); }
     }
     private boolean concurrentWifiAndHotspot() {
@@ -653,20 +685,33 @@ final class NetworkShareEndpoint implements NetworkShareController.Local {
             List<NetworkShareRecoveryPlan.Config> snapshots = new java.util.ArrayList<>();
             for (WifiConfiguration config : configured) snapshots.add(new NetworkShareRecoveryPlan.Config(
                     config.networkId, unquote(config.SSID), unquote(config.preSharedKey), fingerprint(config),
-                    creatorUid(config), creatorPackage(config), config.allowedKeyManagement.cardinality() == 1
-                    && config.allowedKeyManagement.get(WifiConfiguration.KeyMgmt.WPA_PSK)));
+                    creatorUid(config), creatorPackage(config), wpaPersonal(config)));
             WifiInfo info = wifi.getConnectionInfo();
             NetworkShareRecovery.Entry entry = recovery != null && recovery.entry() != null ? recovery.entry() : recoveryEntry();
             NetworkShareRecoveryPlan.Consumer plan = NetworkShareRecoveryPlan.consumer(entry, snapshots,
                     info == null ? -1 : info.getNetworkId(), info == null ? null : unquote(info.getSSID()));
             // Even when the previous connection was removed by the user, delete only our exact resource.
             if (plan.remove() >= 0 && !networkRemoved) networkRemoved = wifi.removeNetwork(plan.remove());
-            if (plan.error() != null) return false;
+            if (plan.error() != null) {
+                for(var config:snapshots)if(entry.ssid().equals(config.ssid()))diagnostic(plan.error()
+                    +" uid_match="+(config.creatorUid()==entry.ownerUid())+" package_match="+entry.ownerPackage().equals(config.creatorPackage())
+                    +" personal="+config.wpa2Only()+" id_match="+(config.id()==entry.addedNetwork())
+                    +" credential_masked="+(config.credential()==null||"*".equals(config.credential()))
+                    +" credential_match="+entry.passphrase().equals(config.credential()));
+                return false;
+            }
             if (plan.reconnect() >= 0 && !preserveExternalChoice) {
                 connectNetwork(plan.reconnect()); preserveExternalChoice = true; // one attempt per recovery window
             }
             return plan.restored();
         } catch (ReflectiveOperationException | RuntimeException error) { return false; }
+    }
+    private static boolean wpaPersonal(WifiConfiguration config) {
+        // Android may add SAE to a WPA2 profile during automatic security upgrade.
+        // Keep the creator, generated identity, credential and network-id ownership checks.
+        java.util.BitSet remaining=(java.util.BitSet)config.allowedKeyManagement.clone();
+        remaining.clear(WifiConfiguration.KeyMgmt.WPA_PSK);remaining.clear(WifiConfiguration.KeyMgmt.SAE);
+        return config.allowedKeyManagement.get(WifiConfiguration.KeyMgmt.WPA_PSK)&&remaining.isEmpty();
     }
     private static String unquote(String value) {
         return value != null && value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")

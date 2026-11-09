@@ -337,42 +337,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "yj-core"
-version = "0.1.0"
-dependencies = [
- "getrandom",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "yj-jni"
-version = "0.1.0"
-dependencies = [
- "getrandom",
- "jni",
- "yj-core",
- "yj-transport",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "yj-transport"
-version = "0.1.0"
-dependencies = [
- "getrandom",
- "yj-core",
- "serde",
- "serde_json",
- "sha2",
- "snow",
- "x25519-dalek",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -671,6 +635,42 @@ dependencies = [
  "rand_core",
  "serde",
  "zeroize",
+]
+
+[[package]]
+name = "yj-core"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "yj-jni"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
+ "jni",
+ "serde",
+ "serde_json",
+ "sha2",
+ "yj-core",
+ "yj-transport",
+]
+
+[[package]]
+name = "yj-transport"
+version = "0.1.0"
+dependencies = [
+ "getrandom",
+ "serde",
+ "serde_json",
+ "sha2",
+ "snow",
+ "x25519-dalek",
+ "yj-core",
 ]
 
 [[package]]

@@ -89,6 +89,7 @@ pub struct Snapshot {
     pub last_error: Option<&'static str>,
     pub socket_errno: Option<i32>,
     pub transport_address: Option<String>,
+    pub control_transport: &'static str,
 }
 struct State {
     epoch: u64,
@@ -188,6 +189,7 @@ pub enum OperationResult {
     ScreenInput(Value),
     ScreenRequest(Value),
     NfcTap(Value),
+    NetworkShare(Value),
     ScreenDrag(Value),
 }
 
@@ -230,6 +232,7 @@ impl OperationResult {
             (Operation::ScreenInput, Self::ScreenInput(r)) => crate::screen_input::receipt(r),
             (Operation::ScreenControl, Self::ScreenControl(r)) => crate::screen_control::receipt(r),
             (Operation::ScreenRequest, Self::ScreenRequest(r)) => crate::screen_control::request_receipt(r),
+            (Operation::NetworkShare, Self::NetworkShare(r)) => crate::network_share::receipt(r),
             (Operation::NfcTap, Self::NfcTap(r)) => crate::executor::nfc_tap_receipt(r),
             (Operation::TelephonyCallState, Self::TelephonyCallState(r))
             | (Operation::TelephonyCallControl, Self::TelephonyCallControl(r))
@@ -336,6 +339,7 @@ impl Bridge {
             last_error: None,
             socket_errno: None,
             transport_address: None,
+            control_transport: "wifi",
         };
         Ok(Arc::new(Self {
             identity,
@@ -385,6 +389,7 @@ impl Bridge {
         state.view.last_error = None;
         state.view.socket_errno = None;
         state.view.transport_address = None;
+        state.view.control_transport = "wifi";
         state.epoch
     }
     pub fn stop(&self) {
@@ -684,6 +689,7 @@ impl Bridge {
                     | Operation::MediaControl
                     | Operation::ScreenInput
                     | Operation::ScreenVideo
+                    | Operation::NetworkShare
                     | Operation::CameraVideo
                     | Operation::TelephonyCallState
                     | Operation::TelephonyCallControl
@@ -899,8 +905,9 @@ impl Bridge {
                 self.now(),
             );
             match projection {
-                Ok(p) => {
-                    if s.media.is_none() {
+                Ok(mut p) => {
+                    p.control_transport = s.view.control_transport.into();
+                    if s.media.is_none() && s.view.control_transport != "bluetooth" {
                         let setup = s
                             .view
                             .transport_address
@@ -934,19 +941,38 @@ impl Bridge {
     }
     fn run(self: &Arc<Self>, epoch: u64, mut socket: TcpStream, initiator: bool) {
         self.update(epoch, |s| s.view.phase = "handshaking");
-        let result = self.session(epoch, &mut socket, initiator);
+        let result = (|| {
+            let address = socket.peer_addr().map_err(|_| "socket_failed")?.to_string();
+            self.update(epoch, |s| s.view.transport_address = Some(address));
+            socket.set_nodelay(true).map_err(|_| "socket_failed")?;
+            socket.set_read_timeout(Some(Duration::from_millis(100))).map_err(|_| "socket_failed")?;
+            socket.set_write_timeout(Some(Duration::from_secs(2))).map_err(|_| "socket_failed")?;
+            self.session(epoch, &mut socket, initiator)
+        })();
         self.fail(epoch, result.err().unwrap_or("peer_closed"));
     }
-    fn session(&self, epoch: u64, socket: &mut TcpStream, initiator: bool) -> Result<()> {
-        let address = socket.peer_addr().map_err(|_| "socket_failed")?.to_string();
-        self.update(epoch, |s| s.view.transport_address = Some(address));
-        socket.set_nodelay(true).map_err(|_| "socket_failed")?;
-        socket
-            .set_read_timeout(Some(Duration::from_millis(100)))
-            .map_err(|_| "socket_failed")?;
-        socket
-            .set_write_timeout(Some(Duration::from_secs(2)))
-            .map_err(|_| "socket_failed")?;
+    /// Starts a new Noise XX session on a bonded Bluetooth byte carrier. Physical connection
+    /// grants nothing: both comparison-code confirmations and operation grants still apply.
+    #[cfg(unix)]
+    pub fn attach_bluetooth(self: &Arc<Self>, fd: std::os::fd::OwnedFd, initiator: bool) -> Result<()> {
+        let mut socket = std::os::unix::net::UnixStream::from(fd);
+        socket.set_read_timeout(Some(Duration::from_millis(100))).map_err(|_| "socket_failed")?;
+        socket.set_write_timeout(Some(Duration::from_secs(2))).map_err(|_| "socket_failed")?;
+        let epoch = {
+            let mut state = self.state.lock().unwrap();
+            if !matches!(state.view.phase, "stopped" | "disconnected" | "listening") { return Err("pairing_busy"); }
+            let epoch = self.reset_locked(&mut state,"handshaking");
+            state.view.control_transport = "bluetooth";
+            epoch
+        };
+        let bridge = self.clone();
+        thread::spawn(move || {
+            let result = bridge.session(epoch,&mut socket,initiator);
+            bridge.fail(epoch,result.err().unwrap_or("peer_closed"));
+        });
+        Ok(())
+    }
+    fn session(&self, epoch: u64, socket: &mut (impl Read + Write), initiator: bool) -> Result<()> {
         let params = PATTERN.parse().map_err(|_| "noise_config")?;
         let builder = snow::Builder::new(params)
             .local_private_key(&self.identity.private)
@@ -1025,7 +1051,7 @@ impl Bridge {
     fn exchange(
         &self,
         epoch: u64,
-        socket: &mut TcpStream,
+        socket: &mut (impl Read + Write),
         reader: &mut FrameReader,
         noise: &mut snow::TransportState,
         jobs: Receiver<Job>,
@@ -1371,7 +1397,7 @@ impl Bridge {
     }
 }
 
-fn send(noise: &mut snow::TransportState, socket: &mut TcpStream, message: &Wire) -> Result<()> {
+fn send(noise: &mut snow::TransportState, socket: &mut impl Write, message: &Wire) -> Result<()> {
     let plain = serde_json::to_vec(message).map_err(|_| "encoding_failed")?;
     if plain.len() > MAX_FRAME - 16 {
         return Err("payload_too_large");

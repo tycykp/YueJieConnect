@@ -720,7 +720,8 @@ fn handle(caller: Caller, now: u64, text: &str) -> Result<Value, &'static str> {
                                 payload["control"]["action"].as_str(),
                                 Some("QUERY" | "VOLUME_QUERY")
                             ))
-                        || (operation == Operation::AppRelay && payload["action"] == "status"),
+                        || (operation == Operation::AppRelay && payload["action"] == "status")
+                        || (operation == Operation::NetworkShare && payload["action"] == "availability"),
                     receive,
                     result: None,
                 },
@@ -1031,3 +1032,21 @@ pub extern "system" fn Java_io_github_yuejie_connect_NativeCore_dispatch(
     }
 }
 mod telephony_binder;
+
+/// Module service only; JNI is not an exported Android IPC surface. Consumes the FD on all paths.
+#[no_mangle]
+pub extern "system" fn Java_io_github_yuejie_connect_NativeCore_attachBluetooth(
+    _env: JNIEnv, _: JClass, fd: jint, initiator: jboolean,
+) -> jboolean {
+    #[cfg(target_os = "android")]
+    {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        if fd < 0 { return 0; }
+        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        catch_unwind(AssertUnwindSafe(|| {
+            BRIDGE.get().ok_or("bridge_not_initialized")?.attach_bluetooth(owned, initiator != 0)
+        })).is_ok_and(|result| result.is_ok()) as jboolean
+    }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (fd, initiator); 0 }
+}

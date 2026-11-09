@@ -44,6 +44,7 @@ pub enum Operation {
     ScreenRequest,
     ScreenDrag,
     NfcTap,
+    NetworkShare,
     CameraVideo,
     TelephonyCallState,
     TelephonyCallControl,
@@ -67,6 +68,7 @@ pub struct RealDevice {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Projection {
+    pub control_transport: String,
     /// Internal gateway alias. Adapters must validate native ID constraints before injection.
     pub id: String,
     /// Changes on every authenticated connection, even when the stable alias is reused.
@@ -153,6 +155,7 @@ impl Gateway {
             .filter(|op| link.granted.contains(op))
             .collect();
         let projection = Projection {
+            control_transport: "wifi".into(),
             id: id.clone(),
             session_id: hex(&link.session_id),
             target_sdk: local,

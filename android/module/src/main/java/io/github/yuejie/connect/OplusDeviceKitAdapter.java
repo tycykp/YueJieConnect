@@ -90,6 +90,25 @@ final class OplusDeviceKitAdapter {
         Class<?> owner = type(KIT + "OpDeviceServiceClient");
         Class<?> operateCallback=type(KIT+"callback.ISynergyDeviceOperateCallback");
         Method operateResult=operateCallback.getMethod("onResult",int.class,String.class);
+        Method removeDevice=owner.getMethod("removeDevice",List.class);
+        hooks.add(module.hook(owner.getMethod("deviceDelete",String.class,int.class,operateCallback))
+            .setId("yj.oplus.devicekit.forget").intercept(chain->{
+                String target=(String)chain.getArg(0);
+                if(target==null||!target.matches("yj:[0-9a-f]{64}"))return chain.proceed();
+                Object callback=chain.getArg(2),service=chain.getThisObject();
+                client.pairing(new JSONObject().put("action","forget").put("peer",target),response->main.postDelayed(()->{
+                    // Other OEM processes observe projection withdrawal on their 1-second poll.
+                    // Let those final offline notifications settle before removing shared history.
+                    // Never remove a new connection created while this deletion was pending.
+                    boolean ok="ok".equals(response.optString("status"));
+                    JSONObject live=client.projection();
+                    if(live!=null&&target.equals(live.optString("id")))ok=false;
+                    if(ok)try{removeDevice.invoke(service,List.of(target));}
+                    catch(ReflectiveOperationException failed){ok=false;}
+                    if(callback!=null)call(operateResult,callback,ok?0:1,ok?"success":response.optString("code","delete_failed"));
+                    android.util.Log.i("YueJieOplus","oplus_devicekit_forget_"+(ok?"completed":"failed"));
+                },2000));return null;
+            }));
         hooks.add(module.hook(owner.getMethod("deviceDisconnect",String.class,int.class,boolean.class,operateCallback))
             .setId("yj.oplus.devicekit.disconnect").intercept(chain->{
                 JSONObject p=active();String target=(String)chain.getArg(0);

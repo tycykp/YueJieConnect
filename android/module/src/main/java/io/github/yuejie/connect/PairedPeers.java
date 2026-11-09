@@ -14,7 +14,7 @@ final class PairedPeers {
             String[] parts=row.split("\\|",-1);
             if(parts.length!=2||!NativePairingPolicy.session(parts[0]))continue;
             Set<String> grants=new TreeSet<>(Arrays.asList(parts[1].split(",",-1)));
-            if(grants.contains("device_profile")&&INPUT_GRANTS.containsAll(grants)&&entries.size()<16)
+            if(reconnectable(grants)&&INPUT_GRANTS.containsAll(grants)&&entries.size()<16)
                 entries.put(parts[0],Set.copyOf(grants));
         }
     }
@@ -22,8 +22,16 @@ final class PairedPeers {
         if(!NativePairingPolicy.session(key)||(!entries.containsKey(key)&&entries.size()>=16))return false;
         Set<String> inputs=new TreeSet<>(granted);inputs.retainAll(INPUT_GRANTS);
         if(!inputs.contains("device_profile"))return false;
+        if(!reconnectable(inputs))return entries.remove(key)!=null;
         return !Set.copyOf(inputs).equals(entries.put(key,Set.copyOf(inputs)));
     }
+    static boolean reconnectable(Collection<String> grants){
+        return grants.contains("device_profile")&&(grants.contains("file_transfer")||grants.stream().anyMatch(NativeLogicalSessions.BUSINESS::contains));
+    }
+    String keyForAlias(int source,String id){
+        return entries.keySet().stream().filter(key->NativePairingPolicy.alias(source,key).equals(id)).findFirst().orElse("");
+    }
+    boolean forget(String key){return entries.remove(key)!=null;}
     Set<String> grants(String authenticatedKey){return entries.getOrDefault(authenticatedKey,Set.of());}
     boolean isEmpty(){return entries.isEmpty();}
     int size(){return entries.size();}

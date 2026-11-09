@@ -34,6 +34,11 @@ public final class FileTransferClient {
     /** Adds native owner/channel validity to the transport's authenticated-session checks. */
     public CompletableFuture<FileTransferEngine.Receipt> send(FileTransferEngine.Key key, FileTransferSource source,
                                                               FileTransferEngine.SessionGate nativeRoute) {
+        return send(key, source, nativeRoute, ignored -> {});
+    }
+
+    public CompletableFuture<FileTransferEngine.Receipt> send(FileTransferEngine.Key key, FileTransferSource source,
+            FileTransferEngine.SessionGate nativeRoute, java.util.function.LongConsumer progress) {
         CompletableFuture<FileTransferEngine.Receipt> result = new CompletableFuture<>();
         AtomicBoolean cancel = new AtomicBoolean();
         result.whenComplete((receipt, error) -> { if (result.isCancelled()) cancel.set(true); });
@@ -59,6 +64,7 @@ public final class FileTransferClient {
                         JSONObject ack = rpc(key, "file_chunk", block, cancel, nativeRoute);
                         offset += n;
                         if (FileTransferProtocol.integer(ack, "offset") != offset) throw new IOException("invalid_chunk_ack");
+                        progress.accept(offset);
                     }
                     if (offset != offer.size()) throw new IOException("source_size_mismatch");
                     JSONObject ack = rpc(key, "file_commit", FileTransferProtocol.identity(key), cancel, nativeRoute);

@@ -182,6 +182,7 @@ pub fn supported(operation: Operation) -> bool {
             | Operation::ScreenInput
             | Operation::ScreenControl
             | Operation::ScreenRequest
+            | Operation::NetworkShare
             | Operation::NfcTap
             | Operation::ScreenDrag
     )
@@ -210,7 +211,8 @@ pub fn logical_business(operation: Operation) -> bool {
                 | Operation::ScreenInput
             | Operation::ScreenControl
                 | Operation::ScreenRequest
-                | Operation::NfcTap
+                | Operation::NetworkShare
+            | Operation::NfcTap
                 | Operation::ScreenDrag
         )
 }
@@ -256,6 +258,7 @@ pub fn timeout_ms(operation: Operation) -> u64 {
         | Operation::TelephonySmsStatus => 10_000,
         Operation::FileCommit => 15_000,
         Operation::AppRelay => 20_000,
+        Operation::NetworkShare => 35_000,
         Operation::NfcTap => 25_000,
         _ => 5_000,
     }
@@ -280,6 +283,7 @@ fn uri_file_payload(payload: &Value) -> Result<Value> {
 
 /// Only this typed operation is enabled; adding a name does not grant a generic RPC channel.
 pub fn validate_payload(operation: Operation, payload: &Value) -> Result<()> {
+    if operation == Operation::NetworkShare { return if crate::network_share::valid(payload) { Ok(()) } else { Err("invalid_payload") }; }
     if operation == Operation::NfcTap {
         let fields = payload.as_object().ok_or("invalid_payload")?;
         let files = fields.get("files").and_then(Value::as_array).ok_or("invalid_payload")?;
@@ -474,6 +478,7 @@ pub(crate) fn rich_clipboard_bytes(payload: &Value) -> Result<usize> {
 
 pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) -> bool {
     match value {
+        OperationResult::NetworkShare(result) => return crate::network_share::matches(payload, result),
         OperationResult::NfcTap(result) => return nfc_tap_receipt(result),
         OperationResult::ScreenRequest(result) => {
             return crate::screen_control::request(payload) && crate::screen_control::request_receipt(result)
