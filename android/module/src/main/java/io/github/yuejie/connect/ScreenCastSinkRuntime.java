@@ -22,6 +22,7 @@ final class ScreenCastSinkRuntime {
     private String peerId;
     private Object peer,view,nativeSink;
     private ScreenCastFormat format;
+    private ScreenCastAudio.Playback playback;
     private boolean consent;
     private boolean closing;
     private Boolean lastCardQuery;
@@ -29,6 +30,7 @@ final class ScreenCastSinkRuntime {
     android.view.View dragView(){return dragScope()==null?null:(android.view.View)view;}
     void releaseDragPointer(){input.releasePointer();}
     boolean dragPointerHeld(ScreenCastSession.Scope expected){return input.pointerHeld(expected);}
+    boolean captureDrag(ScreenCastSession.Scope expected){return input.captureDrag(expected);}
     ScreenCastSinkRuntime(XposedModule module,BridgeClient client,ClassLoader loader)throws Exception{
         this.client=client;this.loader=loader;
         input=new ScreenCastInputRuntime(client);
@@ -36,7 +38,15 @@ final class ScreenCastSinkRuntime {
         viewType=type("com.xiaomi.mirror.sink.SinkView");
         ScreenCastBridgeTransport transport=new ScreenCastBridgeTransport(client);
         bridge=new ScreenCastBridge(transport,new ScreenCastBridge.Listener(){
-            public void onStreaming(Object owner,ScreenCastSession.Scope scope,ScreenCastSession.Receipt receipt){ScreenCastLog.i("YueJieScreen","sink_first_frame pts="+receipt.presentationTimeUs());}
+            public void onStreaming(Object owner,ScreenCastSession.Scope owned,ScreenCastSession.Receipt receipt){
+                ScreenCastLog.i("YueJieScreen","sink_first_frame pts="+receipt.presentationTimeUs());
+                main.post(()->{
+                    if(playback!=null&&scope==owned&&view==owner&&!closing&&current())
+                        playback.start(
+                            ()->main.post(()->sendAudioControl(transport,owned,owner,ScreenCastBridge.Action.AUDIO_READY)),
+                            ()->main.post(()->sendAudioControl(transport,owned,owner,ScreenCastBridge.Action.AUDIO_STOP)));
+                });
+            }
             public void onClosed(Object owner,ScreenCastSession.Scope scope,String code){ScreenCastLog.w("YueJieScreen","sink_closed "+code);dismiss(scope);}
         },SystemClock::elapsedRealtime);
         sinks=new XiaomiScreenSinkAdapter(module,loader);sinks.install();
@@ -84,6 +94,11 @@ final class ScreenCastSinkRuntime {
         main.post(new Runnable(){public void run(){bridge.tick();if(scope!=null&&!current()){dismiss(scope);sinks.sessionChanged();}main.postDelayed(this,250);}});
         ScreenCastLog.i("YueJieScreen","sink_installed");
     }
+    private void sendAudioControl(ScreenCastBridgeTransport transport,ScreenCastSession.Scope owned,Object owner,ScreenCastBridge.Action action){
+        if(scope!=owned||view!=owner||closing||!current())return;
+        if(!transport.send(new ScreenCastBridge.Control(owned,action,null,0,0))&&action==ScreenCastBridge.Action.AUDIO_STOP)
+            bridge.stop(owned,"screen_audio_stop_failed");
+    }
     private void hooksClose(XposedModule module,java.lang.reflect.Method method,boolean targeted){
         module.hook(method).setId("yj.screen.close."+method.getName()).intercept(chain->{
             var owned=scope;if(owned==null||!current()||targeted&&!peerId.equals(chain.getArg(0)))return chain.proceed();
@@ -110,7 +125,7 @@ final class ScreenCastSinkRuntime {
         if(scope!=null&&closing){main.postDelayed(this::start,250);return;}
         if(scope!=null){bridge.sessionChanged();sinks.sessionChanged();}
         peerId=p.getString("id");scope=new ScreenCastSession.Scope(p.getString("session_id"),(new java.security.SecureRandom().nextLong()&Long.MAX_VALUE)|1);
-        consent=false;closing=false;view=null;nativeSink=null;peer=null;
+        consent=false;closing=false;view=null;nativeSink=null;peer=null;playback=null;
         client.request(peerId,scope.sessionId(),"screen_request","screen-request:"+scope.streamId(),new JSONObject().put("stream_id",scope.streamId()),r->{
             ScreenCastLog.i("YueJieScreen","request_result "+r.optString("status")+" "+r.optString("code"));
         });
@@ -120,7 +135,7 @@ final class ScreenCastSinkRuntime {
         try{Class<?> controller=type("com.xiaomi.mirror.sink.e");Object owner=controller.getMethod("T").invoke(null);
             if(view!=null&&field(controller,"g").get(owner)==view)controller.getMethod("O").invoke(owner);
         }catch(Exception error){ScreenCastLog.e("YueJieScreen","window_close_failed",error);}
-        finally{main.postDelayed(()->{if(scope==owned){scope=null;consent=false;nativeSink=null;view=null;peer=null;}closing=false;},250);}
+        finally{main.postDelayed(()->{if(scope==owned){scope=null;consent=false;nativeSink=null;view=null;peer=null;playback=null;}closing=false;},250);}
     });}
     private boolean allowed(JSONObject payload){
         if(!current()||consent||scope.streamId()!=payload.optLong("stream_id"))return false;
@@ -156,11 +171,13 @@ final class ScreenCastSinkRuntime {
         nativeSink=sinkType.getConstructor(callback).newInstance(ctor.newInstance(actual));
         field(viewType,"p1").set(actual,nativeSink);field(viewType,"E").setBoolean(actual,true);
         var window=new XiaomiScreenRequestAdapter.NativeWindow(actual,peer,peerId,0,true,()->scope==owned&&owns(actual)&&surface.isValid());
+        var audio=new ScreenCastAudio.Playback();
+        playback=audio;
         var expectation=bridge.sink(window,scope,format,()->consent&&scope==owned&&current(),new ScreenCastBridge.NativeEndpoint(){
-            public ScreenCastFrameQueue.Offer receive(ScreenCastPacket packet){return sinks.receive(sinkScope,packet);}
+            public ScreenCastFrameQueue.Offer receive(ScreenCastPacket packet){return packet.isAudio()?audio.offer(packet):sinks.receive(sinkScope,packet);}
             public void requestKeyFrame(){}
             public void revokeInput(){input.revoke();}
-            public void stopNative(){main.post(()->sinks.stop(sinkScope));}
+            public void stopNative(){audio.close();main.post(()->sinks.stop(sinkScope));}
         });
         input.bind(owned,format,()->scope==owned&&!closing&&current()&&bridge.streaming(actual,owned),false);
         sinks.bind(nativeSink,sinkScope,format,expectation.currentAndConsented(),expectation.listener());

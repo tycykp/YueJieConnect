@@ -88,6 +88,8 @@ final class ScreenCastSourceRuntime {
         var endpoint=new ScreenCastBridge.NativeEndpoint(){
             public ScreenCastFrameQueue.Offer receive(ScreenCastPacket packet){return ScreenCastFrameQueue.Offer.CLOSED;}
             public void requestKeyFrame(){main.post(()->{if(current(owned)&&capture!=null)capture.requestKeyFrame();});}
+            public void enableAudio(){main.post(()->{if(current(owned)&&approved&&capture!=null)capture.startAudio(client.context());});}
+            public void disableAudio(){main.post(()->{if(scope==owned&&capture!=null)capture.stopAudio();});}
             public void revokeInput(){input.revoke();}
             public void stopNative(){stop(owned);}
         };

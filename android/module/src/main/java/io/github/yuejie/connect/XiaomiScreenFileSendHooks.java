@@ -59,7 +59,7 @@ public final class XiaomiScreenFileSendHooks implements AutoCloseable {
                         Source existing=sources.get(owner);
                         // A global START can reach both the SinkView and its touch child.
                         // R0 rejects the second call as busy; do not replace the first owner.
-                        if(existing!=null&&!existing.ended&&existing.eventTarget!=chain.getArg(0)&&existing.view==actual&&existing.session>0
+                        if(existing!=null&&!existing.ended&&existing.view==actual&&existing.session>0
                                 &&existing.session==session.getLong(owner)&&sameClip(existing.clip,clip))return true;
                         Source old = sources.remove(owner);
                         if (old != null) routes.cancelled(old.view, old.session);

@@ -18,6 +18,7 @@ final class ScreenCastInputRuntime implements BridgeClient.VendorExecutor {
     private final Handler main=new Handler(android.os.Looper.getMainLooper());
     private JSONObject pendingMove;
     private double pointerX, pointerY;
+    private boolean handoffHeld;
     private final ScreenCastGesture gesture = new ScreenCastGesture();
     private final Runnable flushMove=()->{JSONObject move=pendingMove;pendingMove=null;if(move!=null)dispatch(move);};
     ScreenCastInputRuntime(BridgeClient client) {
@@ -45,6 +46,12 @@ final class ScreenCastInputRuntime implements BridgeClient.VendorExecutor {
             return;
         }
         if (owned == null || !live(owned)) return;
+        if(handoffHeld&&"pointer".equals(event.optString("kind"))){
+            int action=event.optInt("action");
+            if(action==1||action==3)handoffHeld=false;
+            if(action!=0)return;
+            handoffHeld=false;
+        }
         if ("pointer".equals(event.optString("kind")) && !gesture.accept(event.optInt("action", -1))) return;
         if("pointer".equals(event.optString("kind"))&&event.optInt("action")==2){
             if(pendingMove==null)main.postDelayed(flushMove,16);
@@ -72,7 +79,17 @@ final class ScreenCastInputRuntime implements BridgeClient.VendorExecutor {
             catch(org.json.JSONException ignored){}});
     }
     boolean pointerHeld(ScreenCastSession.Scope expected){
-        return main.getLooper()==android.os.Looper.myLooper()&&expected!=null&&expected.equals(scope)&&live(scope)&&gesture.held();
+        return main.getLooper()==android.os.Looper.myLooper()&&expected!=null&&expected.equals(scope)&&live(scope)&&(gesture.held()||handoffHeld);
+    }
+    boolean captureDrag(ScreenCastSession.Scope expected){
+        if(!pointerHeld(expected)||handoffHeld)return false;
+        try{
+            main.removeCallbacks(flushMove);flushMove.run();
+            if(!gesture.accept(1))return false;
+            handoffHeld=true;
+            dispatch(new JSONObject().put("kind","pointer").put("action",1).put("x",pointerX).put("y",pointerY));
+            return true;
+        }catch(org.json.JSONException failed){handoffHeld=false;return false;}
     }
     @Override public void execute(JSONObject task,BridgeClient.TaskCompletion completion) {
         var owned=scope;
@@ -109,6 +126,7 @@ final class ScreenCastInputRuntime implements BridgeClient.VendorExecutor {
         }
         main.removeCallbacks(flushMove);pendingMove=null;
         gesture.reset();
+        handoffHeld=false;
         scope=null;current=()->false;
         worker.post(()->{if(target!=null){target.close();target=null;}received=0;});
     }

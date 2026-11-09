@@ -494,6 +494,16 @@ fn pump(inner: Arc<Inner>, slot: Arc<Slot>, mut pipe: PipeSocket) {
                 pipe_read(&mut pipe, &mut length[1..], &slot, deadline)?;
                 let length = u32::from_le_bytes(length) as usize;
                 if !(PACKET_HEADER..=PACKET_HEADER + MAX_ACCESS_UNIT).contains(&length) { return Err(RuntimeCloseReason::ProtocolViolation); }
+                let mut wire = vec![0; length]; pipe_read(&mut pipe, &mut wire, &slot, deadline)?;
+                let packet = VideoPacket::from_wire(wire).map_err(|_| RuntimeCloseReason::ProtocolViolation)?;
+                if packet.stream_id() != slot.id || packet.sequence() <= last_sequence || !packet.allowed_for(slot.purpose) {
+                    return Err(RuntimeCloseReason::ProtocolViolation);
+                }
+                last_sequence = packet.sequence();
+                if packet.is_audio() {
+                    let usage = channel.queue_usage();
+                    if usage.frames >= MAX_QUEUED_FRAMES - 2 || usage.bytes > MAX_QUEUED_BYTES - length { continue; }
+                }
                 while {
                     let usage = channel.queue_usage();
                     usage.frames >= MAX_QUEUED_FRAMES || usage.bytes > MAX_QUEUED_BYTES - length
@@ -501,10 +511,6 @@ fn pump(inner: Arc<Inner>, slot: Arc<Slot>, mut pipe: PipeSocket) {
                     if !slot.live() || Instant::now() >= deadline { return Err(RuntimeCloseReason::LocalPipeFailed); }
                     thread::sleep(POLL);
                 }
-                let mut wire = vec![0; length]; pipe_read(&mut pipe, &mut wire, &slot, deadline)?;
-                let packet = VideoPacket::from_wire(wire).map_err(|_| RuntimeCloseReason::ProtocolViolation)?;
-                if packet.stream_id() != slot.id || packet.sequence() <= last_sequence { return Err(RuntimeCloseReason::ProtocolViolation); }
-                last_sequence = packet.sequence();
                 if !channel.offer(packet) { return Err(RuntimeCloseReason::TransportFailed); }
             } else {
                 let packet = match channel.read_packet(POLL).map_err(|_| RuntimeCloseReason::TransportFailed)? { Some(packet) => packet, None => continue };

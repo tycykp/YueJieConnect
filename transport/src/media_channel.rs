@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 
 pub const MAX_ACCESS_UNIT: usize = 1_048_576;
 pub const PACKET_HEADER: usize = 40;
+const AUDIO_FLAG: u16 = 8;
+const AUDIO_BYTES: usize = 3840; // 20 ms of stereo 48 kHz PCM16
 pub const MAX_QUEUED_BYTES: usize = 4 * 1_048_576;
 pub const MAX_QUEUED_FRAMES: usize = 8;
 const MAX_STREAMS_PER_SESSION: usize = 64;
@@ -288,6 +290,8 @@ pub struct VideoPacket {
     stream_id: u64,
     sequence: u64,
     end: bool,
+    audio: bool,
+    video_sequence: u32,
 }
 impl VideoPacket {
     pub fn from_wire(wire: Vec<u8>) -> Result<Self, Error> {
@@ -299,18 +303,23 @@ impl VideoPacket {
         let sequence = u64::from_be_bytes(wire[16..24].try_into().unwrap());
         let pts = u64::from_be_bytes(wire[24..32].try_into().unwrap());
         let len = u32::from_be_bytes(wire[32..36].try_into().unwrap()) as usize;
+        let video_sequence = u32::from_be_bytes(wire[36..40].try_into().unwrap());
         if wire[..4] != [0x59, 0x4a, 0x56, 0x31]
             || wire[4..6] != [0, 1]
-            || wire[36..40] != [0; 4]
+            || video_sequence > i32::MAX as u32
+            || (video_sequence != 0 && (flags == AUDIO_FLAG || u64::from(video_sequence) >= sequence))
             || stream_id == 0
             || stream_id > i64::MAX as u64
             || sequence == 0
             || sequence > i64::MAX as u64
             || pts > i64::MAX as u64
             || len != wire.len() - PACKET_HEADER
-            || !matches!(flags, 0 | 1 | 2 | 4)
-            || (flags == 4 && len != 0)
-            || (flags != 4 && len == 0)
+            || !match flags {
+                0 | 1 | 2 => len > 0,
+                4 => len == 0,
+                AUDIO_FLAG => len == AUDIO_BYTES,
+                _ => false,
+            }
         {
             return Err(Error::InvalidPacket);
         }
@@ -319,6 +328,8 @@ impl VideoPacket {
             stream_id,
             sequence,
             end: flags == 4,
+            audio: flags == AUDIO_FLAG,
+            video_sequence,
         })
     }
     pub fn as_wire(&self) -> &[u8] {
@@ -332,6 +343,12 @@ impl VideoPacket {
     }
     pub fn stream_id(&self) -> u64 {
         self.stream_id
+    }
+    pub(crate) fn is_audio(&self) -> bool {
+        self.audio
+    }
+    pub(crate) fn allowed_for(&self, purpose: Purpose) -> bool {
+        (!self.is_audio() && self.video_sequence == 0) || purpose == Purpose::ScreenVideo
     }
 }
 
@@ -578,6 +595,7 @@ impl MediaChannel {
     pub fn offer(&self, packet: VideoPacket) -> bool {
         if self.shared.role != Role::Sender
             || packet.stream_id != self.shared.stream_id
+            || !packet.allowed_for(self.shared.purpose)
             || self.shared.check().is_err()
         {
             return false;
@@ -889,7 +907,8 @@ fn receive_loop(
         current.bytes.extend_from_slice(chunk);
         if current.bytes.len() == total {
             let packet = VideoPacket::from_wire(assembly.take().unwrap().bytes)?;
-            if packet.stream_id != shared.stream_id || packet.sequence != sequence {
+            if packet.stream_id != shared.stream_id || packet.sequence != sequence
+                || !packet.allowed_for(shared.purpose) {
                 return Err(Error::InvalidPacket);
             }
             last_sequence = sequence;
@@ -1011,6 +1030,27 @@ mod tests {
         bad.push(1);
         assert!(VideoPacket::from_wire(bad).is_err());
         assert!(packet(1, MAX_ACCESS_UNIT, 1).wire.len() > MAX_RECORD);
+    }
+    #[test]
+    fn screen_pcm_and_video_share_authenticated_packet_order() {
+        let pair = pair(Duration::from_secs(30));
+        let audio = packet(2, AUDIO_BYTES, AUDIO_FLAG);
+        assert!(!audio.allowed_for(Purpose::CameraVideo));
+        let mut bad = packet(2, AUDIO_BYTES - 1, 0).into_wire();
+        bad[7] = AUDIO_FLAG as u8;
+        assert!(matches!(VideoPacket::from_wire(bad), Err(Error::InvalidPacket)));
+        let mut wire = packet(3, 64, 0).into_wire();
+        wire[39] = 2;
+        let video = VideoPacket::from_wire(wire).unwrap();
+        assert!(!video.allowed_for(Purpose::CameraVideo));
+        for packet in [packet(1, 64, 1), audio, video] {
+            let seq = packet.sequence();
+            let expected = packet.as_wire().to_vec();
+            assert!(pair.sender.offer(packet));
+            let received = pair.receiver.read_packet(Duration::from_secs(2)).unwrap().unwrap();
+            assert_eq!(received.sequence(), seq);
+            assert_eq!(received.as_wire(), expected);
+        }
     }
     #[test]
     fn max_access_unit_crosses_real_noise_tcp_fragments_without_business_ack() {

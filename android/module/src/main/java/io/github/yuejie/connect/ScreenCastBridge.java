@@ -15,14 +15,14 @@ import java.util.function.LongSupplier;
  * strict screen_control messages, and supplies the actual PFD media pipe through Transport.
  * No unregistered operation, native peer, window, comparison confirmation or permit is invented. */
 public final class ScreenCastBridge implements AutoCloseable {
-    public enum Action { PREPARED, RENDERED, KEYFRAME, STOP }
+    public enum Action { PREPARED, RENDERED, KEYFRAME, STOP, AUDIO_READY, AUDIO_STOP }
     public record Control(ScreenCastSession.Scope scope,Action action,ScreenCastFormat format,long sequence,long presentationTimeUs) {
         public Control {
             Objects.requireNonNull(scope); Objects.requireNonNull(action);
             boolean valid=switch(action) {
                 case PREPARED -> format!=null && sequence==0 && presentationTimeUs==0;
                 case RENDERED -> format==null && sequence>0 && presentationTimeUs>=0;
-                case KEYFRAME,STOP -> format==null && sequence==0 && presentationTimeUs==0;
+                case KEYFRAME,STOP,AUDIO_READY,AUDIO_STOP -> format==null && sequence==0 && presentationTimeUs==0;
             };
             if(!valid) throw new IllegalArgumentException("invalid_screen_control");
         }
@@ -48,6 +48,8 @@ public final class ScreenCastBridge implements AutoCloseable {
         void revokeInput();
         /** Enqueue the scoped stop on the original native source/main worker. */
         void stopNative();
+        default void enableAudio() { }
+        default void disableAudio() { }
         default void sourceManager(Object actualDeviceInfo,Object actualPadManager,String actualBusId) { }
     }
     public interface Listener {
@@ -222,6 +224,14 @@ public final class ScreenCastBridge implements AutoCloseable {
             case PREPARED -> session.remotePrepared(control.scope,control.format);
             case RENDERED -> session.remoteRendered(new ScreenCastSession.Receipt(control.scope,control.sequence,control.presentationTimeUs));
             case KEYFRAME -> session.remoteKeyFrame(control.scope);
+            case AUDIO_READY,AUDIO_STOP -> {
+                if(entry.role!=ScreenCastSession.Role.SOURCE)yield false;
+                var state=session.state();
+                if(state==ScreenCastSession.State.PREPARING||state==ScreenCastSession.State.CLOSED)yield false;
+                if(control.action==Action.AUDIO_READY)entry.nativeEndpoint.enableAudio();
+                else entry.nativeEndpoint.disableAudio();
+                yield true;
+            }
             case STOP -> false;
         };
     }

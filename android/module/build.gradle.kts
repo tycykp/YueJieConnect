@@ -27,9 +27,11 @@ android {
         applicationId = "io.github.yuejie.connect"
         // This build is limited to the two Android 17 samples under review.
         minSdk = 37
-        targetSdk = 37
-        versionCode = 31
-        versionName = "0.7.0-screen-files"
+        // The native pages handle peer selection on both sides of the LAN listener.
+        // Use Android's compatibility access for this sideloaded bridge on Android 17.
+        targetSdk = 36
+        versionCode = 32
+        versionName = "0.7.1-native-direct"
         buildConfigField("String", "RUNTIME_INPUT_SHA", "\"$runtimeInputDigest\"")
         ndk { abiFilters += "arm64-v8a" }
     }

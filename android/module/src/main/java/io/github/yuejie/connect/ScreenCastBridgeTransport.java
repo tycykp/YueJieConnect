@@ -36,7 +36,8 @@ final class ScreenCastBridgeTransport implements ScreenCastBridge.Transport,Brid
                 JSONObject result=response.optJSONObject("result"),data=result==null?null:result.optJSONObject("data");
                 if(!"ok".equals(response.optString("status"))||data==null||!"screen_control".equals(result.optString("operation"))
                     ||data.optLong("stream_id")!=message.scope().streamId()||!payload.optString("action").equals(data.optString("action"))||!Boolean.TRUE.equals(data.opt("accepted")))
-                    {ScreenCastLog.w("YueJieScreen","control_rejected "+message.action()+" "+response.optString("code"));cancel(message.scope());}
+                    {ScreenCastLog.w("YueJieScreen","control_rejected "+message.action()+" "+response.optString("code"));
+                        if(message.action()!=ScreenCastBridge.Action.AUDIO_READY)cancel(message.scope());}
             });return true;
         }catch(org.json.JSONException invalid){return false;}
     }

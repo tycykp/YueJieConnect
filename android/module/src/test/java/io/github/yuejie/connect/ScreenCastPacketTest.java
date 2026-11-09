@@ -28,4 +28,14 @@ public class ScreenCastPacketTest {
         assertThrows(IllegalArgumentException.class, () -> new ScreenCastFormat(721, 1280, 30, 2_000_000));
         assertEquals(30, new ScreenCastFormat(720, 1280, 30, 2_000_000).fps());
     }
+    @Test public void audioHasOneCanonicalFrameSizeAndCannotCarryVideoFlags() {
+        byte[] pcm = new byte[ScreenCastPacket.AUDIO_BYTES];
+        pcm[17] = 42;
+        var packet = ScreenCastPacket.decode(new ScreenCastPacket(7, 3, 40, ScreenCastPacket.AUDIO, pcm).encode());
+        assertTrue(packet.isAudio());
+        assertFalse(packet.isKey());
+        assertArrayEquals(pcm, packet.payload());
+        assertThrows(IllegalArgumentException.class, () -> new ScreenCastPacket(7, 3, 40,
+                ScreenCastPacket.AUDIO | ScreenCastPacket.KEY, pcm));
+    }
 }

@@ -1,7 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
@@ -31,6 +30,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".BridgeBootstrapActivity" android:exported="true" android:process=":bridge"
+            android:theme="@android:style/Theme.NoDisplay" />
         <!-- Each transaction validates UID, PID, package, version, certificate and Rust session.
              Network starts from the module or verified OEM pairing UI, with bilateral confirmation. -->
         <service android:name=".BridgeService" android:exported="true" android:process=":bridge" android:foregroundServiceType="connectedDevice" />

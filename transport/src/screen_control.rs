@@ -34,6 +34,12 @@ enum Command {
     Stop {
         stream_id: i64,
     },
+    AudioReady {
+        stream_id: i64,
+    },
+    AudioStop {
+        stream_id: i64,
+    },
 }
 pub fn valid(payload: &Value) -> bool {
     match serde_json::from_value::<Command>(payload.clone()) {
@@ -58,7 +64,8 @@ pub fn valid(payload: &Value) -> bool {
             sequence,
             presentation_time_us,
         }) => stream_id > 0 && sequence > 0 && presentation_time_us >= 0,
-        Ok(Command::Keyframe { stream_id } | Command::Stop { stream_id }) => stream_id > 0,
+        Ok(Command::Keyframe { stream_id } | Command::Stop { stream_id }
+            | Command::AudioReady { stream_id } | Command::AudioStop { stream_id }) => stream_id > 0,
         _ => false,
     }
 }
@@ -75,7 +82,7 @@ pub fn receipt(value: &Value) -> bool {
             && r.accepted
             && matches!(
                 r.action.as_str(),
-                "allowed" | "prepared" | "rendered" | "keyframe" | "stop"
+                "allowed" | "prepared" | "rendered" | "keyframe" | "stop" | "audio_ready" | "audio_stop"
             )
     })
 }
@@ -117,6 +124,12 @@ mod tests {
                 .extend(patch.as_object().unwrap().clone());
             assert!(!valid(&invalid));
         }
+        let audio = json!({"action":"audio_ready","stream_id":7});
+        assert!(matches(&audio, &json!({"action":"audio_ready","stream_id":7,"accepted":true})));
+        assert!(!valid(&json!({"action":"audio_ready","stream_id":7,"microphone":true})));
+        let stop = json!({"action":"audio_stop","stream_id":7});
+        assert!(matches(&stop, &json!({"action":"audio_stop","stream_id":7,"accepted":true})));
+        assert!(!matches(&stop, &json!({"action":"stop","stream_id":7,"accepted":true})));
         let receipt = json!({"stream_id":7,"action":"prepared","accepted":true});
         assert!(matches(&prepared, &receipt));
         assert!(!matches(

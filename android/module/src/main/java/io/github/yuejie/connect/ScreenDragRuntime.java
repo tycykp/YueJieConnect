@@ -21,7 +21,7 @@ import org.json.*;
 final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
     private record Local(Uri uri,String name,String mime,long size){}
     private static final class Source {
-        final String id=UUID.randomUUID().toString().replace("-","");
+        final String id;
         final ScreenCastSession.Scope scope;
         final List<Local> files;
         final CopyOnWriteArrayList<FileTransferEngine.Key> keys=new CopyOnWriteArrayList<>();
@@ -29,13 +29,16 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
         final AtomicBoolean cleaned=new AtomicBoolean();
         final List<CompletableFuture<?>> pending=new CopyOnWriteArrayList<>();
         volatile boolean cancelled;
-        Source(ScreenCastSession.Scope scope,List<Local> files,Runnable cleanup){this.scope=scope;this.files=files;this.cleanup=cleanup;}
+        Source(ScreenCastSession.Scope scope,List<Local> files,Runnable cleanup){this(UUID.randomUUID().toString().replace("-",""),scope,files,cleanup);}
+        Source(String id,ScreenCastSession.Scope scope,List<Local> files,Runnable cleanup){this.id=id;this.scope=scope;this.files=files;this.cleanup=cleanup;}
     }
     private static final class PhoneGesture {
         final String task;
         final ScreenCastSession.Scope scope;
+        final String controlId=UUID.randomUUID().toString().replace("-","");
         volatile boolean ended,handoffRequested;
         volatile Source source;
+        OplusDragCapture capture;
         PhoneGesture(String task,ScreenCastSession.Scope scope){this.task=task;this.scope=scope;}
     }
     private static final class Incoming {
@@ -79,11 +82,9 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
     private volatile ScreenCastSession.Scope phoneScope;
     private String tableSession;
     private ScreenDragProvider provider;
-    private XiaomiScreenFileSendHooks sourceHooks;
     private volatile RemoteGesture remote;
     private PhoneGesture phoneGesture;
-    private Object sysDragManager,sysDragOptions;
-    private Method releaseSysDrag;
+    private Object sysDragManager,sysDragListener;
 
     ScreenDragRuntime(XposedModule module,Context context,ClassLoader loader,BridgeClient client,FileTransferBridge files,
             int brand,Supplier<ScreenCastSinkRuntime> sink)throws Exception{
@@ -118,7 +119,6 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
             phoneScope=stream>0?new ScreenCastSession.Scope(session,stream):null;
         }
         if(!Objects.equals(tableSession,session)){tableSession=session;used.clear();}
-        if(sourceHooks!=null)sourceHooks.sessionChanged();
         for(Source source:outgoing.values())if(!current(source))cancel(source);
         for(Incoming item:incoming.values())if(!current(item))revoke(item);
         if(remote!=null&&!current(remote.scope)){RemoteGesture old=remote;remote=null;old.view.cancelDragAndDrop();}
@@ -129,26 +129,6 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
             public boolean current(FileTransferNegotiation.Prepared p){return ScreenDragRuntime.this.current(incoming.get(p.key().transfer()));}
             public CompletableFuture<Uri> receive(FileTransferNegotiation.Prepared p){return receiveTemporary(incoming.get(p.key().transfer()));}
         });
-        XiaomiFileAdapter descriptors=new XiaomiFileAdapter(context,loader,null,(o,s,k)->false);
-        sourceHooks=new XiaomiScreenFileSendHooks(module,loader,new XiaomiScreenFileSendHooks.Routes(){
-            public boolean current(Object view){return sink.get()!=null&&sink.get().dragView()==view&&ScreenDragRuntime.this.current(scope());}
-            public boolean consumeMessages(Object view){return true;}
-            public void observed(Object view,int action,boolean clip,boolean selected){log("native_drag action="+action+" clip="+clip+" selected="+selected);}
-            public void started(Object view,long session,int screen,ClipData original,Object translated){try{
-                var owned=scope();if(!ScreenDragRuntime.this.current(owned))return;
-                List<Local> local=new ArrayList<>();for(var f:descriptors.localFiles(original,translated))local.add(new Local(f.uri(),f.name(),mime(f.uri(),f.name()),f.size()));
-                synchronized(gestures){if(ScreenDragRuntime.this.current(owned))gestures.put(view,new LocalGesture(view,session,owned,List.copyOf(local)));}log("pad_source_start count="+local.size());
-            }catch(Exception error){log("pad_source_failed "+error);}}
-            public void dropped(Object view,long session){
-                LocalGesture gesture;synchronized(gestures){gesture=gestures.remove(view);}
-                if(gesture==null||gesture.session!=session)return;
-                Source source=new Source(gesture.scope,gesture.files,()->releasePad(view,session));
-                begin(source,"drop");
-            }
-            public void cancelled(Object view,long session){synchronized(gestures){LocalGesture g=gestures.get(view);if(g!=null&&g.session==session)gestures.remove(view);}
-                // A finished drag releases Android's source grant only after its immutable snapshot.
-            }
-        });
         Class<?> handler=type("k4.R0");Field nativeView=field(handler,"a");
         module.hook(handler.getMethod("onDrag",View.class,DragEvent.class)).setId("yj.drag.remote.window").intercept(chain->{
             DragEvent event=(DragEvent)chain.getArg(1);RemoteGesture active=remote;
@@ -156,52 +136,75 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
                 if(event.getAction()==DragEvent.ACTION_DROP){control(active.scope,active.id,"cancel",List.of(),null);for(Incoming item:active.files)revoke(item);}
                 if(event.getAction()==DragEvent.ACTION_DRAG_ENDED){
                     boolean accepted=event.getResult();log("pad_native_drag_end accepted="+accepted);
+                    // Some OEM file managers accept the native save gesture without
+                    // opening its URI. Commit that accepted file to the visible inbox;
+                    // a later provider read shares this same verified destination.
+                    if(accepted)for(Incoming item:active.files)if(current(item))receiveDownload(item);
                     control(active.scope,active.id,accepted?"finish":"cancel",List.of(),null);
                     if(!accepted)for(Incoming item:active.files)revoke(item);
                     remote=null;
                 }return true;
+            }
+            Object view=nativeView.get(chain.getThisObject());
+            ScreenCastSession.Scope owned=scope();
+            if(sink.get()!=null&&sink.get().dragView()==view&&current(owned)){
+                if(event.getLocalState()==chain.getThisObject())return true;
+                if(event.getAction()==DragEvent.ACTION_DROP)return acceptPadDrop(event,owned);
+                if(event.getAction()==DragEvent.ACTION_DRAG_STARTED){
+                    ClipData clip=event.getClipData();
+                    return clip!=null&&clip.getItemCount()>0&&clip.getItemCount()<=4;
+                }
+                return true;
             }
             // OEM's toast is tied to entering its window, not an actual file receipt.
             if(event.getAction()==DragEvent.ACTION_DRAG_ENDED&&sink.get()!=null&&nativeView.get(chain.getThisObject())==sink.get().dragView())field(handler,"i").setInt(chain.getThisObject(),0);
             return chain.proceed();
         });
     }
-    private void releasePad(Object view,long session){main.post(()->{try{
-        Object handler=field(view.getClass(),"D4").get(view);Class<?> drag=type("com.xiaomi.mirror.message.DragMessage");
-        Object message=drag.getConstructor().newInstance();drag.getField("action").setInt(message,9);
-        handler.getClass().getMethod("a",drag,long.class).invoke(handler,message,session);
-    }catch(Exception e){log("source_grant_release_failed "+e.getClass().getSimpleName());}});}
+    private boolean acceptPadDrop(DragEvent event,ScreenCastSession.Scope owned){
+        DragAndDropPermissions permission=null;
+        try{
+            ClipData clip=event.getClipData();if(clip==null||clip.getItemCount()<1||clip.getItemCount()>4)return false;
+            for(int i=0;i<clip.getItemCount();i++)FileTransferUris.requireContent(clip.getItemAt(i).getUri());
+            permission=(DragAndDropPermissions)DragAndDropPermissions.class.getMethod("obtain",DragEvent.class).invoke(null,event);
+            if(permission==null)return false;
+            if(Boolean.FALSE.equals(DragAndDropPermissions.class.getMethod("takeTransient").invoke(permission))){permission.release();return false;}
+            final DragAndDropPermissions grant=permission;
+            ClipData captured=new ClipData(clip);
+            Runnable release=()->main.post(grant::release);
+            worker.execute(()->{try{
+                List<Local> local=localFiles(captured);
+                main.post(()->{if(!current(owned)){release.run();return;}begin(new Source(owned,local,release),"drop");});
+            }catch(Exception error){release.run();log("pad_drop_source_failed "+error.getClass().getSimpleName());toast("无法读取拖拽文件");}});
+            log("pad_drop_captured count="+captured.getItemCount());return true;
+        }catch(Exception failed){if(permission!=null)permission.release();log("pad_drop_rejected "+failed.getClass().getSimpleName());return false;}
+    }
     private void installPhone()throws Exception{
-        Class<?> manager=type("com.oplus.linker.drag.ability.sys_drag.SysDragTaskManager");
-        Class<?> companionType=type("com.oplus.linker.drag.ability.sys_drag.SysDragTaskManager$Companion");
-        Field companionField=null;
-        for(Field candidate:manager.getDeclaredFields())if(Modifier.isStatic(candidate.getModifiers())&&candidate.getType()==companionType){
-            if(companionField!=null)throw new IllegalStateException("ambiguous_drag_manager");companionField=candidate;
-        }
-        if(companionField==null)throw new NoSuchFieldException("drag_manager_companion");
-        companionField.setAccessible(true);Object companion=companionField.get(null);
-        sysDragManager=companion.getClass().getMethod("getInstance").invoke(companion);
-        Class<?> options=type("com.oplus.linker.drag.ability.sys_drag.SysDragServiceOptions");
-        Class<?> callback=type("com.oplus.linker.drag.ability.sys_drag.ISysDragServiceListenerCallback");
-        sysDragOptions=options.getConstructor(String.class,boolean.class,String.class).newInstance("yuejie-screen",false,null);
-        releaseSysDrag=sysDragManager.getClass().getMethod("releaseSysDragService",options);
-        Object listener=Proxy.newProxyInstance(loader,new Class<?>[]{callback},(proxy,method,args)->{
-            if(method.getName().equals("onDragStart")){
-                ClipData clip=(ClipData)args[2];var owned=scope();String task=(String)args[0];
-                if(clip!=null&&current(owned)&&task!=null){
+        // Register a separate real framework listener. The OEM business dispatcher
+        // resets during DataBus initialization; our file route does not use DataBus.
+        Class<?> manager=type("com.oplus.globaldrag.DragAndDropDispatcherManager");
+        Class<?> callback=type("com.oplus.globaldrag.DragAndDropDispatcherManager$IDragAndDropListenerCallback");
+        sysDragManager=manager.getMethod("getInstance").invoke(null);
+        java.util.concurrent.atomic.AtomicReference<String> nativeTask=new java.util.concurrent.atomic.AtomicReference<>();
+        sysDragListener=Proxy.newProxyInstance(loader,new Class<?>[]{callback},(proxy,method,args)->{
+            if(method.getName().equals("prePerformDrag")){
+                ClipData clip=(ClipData)args[3];var owned=scope();
+                String source=(String)args[0];String task=UUID.randomUUID().toString();nativeTask.set(task);
+                log("phone_drag_callback current="+current(owned)+" files="+(clip==null?0:clip.getItemCount()));
+                if(clip!=null&&current(owned)&&(source==null||!source.contains("com.oplus.linker"))){
                     ClipData captured=new ClipData(clip);
                     main.post(()->startPhoneGesture(task,owned,captured));
                 }
-            }else if(method.getName().equals("onDragFinish")){
-                String task=(String)args[0];main.post(()->{
+            }else if(method.getName().equals("postEndDrag")||method.getName().equals("postCancelDragAndDrop")){
+                String task=nativeTask.getAndSet(null);main.post(()->{
                     PhoneGesture gesture=phoneGesture;
-                    if(gesture!=null&&gesture.task.equals(task)&&!gesture.handoffRequested)endPhoneGesture(gesture);
+                    if(task!=null&&gesture!=null&&gesture.task.equals(task)&&!gesture.handoffRequested)endPhoneGesture(gesture);
                 });
             }
             return ScreenCastLinkerRuntime.objectMethod(proxy,method.getName(),args);
         });
-        ((CompletableFuture<?>)sysDragManager.getClass().getMethod("requestSysDragService",options,callback).invoke(sysDragManager,sysDragOptions,listener))
-            .whenComplete((ready,error)->log("phone_drag_listener ready="+ready+" error="+(error!=null)));
+        manager.getMethod("registerDragAndDropListener",String.class,callback).invoke(sysDragManager,context.getPackageName(),sysDragListener);
+        log("phone_framework_drag_listener_registered");
     }
     private void startPhoneGesture(String task,ScreenCastSession.Scope owned,ClipData clip){
         if(!current(owned))return;
@@ -210,11 +213,22 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
             endPhoneGesture(phoneGesture);
         }
         PhoneGesture gesture=new PhoneGesture(task,owned);phoneGesture=gesture;
+        try{
+            gesture.capture=new OplusDragCapture(context,clip,
+                ()->control(owned,gesture.controlId,"capture",List.of(),ok->{if(!ok)endPhoneGesture(gesture);}),
+                (captured,release)->{
+                    gesture.handoffRequested=true;
+                    preparePhoneGesture(gesture,captured,release);
+                },()->endPhoneGesture(gesture));
+        }catch(RuntimeException failed){endPhoneGesture(gesture);log("phone_capture_failed "+failed.getClass().getSimpleName());}
+    }
+    private void preparePhoneGesture(PhoneGesture gesture,ClipData clip,Runnable release){
+        var owned=gesture.scope;
         try{worker.execute(()->{try{
             List<Local> local=localFiles(clip);
             main.post(()->{
-                if(phoneGesture!=gesture||gesture.ended||!current(owned))return;
-                Source source=new Source(owned,local,()->main.post(()->{if(phoneGesture==gesture)phoneGesture=null;}));
+                if(phoneGesture!=gesture||gesture.ended||!current(owned)){release.run();return;}
+                Source source=new Source(gesture.controlId,owned,local,()->main.post(()->{release.run();if(phoneGesture==gesture)phoneGesture=null;}));
                 gesture.source=source;begin(source,"start");
             });
         }catch(Exception error){main.post(()->endPhoneGesture(gesture));log("phone_source_failed "+error.getClass().getSimpleName());}});}
@@ -222,6 +236,7 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
     }
     private void endPhoneGesture(PhoneGesture gesture){
         gesture.ended=true;if(phoneGesture==gesture)phoneGesture=null;
+        if(gesture.capture!=null)gesture.capture.close();
         if(gesture.source!=null)cancel(gesture.source);
     }
     private List<Local> localFiles(ClipData clip)throws Exception{
@@ -306,6 +321,15 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
         if(!current(owned)||p==null||!owned.sessionId().equals(task.getString("session_id"))||!p.getString("id").equals(task.getString("projection_id"))||owned.streamId()!=payload.getLong("stream_id"))throw new IOException("stale_session");
         if(SystemClock.elapsedRealtime()>=task.getLong("deadline_elapsed_ms"))throw new IOException("request_timeout");
         String id=payload.getString("drag_id"),action=payload.getString("action");
+        if(action.equals("capture")){
+            if(brand!=1||sink.get()==null||used.size()>=256)throw new IOException("invalid_drag_direction");
+            String captureKey="capture:"+id;
+            if(!used.containsKey(captureKey)){
+                if(!sink.get().captureDrag(owned))throw new IOException("drag_pointer_released");
+                used.put(captureKey,Long.toString(owned.streamId()));
+            }
+            complete(payload,work);return;
+        }
         if(action.equals("cancel")||action.equals("finish")){
             if(action.equals("cancel")){
                 if(!used.containsKey(id)&&used.size()>=256)throw new IOException("drag_limit");
@@ -346,6 +370,7 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
     private void fail(ControlWork work,String code){if(!work.done){work.done=true;controls.remove(work.key,work);work.completion.fail(code);}}
     private void startRemote(String id,ScreenCastSession.Scope scope,List<Incoming> selected)throws Exception{
         if(remote!=null)throw new IOException("drag_busy");View view=sink.get().dragView();if(view==null)throw new IOException("screen_closed");
+        if(!Long.toString(scope.streamId()).equals(used.get("capture:"+id)))throw new IOException("drag_capture_unbound");
         if(!sink.get().dragPointerHeld(scope))throw new IOException("drag_pointer_released");
         Object handler=field(view.getClass(),"D4").get(view);List<String> types=new ArrayList<>();for(Incoming item:selected)types.add(item.prepared.metadata().offer().mime());
         ClipData clip=new ClipData("来自手机",types.toArray(String[]::new),new ClipData.Item(provider.stage(selected.get(0).prepared)));

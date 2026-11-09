@@ -19,9 +19,10 @@ public final class ScreenCastFrameQueue implements AutoCloseable {
     }
     public synchronized Offer offer(ScreenCastPacket p) {
         if (closed) return Offer.CLOSED;
-        if (p.streamId != streamId || p.sequence <= sequence) return Offer.STALE;
-        boolean gap = sequence != 0 && p.sequence != sequence + 1;
-        sequence = p.sequence;
+        long videoSequence = p.videoSequence();
+        if (p.isAudio() || p.streamId != streamId || videoSequence <= sequence) return Offer.STALE;
+        boolean gap = sequence != 0 && videoSequence != sequence + 1;
+        sequence = videoSequence;
         if (p.isEnd()) { clear(); add(p); closed = true; return Offer.ACCEPTED; }
         if (p.isConfig()) {
             clear(); config = p; configured = true; needKey = true; lastPts = -1; add(p);

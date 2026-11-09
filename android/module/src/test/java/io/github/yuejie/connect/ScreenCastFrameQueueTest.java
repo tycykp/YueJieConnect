@@ -22,6 +22,17 @@ public class ScreenCastFrameQueueTest {
         assertEquals(ACCEPTED, q.offer(p(6, 1, 10)));
         assertTrue(q.poll().isConfig()); assertTrue(q.poll().isKey()); assertNull(q.poll());
     }
+    @Test public void multiplexedAudioDoesNotHideOrInventVideoLoss() {
+        var q = new ScreenCastFrameQueue(9);
+        assertEquals(ACCEPTED, q.offer(p(1, ScreenCastPacket.CONFIG, 10)));
+        assertEquals(ACCEPTED, q.offer(p(2, ScreenCastPacket.KEY, 10)));
+        var next = ScreenCastPacket.decode(p(3, 0, 10).withWireSequence(5).encode());
+        assertEquals(5, next.sequence);
+        assertEquals(3, next.videoSequence());
+        assertEquals(ACCEPTED, q.offer(next));
+        assertEquals(NEED_KEY_FRAME, q.offer(p(5, 0, 10).withWireSequence(9)));
+        assertEquals(ACCEPTED, q.offer(p(6, ScreenCastPacket.KEY, 10).withWireSequence(11)));
+    }
     @Test public void overflowBoundsMemoryAndRequiresIndependentFrame() {
         var q = new ScreenCastFrameQueue(9); q.offer(p(1, 2, 10)); q.offer(p(2, 1, 1_048_576));
         q.offer(p(3, 0, 1_048_576)); q.offer(p(4, 0, 1_048_576));

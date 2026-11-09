@@ -153,6 +153,8 @@ final class BridgeClient implements AutoCloseable {
             Write task;
             synchronized(this){
                 if(closed||!"sender".equals(role)||wire==null||wire.length<40||wire.length>1_048_616||frames>=8||bytes+wire.length>4*1_048_576)return false;
+                // Leave space for AVC configuration and keyframes when audio arrives continuously.
+                if(wire[6]==0&&wire[7]==ScreenCastPacket.AUDIO&&frames>=6)return false;
                 byte[] copy=wire.clone();
                 java.nio.ByteBuffer header=java.nio.ByteBuffer.wrap(copy).order(java.nio.ByteOrder.BIG_ENDIAN);
                 long sequence=header.getLong(16);
@@ -404,6 +406,10 @@ final class BridgeClient implements AutoCloseable {
         enqueue(()->{if(SystemClock.elapsedRealtime()-observedAt>5000)return;try{authenticated(new JSONObject().put("op","observe").put("event",new JSONObject(copied)));}catch(org.json.JSONException|RemoteException failure){token=null;}});
     }
     private void unbind(){if(bound){bound=false;try{context.unbindService(connection);}catch(IllegalArgumentException ignored){}}token=null;publish(null);}
+    void retryBinding(){enqueue(()->{
+        if(bridge!=null)return;
+        unbind();nextBind=0;ensureBound();
+    });}
     private void ensureBound(){
         if(context==null||bound||SystemClock.elapsedRealtime()<nextBind)return;
         nextBind=SystemClock.elapsedRealtime()+10_000;

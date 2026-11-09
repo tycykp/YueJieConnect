@@ -29,7 +29,7 @@ public class ScreenCastBridgeTest {
         final CompletableFuture<ScreenCastBridge.Pipe> media=new CompletableFuture<>();
         final Pipe pipe=new Pipe();final List<ScreenCastBridge.Control> controls=new ArrayList<>();
         final List<String> closed=new ArrayList<>();final List<ScreenCastPacket> decoded=new ArrayList<>();
-        int opens,cancels,revokes,stops,streaming;Object streamedOwner;End other;
+        int opens,cancels,revokes,stops,streaming,audioEnabled,audioDisabled;Object streamedOwner;End other;
         final ScreenCastBridge bridge=new ScreenCastBridge(this,this,clock::get);
         public CompletionStage<ScreenCastBridge.Pipe> open(ScreenCastSession.Scope scope,ScreenCastSession.Role role){opens++;return media;}
         public boolean send(ScreenCastBridge.Control control){controls.add(control);network.add(() -> {if(other!=null)other.bridge.control(control);});return true;}
@@ -38,6 +38,8 @@ public class ScreenCastBridgeTest {
         public void requestKeyFrame(){}
         public void revokeInput(){revokes++;}
         public void stopNative(){stops++;}
+        public void enableAudio(){audioEnabled++;}
+        public void disableAudio(){audioDisabled++;}
         public void onStreaming(Object owner,ScreenCastSession.Scope scope,ScreenCastSession.Receipt receipt){streaming++;streamedOwner=owner;}
         public void onClosed(Object owner,ScreenCastSession.Scope scope,String code){closed.add(code);}
     }
@@ -58,9 +60,24 @@ public class ScreenCastBridgeTest {
         assertEquals(1,src.streaming);assertSame(device,src.streamedOwner);assertSame(window,dst.streamedOwner);
         assertTrue(src.bridge.streaming(device,scope));assertTrue(dst.bridge.streaming(window,scope));
         assertFalse(dst.bridge.streaming(peer,scope));
+        var audioReady=new ScreenCastBridge.Control(scope,ScreenCastBridge.Action.AUDIO_READY,null,0,0);
+        assertFalse(dst.bridge.control(audioReady));
+        assertTrue(src.bridge.control(audioReady));assertEquals(1,src.audioEnabled);
+        var pcm=new byte[ScreenCastPacket.AUDIO_BYTES];
+        assertTrue(lease.offer(new ScreenCastPacket(7,2,200,ScreenCastPacket.AUDIO,pcm)));
+        // An audio timestamp may equal a video timestamp without claiming or invalidating a render.
+        assertTrue(lease.offer(new ScreenCastPacket(7,2,200,0,new byte[]{1}).withWireSequence(3)));
+        flush();assertTrue(dst.decoded.get(1).isAudio());assertFalse(dst.decoded.get(2).isAudio());
+        sink.onFrameRendered(200,1);assertEquals(1,dst.streaming);
+        var audioStop=new ScreenCastBridge.Control(scope,ScreenCastBridge.Action.AUDIO_STOP,null,0,0);
+        assertFalse(dst.bridge.control(audioStop));
+        assertTrue(src.bridge.control(audioStop));assertEquals(1,src.audioDisabled);
+        assertTrue(src.bridge.streaming(device,scope));assertTrue(dst.bridge.streaming(window,scope));
         lease.close();flush();assertEquals(1,src.stops);assertEquals(1,dst.stops);assertEquals(1,src.revokes);assertEquals(1,dst.revokes);
         assertEquals(0,dst.controls.stream().filter(c -> c.action()==ScreenCastBridge.Action.STOP).count());
         assertFalse(src.bridge.streaming(device,scope));assertEquals(1,src.closed.size());assertEquals(1,dst.closed.size());
+        assertFalse(src.bridge.control(audioReady));
+        assertFalse(src.bridge.control(audioStop));
     }
     @Test public void sessionChangeRetiresOldWindowAndAllowsFreshSession(){
         End end=new End();var old=expectation(end);

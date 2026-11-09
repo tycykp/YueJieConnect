@@ -1,5 +1,6 @@
 package io.github.yuejie.connect;
 
+import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.projection.MediaProjection;
@@ -13,10 +14,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ScreenCastProjectionSource implements AutoCloseable {
     private final ScreenCastVideoEncoder.Listener listener;
     private final MediaProjection projection;
+    private final long streamId;
+    private final Object outputLock = new Object();
     private final HandlerThread callbacks = new HandlerThread("yj-screen-consent");
     private final AtomicBoolean closed = new AtomicBoolean();
     private ScreenCastVideoEncoder encoder;
+    private ScreenCastAudio.Capture audio;
+    private boolean audioStopped;
     private VirtualDisplay display;
+    private long sequence;
     private final MediaProjection.Callback revoked = new MediaProjection.Callback() {
         @Override public void onStop() { if(!closed.get()){close();listener.onFailure("screen_projection_revoked");} }
     };
@@ -25,12 +31,16 @@ public final class ScreenCastProjectionSource implements AutoCloseable {
     public ScreenCastProjectionSource(MediaProjection projection, long streamId, ScreenCastFormat format,
                                       int densityDpi, ScreenCastVideoEncoder.Listener listener) throws IOException {
         if (densityDpi < 72 || densityDpi > 1000) throw new IllegalArgumentException("invalid_density");
-        this.projection = Objects.requireNonNull(projection);this.listener=Objects.requireNonNull(listener);
+        this.projection = Objects.requireNonNull(projection);this.listener=Objects.requireNonNull(listener);this.streamId=streamId;
         callbacks.start();
         try {
             synchronized (this) {
                 encoder = new ScreenCastVideoEncoder(streamId, format, new ScreenCastVideoEncoder.Listener() {
-                    public boolean offer(ScreenCastPacket packet) { return !closed.get() && listener.offer(packet); }
+                    public boolean offer(ScreenCastPacket packet) {
+                        synchronized (outputLock) {
+                            return !closed.get() && listener.offer(packet.withWireSequence(++sequence));
+                        }
+                    }
                     public void onFailure(String code) {
                         new Handler(callbacks.getLooper()).post(() -> { close(); listener.onFailure(code); });
                     }
@@ -43,10 +53,23 @@ public final class ScreenCastProjectionSource implements AutoCloseable {
             }
         } catch (IOException | RuntimeException error) { close(); throw error; }
     }
+    synchronized void startAudio(Context host) {
+        if (closed.get() || audioStopped || audio != null) return;
+        audio = new ScreenCastAudio.Capture(host, (pts, pcm) -> {
+            synchronized (outputLock) {
+                if (!closed.get()) listener.offer(new ScreenCastPacket(streamId, ++sequence, pts, ScreenCastPacket.AUDIO, pcm));
+            }
+        });
+    }
+    synchronized void stopAudio() {
+        audioStopped = true;
+        if (audio != null) audio.close();
+    }
     public synchronized void requestKeyFrame() { if (!closed.get() && encoder != null) encoder.requestKeyFrame(); }
     public synchronized int displayId(){return display==null?-1:display.getDisplay().getDisplayId();}
     @Override public synchronized void close() {
         if (!closed.compareAndSet(false, true)) return;
+        stopAudio();
         try { if (display != null) { display.release(); display = null; } }
         finally {
             try { if (encoder != null) encoder.close(); }

@@ -40,7 +40,7 @@ public class FileTransferScreenSendHooksCheck {
         event(1,owner);message(0,5);assertTrue(events.isEmpty());
     }
     @Test public void lateConversionCannotAttachToNextDrag()throws Exception{
-        event(1,null);long old=owner.b;event(1,null);events.clear();message(0,old);assertTrue(events.isEmpty());
+        event(1,null);long old=owner.b;event(4,null);event(1,null);events.clear();message(0,old);assertTrue(events.isEmpty());
         message(0,owner.b);assertEquals(List.of("start:2"),events);
     }
     @Test public void rejectedAndUnboundSourcesNeverStart()throws Exception{

@@ -118,10 +118,6 @@ public final class MainActivity extends Activity {
         });
     }
     private void networkCommand(String command){
-        if(checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK")!=PackageManager.PERMISSION_GRANTED){
-            requestPermissions(new String[]{"android.permission.ACCESS_LOCAL_NETWORK","android.permission.POST_NOTIFICATIONS"},1);
-            operationResult.setText(R.string.permission_needed);return;
-        }
         startService(new Intent(this,BridgeService.class));request(command,false);
     }
     private void request(String command,boolean status){

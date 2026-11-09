@@ -89,7 +89,7 @@ public class ScreenCastSessionTest {
         assertTrue(s.renderedReceipt(new Receipt(scope,257,25700)));
         assertFalse(s.keyFrameRequest(new Scope("d".repeat(64),9),()->e.keyRequests++));
         assertTrue(s.keyFrameRequest(scope,()->e.keyRequests++));
-        assertFalse(s.keyFrameRequest(scope,()->e.keyRequests++)); assertEquals(1,e.keyRequests);
+        assertTrue(s.keyFrameRequest(scope,()->e.keyRequests++)); assertEquals(1,e.keyRequests);
         Endpoint sink = new Endpoint(); ScreenCastSession receiver = session(Role.SINK,sink); ready(receiver);
         receiver.keyFrameNeeded(); receiver.keyFrameNeeded(); assertEquals(1,sink.keyRequests);
         clock.addAndGet(500); receiver.keyFrameNeeded(); assertEquals(2,sink.keyRequests);

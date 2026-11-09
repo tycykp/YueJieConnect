@@ -95,16 +95,16 @@ public final class ScreenCastSession implements AutoCloseable {
         lastSequence = packet.sequence;
         ScreenCastFrameQueue.Offer result = receiver.offer(packet);
         if (result == ScreenCastFrameQueue.Offer.ACCEPTED) remember(packet);
-        if (result == ScreenCastFrameQueue.Offer.NEED_KEY_FRAME) keyFrameNeeded();
+        if (!packet.isAudio() && result == ScreenCastFrameQueue.Offer.NEED_KEY_FRAME) keyFrameNeeded();
         return result;
     }
     private boolean usable(ScreenCastPacket packet) {
-        return current() && state != State.PREPARING && packet.streamId == scope.streamId && packet.sequence > lastSequence;
+        return current() && state != State.PREPARING && (!packet.isAudio() || state == State.STREAMING)
+                && packet.streamId == scope.streamId && packet.sequence > lastSequence;
     }
     private void remember(ScreenCastPacket packet) {
         // A repeated codec configuration does not invalidate pictures already in flight.
-        if (packet.isConfig()) return;
-        if (packet.isEnd()) return;
+        if (packet.isConfig() || packet.isEnd() || packet.isAudio()) return;
         // A PTS must identify exactly one picture for MediaCodec's rendered callback.
         if (frames.containsValue(packet.presentationTimeUs)) { fail("ambiguous_frame_timestamp"); return; }
         frames.put(packet.sequence, packet.presentationTimeUs);
@@ -149,7 +149,8 @@ public final class ScreenCastSession implements AutoCloseable {
         Objects.requireNonNull(requestEncoderKeyFrame);
         if (role != Role.SOURCE || !scope.equals(receivedScope) || !current() || state == State.PREPARING) return false;
         long now = clock.getAsLong();
-        if (lastKeyRequest >= 0 && now - lastKeyRequest < 500) return false;
+        // A current request covered by the existing recovery window needs no second encoder call.
+        if (lastKeyRequest >= 0 && now - lastKeyRequest < 500) return true;
         lastKeyRequest = now; requestEncoderKeyFrame.run(); return true;
     }
     /** Call on the existing session timer at least once per second, including when no media arrives. */
