@@ -180,6 +180,7 @@ pub fn supported(operation: Operation) -> bool {
             | Operation::TelephonyCallControl
             | Operation::TelephonySmsStatus
             | Operation::ScreenControl
+            | Operation::ScreenRequest
     )
 }
 pub fn valid_channel(value: &str) -> bool {
@@ -204,6 +205,7 @@ pub fn logical_business(operation: Operation) -> bool {
                 | Operation::TelephonyCallControl
                 | Operation::TelephonySmsStatus
                 | Operation::ScreenControl
+                | Operation::ScreenRequest
         )
 }
 pub fn telephony_operation(operation: Operation) -> Option<&'static str> {
@@ -271,6 +273,9 @@ fn uri_file_payload(payload: &Value) -> Result<Value> {
 
 /// Only this typed operation is enabled; adding a name does not grant a generic RPC channel.
 pub fn validate_payload(operation: Operation, payload: &Value) -> Result<()> {
+    if operation == Operation::ScreenRequest {
+        return if crate::screen_control::request(payload) { Ok(()) } else { Err("invalid_payload") };
+    }
     if operation == Operation::ScreenControl {
         return if crate::screen_control::valid(payload) {
             Ok(())
@@ -443,6 +448,10 @@ pub(crate) fn rich_clipboard_bytes(payload: &Value) -> Result<usize> {
 
 pub(crate) fn receipt_matches_payload(value: &OperationResult, payload: &Value) -> bool {
     match value {
+        OperationResult::ScreenRequest(result) => {
+            return crate::screen_control::request(payload) && crate::screen_control::request_receipt(result)
+                && payload["stream_id"] == result["stream_id"];
+        }
         OperationResult::ScreenControl(result) => {
             return crate::screen_control::matches(payload, result)
         }

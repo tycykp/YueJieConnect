@@ -37,6 +37,8 @@ public final class ScreenCastVideoEncoder implements AutoCloseable {
         media.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         media.setInteger(MediaFormat.KEY_BIT_RATE, format.bitrate());
         media.setInteger(MediaFormat.KEY_FRAME_RATE, format.fps());
+        // A stationary display must still produce a fresh IDR after preparation/backpressure.
+        media.setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L);
         media.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         media.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0);
         media.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);

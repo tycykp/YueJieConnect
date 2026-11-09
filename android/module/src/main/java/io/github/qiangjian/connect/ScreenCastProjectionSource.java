@@ -43,6 +43,7 @@ public final class ScreenCastProjectionSource implements AutoCloseable {
         } catch (IOException | RuntimeException error) { close(); throw error; }
     }
     public synchronized void requestKeyFrame() { if (!closed.get() && encoder != null) encoder.requestKeyFrame(); }
+    public synchronized int displayId(){return display==null?-1:display.getDisplay().getDisplayId();}
     @Override public synchronized void close() {
         if (!closed.compareAndSet(false, true)) return;
         try { if (display != null) { display.release(); display = null; } }

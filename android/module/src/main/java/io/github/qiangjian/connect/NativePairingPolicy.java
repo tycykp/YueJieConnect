@@ -7,7 +7,7 @@ import java.util.Set;
 /** The OEM page may select a discovered LAN endpoint, never an arbitrary socket or grant. */
 final class NativePairingPolicy {
     private static final Set<String> OPERATIONS=Set.of("device_profile","battery_status",
-            "clipboard_write","clipboard_rich_write","file_transfer","app_relay");
+            "clipboard_write","clipboard_rich_write","file_transfer","app_relay","screen_video");
     static boolean caller(String pkg){return CallerPolicy.XIAOMI.equals(pkg)||CallerPolicy.OPLUS.equals(pkg)||CallerPolicy.OPLUS_PAIRING.equals(pkg);}
     static boolean idle(String phase){return Set.of("stopped","disconnected","listening").contains(phase);}
     static boolean endpoint(InetAddress address,int port){

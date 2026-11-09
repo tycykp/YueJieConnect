@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">强兼互联</string>
+    <string name="app_name">越界互联</string>
     <string name="module_description">API 102 + Rust 双向设备代理</string>
     <string name="gateway_intro">设备代理 · 0.5\n\n两台设备连接同一局域网。一端等待连接，另一端输入它的地址。核对两端校验码并分别确认后，才交换真实资料并发布代理。\n\n本版接入资料、电池查询和纯文本剪贴板；剪贴板仅在两端原生执行器均已就绪时启用。完整原生连接、文件、投屏等功能仍在集成。</string>
     <string name="address_hint">对端地址，例如 192.168.1.20:38271</string>

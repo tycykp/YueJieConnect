@@ -99,7 +99,7 @@ public final class NotificationSyncUiProbe extends com.android.uiautomator.testr
     public void testSynthetic() throws Exception {
             String id=getParams().getString("id",""),operation=getParams().getString("operation","");
             if(!id.matches("90000[0-7]")||!List.of("smoke","snapshot","reply-text","expand-card").contains(operation))throw new IllegalArgumentException("invalid_synthetic_ui_request");
-            String target="强兼合成通知 "+id;
+            String target="越界合成通知 "+id;
             // The platform's own UiAutomator runner owns connection and cleanup. Do not create
             // a second UiAutomation connection from an untracked app_process.
             UiAutomation ui=automation(invoke(getUiDevice(),"getAutomatorBridge"));

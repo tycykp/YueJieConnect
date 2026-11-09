@@ -94,4 +94,19 @@ public class ScreenCastSessionTest {
         receiver.keyFrameNeeded(); receiver.keyFrameNeeded(); assertEquals(1,sink.keyRequests);
         clock.addAndGet(500); receiver.keyFrameNeeded(); assertEquals(2,sink.keyRequests);
     }
+    @Test public void renderedReceiptsAreBoundedWithoutDelayingFirstPicture() {
+        Endpoint e=new Endpoint();ScreenCastSession s=session(Role.SINK,e);ready(s);
+        for(int i=1;i<=30;i++){
+            s.receive(scope,frame(i,i*100L),p->ScreenCastFrameQueue.Offer.ACCEPTED);
+            assertTrue(s.frameRendered(i*100L));clock.addAndGet(33);
+        }
+        assertEquals(2,e.receipts.size());assertEquals(1,e.receipts.get(0).sequence());
+        assertEquals(1,e.streaming.size());
+    }
+    @Test public void configurationResendKeepsOutstandingRenderEvidence() {
+        Endpoint e=new Endpoint();ScreenCastSession s=session(Role.SOURCE,e);ready(s);
+        assertTrue(s.offer(frame(1,100)));
+        assertTrue(s.offer(new ScreenCastPacket(scope.streamId(),2,0,ScreenCastPacket.CONFIG,new byte[]{1})));
+        assertTrue(s.renderedReceipt(new Receipt(scope,1,100)));
+    }
 }

@@ -1,4 +1,4 @@
-# 强兼互联 · QiangJian Connect
+# 越界互联 · YueJie Connect
 
 ## 功能支持情况
 

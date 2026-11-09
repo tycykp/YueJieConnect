@@ -185,6 +185,7 @@ pub enum OperationResult {
     TelephonyCallControl(Value),
     TelephonySmsStatus(Value),
     ScreenControl(Value),
+    ScreenRequest(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,6 +224,7 @@ impl OperationResult {
     pub(crate) fn matches(&self, operation: Operation, peer: &[u8; 32]) -> bool {
         match (operation, self) {
             (Operation::ScreenControl, Self::ScreenControl(r)) => crate::screen_control::receipt(r),
+            (Operation::ScreenRequest, Self::ScreenRequest(r)) => crate::screen_control::request_receipt(r),
             (Operation::TelephonyCallState, Self::TelephonyCallState(r))
             | (Operation::TelephonyCallControl, Self::TelephonyCallControl(r))
             | (Operation::TelephonySmsStatus, Self::TelephonySmsStatus(r)) => {
@@ -570,7 +572,8 @@ impl Bridge {
             .view
             .projection
             .as_ref()
-            .is_some_and(|p| p.operations.contains(&task.operation))
+            .is_some_and(|p| p.operations.contains(&task.operation)
+                || task.operation == Operation::ScreenRequest && p.operations.contains(&Operation::ScreenControl))
         {
             return Err("permission_denied");
         }
@@ -672,6 +675,7 @@ impl Bridge {
         granted.insert(Operation::DeviceProfile);
         if granted.contains(&Operation::ScreenVideo) {
             granted.insert(Operation::ScreenControl);
+            granted.insert(Operation::ScreenRequest);
         }
         if granted.contains(&Operation::FileTransfer) {
             granted.extend([
@@ -1095,6 +1099,9 @@ impl Bridge {
                     if let Some(device) = self.snapshot().remote {
                         let mut implemented = profile_sent.as_ref().unwrap().operations.clone();
                         implemented.insert(Operation::BatteryStatus);
+                        if implemented.contains(&Operation::ScreenControl) {
+                            implemented.insert(Operation::ScreenRequest);
+                        }
                         self.project(
                             epoch,
                             device,
@@ -1196,6 +1203,9 @@ impl Bridge {
                         }
                         let mut implemented = self.advertised_profile().operations;
                         implemented.insert(Operation::BatteryStatus);
+                        if implemented.contains(&Operation::ScreenControl) {
+                            implemented.insert(Operation::ScreenRequest);
+                        }
                         self.project(
                             epoch,
                             device,

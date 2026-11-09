@@ -40,6 +40,7 @@ pub enum Operation {
     MediaControl,
     ScreenVideo,
     ScreenControl,
+    ScreenRequest,
     CameraVideo,
     TelephonyCallState,
     TelephonyCallControl,

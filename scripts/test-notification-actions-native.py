@@ -99,7 +99,7 @@ def tap(serial, node):
 
 
 def card(tree, identifier):
-    title = '强兼合成通知 ' + str(identifier)
+    title = '越界合成通知 ' + str(identifier)
     candidates = [n for n in tree.iter('node') if any(c.get('text') == title for c in n.iter('node'))]
     # Smallest real notification container, not an unrelated notification's expand control.
     for n in reversed(candidates):
@@ -121,7 +121,7 @@ def card(tree, identifier):
 
 def safe_tree(tree, identifier):
     selected = card(tree, identifier)
-    allowed = ['强兼合成通知 ' + str(identifier), '测试动作', '测试回复', '在来源设备移除', '展开', 'Expand', '收起', 'Collapse', 'QJ-test-reply']
+    allowed = ['越界合成通知 ' + str(identifier), '测试动作', '测试回复', '在来源设备移除', '展开', 'Expand', '收起', 'Collapse', 'QJ-test-reply']
     return {'synthetic_card_found': selected is not None, 'nodes': [
         {'text': n.get('text') if n.get('text') in allowed else '',
          'resource_id': n.get('resource-id', ''), 'class': n.get('class', ''),
@@ -174,7 +174,7 @@ def native_action(serial, identifier, kind, record):
         else:
             break
     if not matches and selected is not None and serial == DEVICES[0]:
-        titles = [n for n in selected.iter('node') if n.get('text') == '强兼合成通知 ' + str(identifier)]
+        titles = [n for n in selected.iter('node') if n.get('text') == '越界合成通知 ' + str(identifier)]
         if len(titles) == 1:
             if 'native_expand_gesture_sent' not in helper(serial,identifier,'expand-card'):
                 raise RuntimeError('Native synthetic card expansion was not injected')

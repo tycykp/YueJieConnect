@@ -62,6 +62,24 @@ public class ScreenCastBridgeTest {
         assertEquals(0,dst.controls.stream().filter(c -> c.action()==ScreenCastBridge.Action.STOP).count());
         assertFalse(src.bridge.streaming(device,scope));assertEquals(1,src.closed.size());assertEquals(1,dst.closed.size());
     }
+    @Test public void sessionChangeRetiresOldWindowAndAllowsFreshSession(){
+        End end=new End();var old=expectation(end);
+        end.bridge.sessionChanged();
+        assertFalse(old.currentAndConsented().getAsBoolean());
+        assertEquals(1,end.stops);
+        var nextScope=new ScreenCastSession.Scope("b".repeat(64),8);
+        var next=end.bridge.sink(new XiaomiScreenRequestAdapter.NativeWindow(
+                new Object(),peer,"synthetic-device",5,true,()->true),
+                nextScope,format,()->true,end);
+        assertTrue(next.currentAndConsented().getAsBoolean());
+        assertEquals(2,end.opens);
+        old.listener().onFailure("late_old_callback");
+        assertTrue(next.currentAndConsented().getAsBoolean());
+        assertFalse(end.bridge.control(new ScreenCastBridge.Control(scope,ScreenCastBridge.Action.STOP,null,0,0)));
+        end.bridge.close();
+        assertFalse(next.currentAndConsented().getAsBoolean());
+        assertEquals(2,end.stops);
+    }
     @Test public void cancellationBeforeNativeAllowStillCancelsExactPendingNativeRequest(){
         End end=new End();var lease=source(end);lease.close();lease.onNativeAllowed(device);
         assertEquals(0,end.opens);assertEquals(1,end.stops);assertEquals(1,end.revokes);assertEquals(1,end.cancels);

@@ -45,7 +45,7 @@ public final class NotificationSyncFixture extends BroadcastReceiver {
         Bitmap picture = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888); picture.eraseColor(Color.BLUE);
         Bundle extras = new Bundle(); extras.putInt("qj.synthetic.revision", revision);
         Notification notification = new Notification.Builder(context, CHANNEL).setSmallIcon(context.getApplicationInfo().icon)
-                .setContentTitle("强兼合成通知 " + id).setContentText("人工测试版本 " + revision)
+                .setContentTitle("越界合成通知 " + id).setContentText("人工测试版本 " + revision)
                 .addExtras(extras)
                 .setStyle(new Notification.BigPictureStyle().bigPicture(picture))
                 .addAction(new Notification.Action.Builder((Icon) null, "测试动作", button).build())
@@ -101,8 +101,8 @@ public final class NotificationSyncFixture extends BroadcastReceiver {
             if (n.getTag() == null || !n.getTag().startsWith("qj.nsync.") || !n.getNotification().extras.getBoolean("qj.notification.mirrored")) continue;
             Bundle extras = n.getNotification().extras;
             CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE), text = extras.getCharSequence(Notification.EXTRA_TEXT);
-            if (title == null || text == null || !title.toString().matches("强兼合成通知 90000[0-7]") || !text.toString().matches("人工测试版本 [1-5]")) continue;
-            int id = Integer.parseInt(title.toString().substring("强兼合成通知 ".length()));
+            if (title == null || text == null || !title.toString().matches("越界合成通知 90000[0-7]") || !text.toString().matches("人工测试版本 [1-5]")) continue;
+            int id = Integer.parseInt(title.toString().substring("越界合成通知 ".length()));
             mirrors.put(new JSONObject().put("id", id)
                     .put("revision", Integer.parseInt(text.toString().substring("人工测试版本 ".length()))));
             actionState.put(actionState(n.getNotification(), id, true));

@@ -263,7 +263,7 @@ def notifications(record, actions=False):
                     buttons = [n for n in tree.iter('node') if n.get('text') == '测试动作']
                     if not buttons:
                         # Expand only the card proven to contain this synthetic title.
-                        candidates = [n for n in tree.iter('node') if any(c.get('text') == '强兼合成通知 ' + str(identifier) for c in n.iter('node'))]
+                        candidates = [n for n in tree.iter('node') if any(c.get('text') == '越界合成通知 ' + str(identifier) for c in n.iter('node'))]
                         selected = None
                         for parent in reversed(candidates):
                             selected = next((n for n in parent.iter('node') if n.get('resource-id', '').endswith('expand_button') or n.get('content-desc') in ['展开', 'Expand']), None)

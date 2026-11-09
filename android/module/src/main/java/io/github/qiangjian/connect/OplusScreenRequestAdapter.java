@@ -24,6 +24,7 @@ public final class OplusScreenRequestAdapter implements AutoCloseable {
         /** Original OEM callback has completed successfully on this exact DeviceInfo. Enqueue
          * authenticated control/media setup here; do not block the native Binder callback. */
         void onNativeAllowed(Object nativeDeviceInfo);
+        default boolean usesBridgeCapture(){return false;}
         default void onNativePrompted(Object nativeDeviceInfo) { }
         /** Exact manager bound to this permitted DeviceInfo; not an inferred capture display. */
         default void onNativeSource(Object nativeDeviceInfo,Object actualPadManager,String actualBusId) { }
@@ -111,6 +112,7 @@ public final class OplusScreenRequestAdapter implements AutoCloseable {
                 if (retired(chain.getArg(0))) return null;
                 Request request = pending(chain.getArg(0));
                 if (retired(chain.getArg(0))) return null;
+                if(request!=null&&request.listener instanceof ConsentListener listener&&listener.usesBridgeCapture())return null;
                 if (request == null || request.consent.approved(request.device)) return chain.proceed();
                 Object receiver = chain.getThisObject();
                 Object[] args = new Object[]{chain.getArg(0), chain.getArg(1) == null ? null : new Bundle((Bundle) chain.getArg(1)),

@@ -11,6 +11,8 @@ final class ScreenCastBridgeTransport implements ScreenCastBridge.Transport,Brid
     private final String prefix="screen:"+java.util.UUID.randomUUID()+":";
     private ScreenCastBridge bridge;
     private BridgeClient.Subscription registration;
+    private java.util.function.Predicate<JSONObject> allowedHandler;
+    void onAllowed(java.util.function.Predicate<JSONObject> handler){allowedHandler=handler;}
     ScreenCastBridgeTransport(BridgeClient client){this.client=client;}
     void attach(ScreenCastBridge actual){
         if(bridge!=null)throw new IllegalStateException("screen_already_bound");bridge=java.util.Objects.requireNonNull(actual);
@@ -34,7 +36,7 @@ final class ScreenCastBridgeTransport implements ScreenCastBridge.Transport,Brid
                 JSONObject result=response.optJSONObject("result"),data=result==null?null:result.optJSONObject("data");
                 if(!"ok".equals(response.optString("status"))||data==null||!"screen_control".equals(result.optString("operation"))
                     ||data.optLong("stream_id")!=message.scope().streamId()||!payload.optString("action").equals(data.optString("action"))||!Boolean.TRUE.equals(data.opt("accepted")))
-                    cancel(message.scope());
+                    {ScreenCastLog.w("QiangJianScreen","control_rejected "+message.action()+" "+response.optString("code"));cancel(message.scope());}
             });return true;
         }catch(org.json.JSONException invalid){return false;}
     }
@@ -47,6 +49,10 @@ final class ScreenCastBridgeTransport implements ScreenCastBridge.Transport,Brid
         try{
             JSONObject p=client.projection(),payload=task.getJSONObject("payload");String session=task.getString("session_id");
             if(bridge==null||p==null||!session.equals(p.optString("session_id"))||!task.getString("projection_id").equals(p.optString("id"))||!client.hasLocalGrant("screen_video"))throw new IllegalStateException("stale_session");
+            if("allowed".equals(payload.optString("action"))){
+                if(allowedHandler==null||!allowedHandler.test(payload)){completion.fail("native_unavailable");return;}
+                completion.success(new JSONObject().put("stream_id",payload.getLong("stream_id")).put("action","allowed").put("accepted",true));return;
+            }
             ScreenCastBridge.Action action=ScreenCastBridge.Action.valueOf(payload.getString("action").toUpperCase(java.util.Locale.ROOT));
             ScreenCastFormat format=action==ScreenCastBridge.Action.PREPARED?new ScreenCastFormat(payload.getInt("width"),payload.getInt("height"),payload.getInt("fps"),payload.getInt("bitrate")):null;
             var control=new ScreenCastBridge.Control(new ScreenCastSession.Scope(session,payload.getLong("stream_id")),action,format,
@@ -57,6 +63,6 @@ final class ScreenCastBridgeTransport implements ScreenCastBridge.Transport,Brid
     }
     @Override public void cancel(ScreenCastSession.Scope scope){client.closeNativeMedia(scope.sessionId(),scope.streamId());}
     @Override public void cancel(String session,String request){} // Control delivery is synchronous; no deferred native side effect.
-    @Override public void sessionChanged(){if(bridge!=null)bridge.close();}
+    @Override public void sessionChanged(){if(bridge!=null)bridge.sessionChanged();}
     @Override public void close(){if(registration!=null){registration.close();registration=null;}if(bridge!=null)bridge.close();bridge=null;}
 }

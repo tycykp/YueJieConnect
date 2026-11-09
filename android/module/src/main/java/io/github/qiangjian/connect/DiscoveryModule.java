@@ -24,7 +24,11 @@ public final class DiscoveryModule extends XposedModule {
     private ClipboardUriBridge clipboardUris;
     private DeviceFinderBinding finderBinding;
     private AppRelayRuntime relayRuntime;
+    private ScreenCastLinkerRuntime screenLinker;
+    private ScreenCastSourceRuntime screenSource;
+    private ScreenCastSinkRuntime screenSink;
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
+        ScreenCastLog.module=this;
         client=new BridgeClient();
         processName=param.getProcessName();
         log(Log.INFO,TAG,"module_loaded api="+getApiVersion()+" process="+param.getProcessName()+" runtime="+BridgeClient.runtimeRevision());
@@ -56,6 +60,18 @@ public final class DiscoveryModule extends XposedModule {
                         allowed=mirror?CallerVerifier.mirrorUid(context.getPackageManager())==Process.myUid():CallerVerifier.verify(context.getPackageManager(),Process.myUid())==expected;
                         if(allowed) {
                             client.attach(context);
+                            if(mirror)new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                try{screenSink=new ScreenCastSinkRuntime(this,client,cl);}
+                                catch(Exception error){android.util.Log.e("QiangJianScreen","sink_install_failed",error);}
+                            });
+                            if(cast)new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                try{screenSource=new ScreenCastSourceRuntime(this,client,cl);}
+                                catch(Exception error){android.util.Log.e("QiangJianScreen","source_install_failed",error);}
+                            });
+                            if(CallerPolicy.OPLUS.equals(processName))new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                try{screenLinker=new ScreenCastLinkerRuntime(client,cl);}
+                                catch(Exception error){android.util.Log.e("QiangJianScreen","linker_install_failed",error);}
+                            });
                             if(!mirror&&!finder&&!cast)client.nativePairing().register((Application)chain.getThisObject());
                             if(finder||(expected==1&&"com.milink.service:core".equals(processName))){
                                 Application app=(Application)chain.getThisObject();

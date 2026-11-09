@@ -1,8 +1,21 @@
 use serde::Deserialize;
 use serde_json::Value;
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Request { stream_id: i64 }
+pub fn request(value: &Value) -> bool {
+    serde_json::from_value::<Request>(value.clone()).is_ok_and(|r| r.stream_id > 0)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestReceipt { stream_id: i64, accepted: bool }
+pub fn request_receipt(value: &Value) -> bool {
+    serde_json::from_value::<RequestReceipt>(value.clone()).is_ok_and(|r| r.stream_id > 0 && r.accepted)
+}
+#[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    Allowed { stream_id: i64, width: u32, height: u32, fps: u32, bitrate: u32 },
     Prepared {
         stream_id: i64,
         width: u32,
@@ -24,7 +37,7 @@ enum Command {
 }
 pub fn valid(payload: &Value) -> bool {
     match serde_json::from_value::<Command>(payload.clone()) {
-        Ok(Command::Prepared {
+        Ok(Command::Allowed { stream_id, width, height, fps, bitrate }) | Ok(Command::Prepared {
             stream_id,
             width,
             height,
@@ -62,7 +75,7 @@ pub fn receipt(value: &Value) -> bool {
             && r.accepted
             && matches!(
                 r.action.as_str(),
-                "prepared" | "rendered" | "keyframe" | "stop"
+                "allowed" | "prepared" | "rendered" | "keyframe" | "stop"
             )
     })
 }
@@ -77,6 +90,16 @@ pub fn matches(payload: &Value, result: &Value) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn requests_do_not_grant_capture_or_accept_untyped_streams() {
+        assert!(request(&json!({"stream_id":1})));
+        for value in [json!({"stream_id":0}),json!({"stream_id":-1}),json!({"stream_id":1.5}),json!({"stream_id":1,"allowed":true})] {
+            assert!(!request(&value));
+        }
+        assert!(request_receipt(&json!({"stream_id":1,"accepted":true})));
+        assert!(!request_receipt(&json!({"stream_id":1,"accepted":false})));
+        assert!(!request_receipt(&json!({"stream_id":1,"accepted":true,"rendered":true})));
+    }
     #[test]
     fn formats_are_exact_and_control_receipts_do_not_claim_a_render() {
         let prepared = json!({"action":"prepared","stream_id":7,"width":1080,"height":1920,"fps":30,"bitrate":4_000_000});

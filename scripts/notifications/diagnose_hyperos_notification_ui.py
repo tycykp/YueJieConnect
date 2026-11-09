@@ -40,7 +40,7 @@ try:
             (out/name).write_text(xml,encoding='utf-8')
             record['snapshots'][str(identifier)]=name
             tree=ET.fromstring(xml)
-            titles=[n for n in tree.iter('node') if n.get('text')=='强兼合成通知 '+str(identifier)]
+            titles=[n for n in tree.iter('node') if n.get('text')=='越界合成通知 '+str(identifier)]
             if not gesture_done and len(titles)==1:
                 selected=m.card(tree,identifier)
                 if selected is not None and selected.get('clickable')=='true' and any(n.get('resource-id','').endswith('notification_children_container') for n in list(selected)):
@@ -56,7 +56,7 @@ try:
                     (out/'after-gesture.xml').write_text(after,encoding='utf-8')
                     if record.get('group_tapped'):
                         second=ET.fromstring(after)
-                        title=next((n for n in second.iter('node') if n.get('text')=='强兼合成通知 '+str(identifier)),None)
+                        title=next((n for n in second.iter('node') if n.get('text')=='越界合成通知 '+str(identifier)),None)
                         if title is not None:
                             x1,y1,x2,y2=m.bounds(title);x,y=(x1+x2)//2,(y1+y2)//2
                             m.adb(serial,'shell','input','swipe',str(x),str(y),str(x),str(y+260),'450');time.sleep(.5)

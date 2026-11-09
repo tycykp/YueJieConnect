@@ -28,7 +28,7 @@ final class NativePairingService implements AutoCloseable {
     private String selectedKey="",confirmedSession="";
     private int source;
     private String resolution="none";
-    private static JSONArray nativeGrants(){return new JSONArray().put("device_profile").put("battery_status").put("clipboard_write").put("file_transfer").put("app_relay");}
+    private static JSONArray nativeGrants(){return new JSONArray().put("device_profile").put("battery_status").put("clipboard_write").put("file_transfer").put("app_relay").put("screen_video");}
     NativePairingService(Context context,Host host){this.nsd=context.getSystemService(NsdManager.class);this.host=host;}
     synchronized JSONObject command(JSONObject request)throws JSONException{
         String action=request.optString("action");

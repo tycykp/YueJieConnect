@@ -13,6 +13,7 @@ final class CallerPolicy {
                 &&"c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025".equals(cert);
     }
     static boolean executorAllowed(String pkg,String operation){
+        if("screen_request".equals(operation))return OPLUS.equals(pkg);
         if("screen_control".equals(operation))return MIRROR.equals(pkg)||OPLUS_CAST.equals(pkg);
         if(java.util.Set.of("telephony_call_state","telephony_call_control","telephony_sms_status").contains(operation))
             return MIRROR.equals(pkg)||OPLUS.equals(pkg);

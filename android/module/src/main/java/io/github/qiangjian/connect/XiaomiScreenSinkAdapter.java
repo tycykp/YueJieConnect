@@ -139,27 +139,31 @@ public final class XiaomiScreenSinkAdapter implements AutoCloseable {
                                     if (!current(b) || b.generation != generation) return;
                                     // Verified in SinkView and MirrorSinkController: native first-picture event.
                                     firstFrame.invoke(b.sink, 100002, pts);
-                                } catch (ReflectiveOperationException error) { stop(b); b.listener.onFailure("native_render_callback_failed"); return; }
+                                } catch (ReflectiveOperationException error) { stop(b); main.post(()->b.listener.onFailure("native_render_callback_failed")); return; }
                             }
-                            b.listener.onFrameRendered(pts, nano);
                         }
+                        // The media reader holds the session monitor before entering receive().
+                        // Never acquire that monitor while holding this adapter's monitor.
+                        b.listener.onFrameRendered(pts, nano);
                     });
                 }
                 public void onKeyFrameNeeded() { b.listener.onKeyFrameNeeded(); }
                 public void onFailure(String code) { main.post(() -> {
                     synchronized (XiaomiScreenSinkAdapter.this) {
-                        if (b.generation == generation) { stop(b); b.listener.onFailure(code); }
+                        if (b.generation != generation)return;stop(b);
                     }
+                    b.listener.onFailure(code);
                 }); }
                 public void onEnd() { main.post(() -> {
                     synchronized (XiaomiScreenSinkAdapter.this) {
-                        if (b.generation == generation) { stop(b); b.listener.onEnd(); }
+                        if (b.generation != generation)return;stop(b);
                     }
+                    b.listener.onEnd();
                 }); }
             });
-            if (b.listener instanceof Listener prepared) prepared.onPrepared();
+            if (b.listener instanceof Listener prepared) main.post(prepared::onPrepared);
             return current(b) && b.decoder != null; // No native success/first-frame callback until actual render.
-        } catch (Exception error) { stop(b); b.listener.onFailure("native_sink_prepare_failed"); return false; }
+        } catch (Exception error) { stop(b); main.post(()->b.listener.onFailure("native_sink_prepare_failed")); return false; }
     }
     public synchronized ScreenCastFrameQueue.Offer receive(Scope scope, ScreenCastPacket packet) {
         for (Binding b : bindings.values()) {
@@ -179,7 +183,7 @@ public final class XiaomiScreenSinkAdapter implements AutoCloseable {
             main.post(() -> { try { disconnected.invoke(b.sink); } catch (ReflectiveOperationException ignored) { } });
         }
         releaseOption(b);
-        if (!wasStopped && b.listener instanceof Listener listener) listener.onStopped();
+        if (!wasStopped && b.listener instanceof Listener listener) main.post(listener::onStopped);
     }
     private void releaseOption(Binding b) {
         try {
@@ -193,7 +197,7 @@ public final class XiaomiScreenSinkAdapter implements AutoCloseable {
     }
     private void reportOptionFailure(Binding b) {
         if (!b.optionReleaseReported) {
-            b.optionReleaseReported = true; b.listener.onFailure("native_option_release_failed");
+            b.optionReleaseReported = true; main.post(()->b.listener.onFailure("native_option_release_failed"));
         }
     }
     private synchronized boolean release(Binding b) {
