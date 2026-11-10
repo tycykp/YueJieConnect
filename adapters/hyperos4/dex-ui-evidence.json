@@ -1,0 +1,219 @@
+[
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/bean/CirculateParam;",
+    "methods": [],
+    "fields": [
+      "circulateServiceInfo:Lcom/miui/circulate/api/service/CirculateServiceInfo;"
+    ]
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/bean/ExtraBundle$b;",
+    "methods": [
+      "<init>()V",
+      "a()Lcom/miui/circulate/api/bean/ExtraBundle;",
+      "c(Ljava/lang/String;Z)Lcom/miui/circulate/api/bean/ExtraBundle$b;",
+      "e(Ljava/lang/String;I)Lcom/miui/circulate/api/bean/ExtraBundle$b;",
+      "g(Ljava/lang/String;Ljava/lang/String;)Lcom/miui/circulate/api/bean/ExtraBundle$b;"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/protocol/impl/b;",
+    "methods": [
+      "isAvailable()Z"
+    ],
+    "fields": [
+      "mCallback:Lsc/a;"
+    ]
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/protocol/impl/a;",
+    "methods": [
+      "circulateResult(Lsc/a;II[Lcom/miui/circulate/api/service/CirculateDeviceInfo;)V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/protocol/miuiplus/MiuiPlusClient;",
+    "methods": [
+      "circulateService(Ljava/util/List;Ljava/util/List;Lcom/miui/circulate/api/bean/CirculateParam;)V",
+      "release()V",
+      "startDiscovery(Ldd/a;Ljava/util/concurrent/Executor;)V",
+      "stopDiscovery(Ldd/a;Z)V",
+      "unRegisterListener()V"
+    ],
+    "fields": [
+      "mDiscovery:Ljava/util/concurrent/atomic/AtomicBoolean;"
+    ]
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/protocol/synergy/SynergyController;",
+    "methods": [
+      "connectCellularTether(Ljava/lang/String;)V",
+      "disconnectCellularTether(Ljava/lang/String;)V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/service/CirculateDeviceInfo;",
+    "methods": [
+      "<init>()V"
+    ],
+    "fields": [
+      "circulateServices:Ljava/util/Set;",
+      "deviceProperties:Lcom/miui/circulate/api/bean/ExtraBundle;",
+      "devicesName:Ljava/lang/String;",
+      "devicesType:Ljava/lang/String;",
+      "id:Ljava/lang/String;",
+      "idHash:Ljava/lang/String;"
+    ]
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/api/service/CirculateServiceInfo;",
+    "methods": [
+      "build(I)Lcom/miui/circulate/api/service/CirculateServiceInfo;"
+    ],
+    "fields": [
+      "connectState:I",
+      "deviceId:Ljava/lang/String;",
+      "protocolType:I"
+    ]
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lsc/a;",
+    "methods": [
+      "e(ILcom/miui/circulate/api/service/CirculateDeviceInfo;Lcom/miui/circulate/api/service/CirculateServiceInfo;)V",
+      "f(ILcom/miui/circulate/api/service/CirculateDeviceInfo;Lcom/miui/circulate/api/service/CirculateServiceInfo;)V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/world/R$id;",
+    "methods": [],
+    "fields": [
+      "cam_in_use:I",
+      "container:I",
+      "device_synergy:I",
+      "in_use:I",
+      "in_use_top:I",
+      "remote_control:I",
+      "remote_control_top:I",
+      "ringing_view:I",
+      "ringing_view_bottom:I",
+      "use_cam:I",
+      "use_cam_top:I",
+      "use_cellular:I",
+      "use_cellular_top:I",
+      "use_home_screen:I"
+    ]
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/world/view/BaseAudioVolumeBarView;",
+    "methods": [
+      "<init>(Landroid/content/Context;)V",
+      "getVolumeBarTitleContainer()Landroid/widget/LinearLayout;",
+      "getVolumeNum()Landroid/widget/TextView;",
+      "getVolumeRowSlider()Lcom/miui/circulate/world/view/MiPlayVolumeBar;"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/world/sticker/MainCardView;",
+    "methods": [
+      "k(Lcom/miui/circulate/api/service/CirculateDeviceInfo;Ljava/lang/String;Ljava/lang/String;Lpf/a;Lcom/miui/circulate/world/base/h;Lgf/g;)V",
+      "p(Z)V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/world/sticker/blecard/BleView;",
+    "methods": [
+      "I3()V",
+      "K3()V",
+      "L3()V",
+      "N3()V",
+      "getCardH()I",
+      "getMInfo()Lcom/miui/circulate/api/service/CirculateDeviceInfo;",
+      "setCardH(I)V",
+      "w1()V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes2.dex",
+    "dex_sha256": "1b3375b4cfe50b894656a2dab559564c325387ef0b9158688d67980407c38c30",
+    "class": "Lcom/miui/circulate/world/sticker/blecard/PhoneCard;",
+    "methods": [
+      "H2()V",
+      "J2()V",
+      "J3()V",
+      "M3()V",
+      "O3()V",
+      "P3()V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes3.dex",
+    "dex_sha256": "53e64eb3ac9ea364f087f2f64de92a790b15b2d3084384251514cfaaa1bdc928",
+    "class": "Ldg/d;",
+    "methods": [
+      "T(Ljava/lang/String;)V",
+      "f0(Ljava/lang/String;)V"
+    ],
+    "fields": []
+  },
+  {
+    "apk_sha256": "4d4ec36791dcc58b12efde494d24d0a5c8c219213433c1f986996c5277f95bd3",
+    "dex": "classes5.dex",
+    "dex_sha256": "fdfe36232faf5ac4e1385791ff32256d850316e74e9945787611dfff81e528ba",
+    "class": "Lmiuix/appcompat/app/u$a;",
+    "methods": [
+      "<init>(Landroid/content/Context;)V",
+      "a()Lmiuix/appcompat/app/u;",
+      "m([Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Lmiuix/appcompat/app/u$a;"
+    ],
+    "fields": []
+  }
+]

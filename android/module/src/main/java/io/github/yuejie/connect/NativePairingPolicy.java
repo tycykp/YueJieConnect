@@ -8,7 +8,7 @@ import java.util.Set;
 /** The OEM page may select a discovered LAN endpoint, never an arbitrary socket or grant. */
 final class NativePairingPolicy {
     static final List<String> DEFAULT_GRANTS=List.of("device_profile","battery_status","clipboard_write",
-            "clipboard_rich_write","file_transfer","clipboard_uri_write","app_relay","screen_video","screen_input","media_control","device_finder");
+            "clipboard_rich_write","file_transfer","clipboard_uri_write","app_relay","screen_video","screen_input","media_control","device_finder","network_share");
     static boolean caller(String pkg){return CallerPolicy.XIAOMI.equals(pkg)||CallerPolicy.OPLUS.equals(pkg)||CallerPolicy.OPLUS_PAIRING.equals(pkg);}
     static boolean idle(String phase){return Set.of("stopped","disconnected","listening").contains(phase);}
     static boolean endpoint(InetAddress address,int port){

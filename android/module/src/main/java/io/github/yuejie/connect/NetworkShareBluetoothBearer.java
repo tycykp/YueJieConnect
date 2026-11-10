@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
-/** Physical byte carrier in the module's :bridge process. A connected socket is NOT authenticated
+/** Physical byte carrier in the pinned OEM host process. A connected socket is NOT authenticated
  * control readiness. Only the Rust parent-bound handshake/ready ACKs can issue a stable lease.
  * Never enables Bluetooth, scans, makes discoverable, creates bonds or confirms pairing dialogs.
  */
@@ -50,7 +50,8 @@ final class NetworkShareBluetoothBearer implements AutoCloseable {
     private boolean listening, closed;
 
     NetworkShareBluetoothBearer(Context context, Listener listener) {
-        if (context == null || !"io.github.yuejie.connect".equals(context.getPackageName()) || listener == null)
+        if (context == null || listener == null
+                || !NativeBridgeHost.hostCaller(context.getPackageManager(), android.os.Process.myUid()))
             throw new IllegalArgumentException("invalid_bluetooth_context");
         this.context = context; this.listener = listener;
         BluetoothManager manager = context.getSystemService(BluetoothManager.class);
@@ -68,7 +69,7 @@ final class NetworkShareBluetoothBearer implements AutoCloseable {
         catch (RuntimeException error) { synchronized (this) { listening = false; } result.completeExceptionally(failure("bluetooth_closed")); }
         return result;
     }
-    @SuppressLint("MissingPermission") // Every call checks the actual module Context; services may still revoke/reject.
+    @SuppressLint("MissingPermission") // Every call checks the actual OEM Context; services may still revoke/reject.
     private void accept(CompletableFuture<ServerInfo> result) {
         BluetoothServerSocket opened = null;
         try {

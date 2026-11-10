@@ -5,6 +5,21 @@ use serde_json::Value;
 pub const CALL_STATE: &str = "telephony_call_state";
 pub const CALL_CONTROL: &str = "telephony_call_control";
 pub const SMS_STATUS: &str = "telephony_sms_status";
+fn caller_address(value: &str) -> bool {
+    if value.is_empty() { return true; }
+    let digits = value.strip_prefix('+').unwrap_or(value);
+    !digits.is_empty() && digits.len() <= 32 && digits.bytes().all(|b| b.is_ascii_digit())
+}
+/// The phone receives controls and sends states; the tablet does the inverse.
+/// This is routing support only, never a declaration of a receiving executor.
+pub fn counterpart(operation: yj_core::gateway::Operation) -> Option<yj_core::gateway::Operation> {
+    use yj_core::gateway::Operation;
+    match operation {
+        Operation::TelephonyCallState => Some(Operation::TelephonyCallControl),
+        Operation::TelephonyCallControl => Some(Operation::TelephonyCallState),
+        _ => None,
+    }
+}
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum State {
@@ -29,6 +44,8 @@ struct CallState {
     call_id: String,
     revision: i64,
     state: State,
+    #[serde(default)]
+    address: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -114,7 +131,7 @@ pub fn valid_payload(operation: &str, raw: &Value) -> bool {
     }
     match operation {
         CALL_STATE => serde_json::from_value::<CallState>(raw.clone())
-            .is_ok_and(|s| call(&s.call_id) && s.revision > 0),
+            .is_ok_and(|s| call(&s.call_id) && s.revision > 0 && caller_address(&s.address)),
         CALL_CONTROL => serde_json::from_value::<CallControl>(raw.clone())
             .is_ok_and(|s| call(&s.call_id) && s.revision > 0),
         SMS_STATUS => serde_json::from_value::<SmsStatus>(raw.clone())
@@ -206,6 +223,15 @@ pub const EXECUTION_ERRORS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn display_address_does_not_authorize_a_number_based_control() {
+        use serde_json::json;
+        assert!(super::valid_payload(super::CALL_STATE, &json!({"call_id":"call", "revision":1, "state":"ringing", "address":"+12025550123"})));
+        for address in ["*123#", "tel:123", "123;456", "+", "１２３"] {
+            assert!(!super::valid_payload(super::CALL_STATE, &json!({"call_id":"call", "revision":1, "state":"ringing", "address":address})));
+        }
+        assert!(!super::valid_payload(super::CALL_CONTROL, &json!({"call_id":"call", "revision":1, "action":"end", "address":"+12025550123"})));
+    }
     use super::*;
     use serde_json::json;
     #[test]

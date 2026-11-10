@@ -139,7 +139,15 @@ pub fn parse(payload: &Value) -> Result<Request, &'static str> {
     }
     let request: Request =
         serde_json::from_value(payload.clone()).map_err(|_| "invalid_media_request")?;
-    if request.cast_stream_id <= 0 || request.cast_screen_id < 0 || !request.control.valid() {
+    let device_volume = request.cast_stream_id == 0
+        && request.cast_screen_id == 0
+        && matches!(
+            request.control.action,
+            Action::VolumeQuery | Action::SetVolume
+        );
+    if (!device_volume && (request.cast_stream_id <= 0 || request.cast_screen_id < 0))
+        || !request.control.valid()
+    {
         return Err("invalid_media_request");
     }
     Ok(request)
@@ -308,7 +316,6 @@ mod tests {
     #[test]
     fn only_integer_android_ranges_are_accepted() {
         for value in [
-            json!(0),
             json!(-1),
             json!(1.0),
             json!(true),
@@ -329,6 +336,22 @@ mod tests {
             assert!(parse(&request(json!({"action":"SET_VOLUME","value":value}))).is_err());
         }
         assert!(parse(&request(json!({"action":"RESTORE_VOLUME","value":0}))).is_err());
+    }
+
+    #[test]
+    fn device_scope_allows_only_volume_query_and_set() {
+        let mut raw = request(json!({"action":"VOLUME_QUERY"}));
+        raw["cast_stream_id"] = 0.into();
+        assert!(parse(&raw).is_ok());
+        raw["control"] = json!({"action":"SET_VOLUME","value":4,"expected_volume":3});
+        assert!(parse(&raw).is_ok());
+        raw["cast_screen_id"] = 1.into();
+        assert!(parse(&raw).is_err());
+        raw["cast_screen_id"] = 0.into();
+        raw["control"] = json!({"action":"QUERY","package":"test.player"});
+        assert!(parse(&raw).is_err());
+        raw["control"] = json!({"action":"RESTORE_VOLUME","value":4,"expected_volume":3});
+        assert!(parse(&raw).is_err());
     }
     #[test]
     fn package_and_token_cannot_be_guessed_or_coerced() {

@@ -10,13 +10,16 @@ import java.util.concurrent.TimeUnit;
 /** Holds the selected Wi-Fi network for the lifetime of this bridge, never vendor processes. */
 final class WifiRoute {
     private final ConnectivityManager manager;
+    private final boolean processRouting;
     private final Object routeLock=new Object();
     private volatile ConnectivityManager.NetworkCallback callback;
     private volatile Network selected;
-    WifiRoute(ConnectivityManager manager){this.manager=manager;}
+    WifiRoute(ConnectivityManager manager){this(manager,true);}
+    WifiRoute(ConnectivityManager manager,boolean processRouting){this.manager=manager;this.processRouting=processRouting;}
+    private boolean bind(Network network){return !processRouting||manager.bindProcessToNetwork(network);}
     synchronized boolean acquire(){
         Network existing=selected;
-        if(existing!=null&&manager.getNetworkCapabilities(existing)!=null&&manager.bindProcessToNetwork(existing))return true;
+        if(existing!=null&&manager.getNetworkCapabilities(existing)!=null&&bind(existing))return true;
         release();
         CountDownLatch available=new CountDownLatch(1);
         ConnectivityManager.NetworkCallback requested=new ConnectivityManager.NetworkCallback(){
@@ -24,7 +27,7 @@ final class WifiRoute {
                 synchronized(routeLock){
                     if(callback!=this)return;
                     // Replacement Wi-Fi must also replace the process route.
-                    if(manager.bindProcessToNetwork(network))selected=network;
+                    if(bind(network))selected=network;
                     available.countDown();
                 }
             }
@@ -33,7 +36,7 @@ final class WifiRoute {
                 synchronized(routeLock){
                     if(callback==this&&network.equals(selected)){
                         selected=null;
-                        manager.bindProcessToNetwork(null);
+                        bind(null);
                         android.util.Log.i("YueJieBridge","wifi_network_lost");
                     }
                 }
@@ -66,7 +69,7 @@ final class WifiRoute {
         synchronized(routeLock){
             var previous=callback;callback=null;selected=null;
             if(previous!=null)try{manager.unregisterNetworkCallback(previous);}catch(IllegalArgumentException ignored){}
-            manager.bindProcessToNetwork(null);
+            bind(null);
         }
     }
 }

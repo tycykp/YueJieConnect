@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
+import android.content.res.AssetFileDescriptor;
 import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Binder;
@@ -98,6 +99,32 @@ final class ClipboardUriPasteHooks implements AutoCloseable {
                     if (slot == null) { if (owned(chain.getThisObject(), (Uri) chain.getArg(0))) throw denied(); return chain.proceed(); }
                     return open(slot, (ContentProvider) chain.getThisObject(), (String) chain.getArg(1),
                             cancellation ? (CancellationSignal) chain.getArg(2) : null);
+                }));
+            }
+            // ContentResolver.openInputStream uses the asset API. OEM overrides need not
+            // delegate to openFile; handle our URI at each public provider read entry.
+            for (boolean cancellation : new boolean[]{false, true}) {
+                Method asset = cancellation ? providerType.getMethod("openAssetFile", Uri.class, String.class, CancellationSignal.class)
+                        : providerType.getMethod("openAssetFile", Uri.class, String.class);
+                hooks.add(module.hook(asset).setId("yj.clipboard.uri.asset." + cancellation)
+                        .setExceptionMode(ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                    Uri uri = (Uri) chain.getArg(0);
+                    Slot slot = find(chain.getThisObject(), uri);
+                    if (slot == null) { if (owned(chain.getThisObject(), uri)) throw denied(); return chain.proceed(); }
+                    return new AssetFileDescriptor(open(slot, (ContentProvider) chain.getThisObject(), (String) chain.getArg(1),
+                            cancellation ? (CancellationSignal) chain.getArg(2) : null), 0, slot.prepared.offer().size());
+                }));
+                Method typed = cancellation ? providerType.getMethod("openTypedAssetFile", Uri.class, String.class, android.os.Bundle.class, CancellationSignal.class)
+                        : providerType.getMethod("openTypedAssetFile", Uri.class, String.class, android.os.Bundle.class);
+                hooks.add(module.hook(typed).setId("yj.clipboard.uri.typed." + cancellation)
+                        .setExceptionMode(ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                    Uri uri = (Uri) chain.getArg(0);
+                    Slot slot = find(chain.getThisObject(), uri);
+                    if (slot == null) { if (owned(chain.getThisObject(), uri)) throw denied(); return chain.proceed(); }
+                    String filter = (String) chain.getArg(1);
+                    if (filter == null || !android.content.ClipDescription.compareMimeTypes(slot.prepared.offer().mime(), filter)) throw denied();
+                    return new AssetFileDescriptor(open(slot, (ContentProvider) chain.getThisObject(), "r",
+                            cancellation ? (CancellationSignal) chain.getArg(3) : null), 0, slot.prepared.offer().size());
                 }));
             }
             hooks.add(module.hook(providerType.getMethod("getType", Uri.class)).setId("yj.clipboard.uri.type").intercept(chain -> {

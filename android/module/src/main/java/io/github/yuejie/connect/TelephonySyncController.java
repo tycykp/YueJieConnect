@@ -17,7 +17,10 @@ final class TelephonySyncController implements AutoCloseable {
                 throw new IllegalArgumentException("invalid_session");
         }
     }
-    record Snapshot(String call, long revision, State state) {}
+    record Snapshot(String call, long revision, State state, String address) {
+        Snapshot(String call, long revision, State state) { this(call, revision, state, ""); }
+        Snapshot { if (address == null || !address.matches("\\+?[0-9]{1,32}|")) throw new IllegalArgumentException("invalid_address"); }
+    }
     record Command(Session session, String request, String call, long revision, Action action) {
         Command {
             Objects.requireNonNull(session); Objects.requireNonNull(action);
@@ -62,18 +65,25 @@ final class TelephonySyncController implements AutoCloseable {
         this.clock = Objects.requireNonNull(clock);
     }
     synchronized String add(NativeCall handle, State state) {
+        return add(handle, state, "");
+    }
+    synchronized String add(NativeCall handle, State state, String address) {
         if (closed) throw new IllegalStateException("session_closed");
         if (calls.size() >= MAX_CALLS) throw new IllegalStateException("call_capacity");
         String id = "call_" + epoch + "_" + ++serial;
-        calls.put(id, new Entry(Objects.requireNonNull(handle), new Snapshot(id, 1, Objects.requireNonNull(state))));
+        calls.put(id, new Entry(Objects.requireNonNull(handle), new Snapshot(id, 1, Objects.requireNonNull(state), address)));
         return id;
     }
     synchronized Snapshot snapshot(String id) { Entry e = calls.get(id); return e == null ? null : e.snapshot; }
     synchronized void observe(String id, State state) {
         Entry e = calls.get(id);
+        if (e != null) observe(id, state, e.snapshot.address());
+    }
+    synchronized void observe(String id, State state, String address) {
+        Entry e = calls.get(id);
         if (closed || e == null) return;
         if (e.snapshot.state() == State.ENDED && state != State.ENDED) return;
-        if (e.snapshot.state() != state) e.snapshot = new Snapshot(id, e.snapshot.revision() + 1, state);
+        if (e.snapshot.state() != state || !e.snapshot.address().equals(address)) e.snapshot = new Snapshot(id, e.snapshot.revision() + 1, state, address);
         for (Pending p : requests.values().toArray(Pending[]::new)) {
             if (p.future.isDone() || !p.command.call().equals(id)) continue;
             if (!policy.allows(session, p.command.action())) finish(p, "permission_revoked", e.snapshot);

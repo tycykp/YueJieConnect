@@ -13,16 +13,24 @@ final class NetworkBluetoothSession implements AutoCloseable {
     private volatile NetworkShareBluetoothBearer.Link link;
     private volatile String phase="stopped",error="";
     private boolean initiator;
+    interface BeforeAttach { void accept(android.os.ParcelFileDescriptor fd) throws Exception; }
+    private final java.util.concurrent.CompletableFuture<Void> listeningReady = new java.util.concurrent.CompletableFuture<>();
     NetworkBluetoothSession(Context context){
+        this(context, connected -> {});
+    }
+    NetworkBluetoothSession(Context context, BeforeAttach beforeAttach){
         this.context=context;
         bearer=new NetworkShareBluetoothBearer(context,connected->{
             link=connected;
-            try {
-                if(!NativeCore.attachBluetooth(connected.duplicateDuplex().detachFd(),initiator))
+            try (var fd = connected.duplicateDuplex()) {
+                android.util.Log.i("YueJieNetwork","bluetooth_carrier_connected initiator="+initiator);
+                beforeAttach.accept(fd);
+                if(!NativeCore.attachBluetooth(fd.detachFd(),initiator))
                     throw new IllegalStateException("bluetooth_attach_failed");
                 phase="connected";
                 connected.termination().thenAccept(reason->{phase="disconnected";error=reason;});
-            }catch(Exception failure){phase="failed";error="bluetooth_attach_failed";connected.close();}
+            }catch(Exception failure){phase="failed";error="bluetooth_attach_failed";
+                android.util.Log.w("YueJieNetwork","bluetooth_attach_failed "+failure.getClass().getSimpleName());connected.close();}
         });
     }
     @android.annotation.SuppressLint("MissingPermission")
@@ -37,15 +45,18 @@ final class NetworkBluetoothSession implements AutoCloseable {
             var device=adapter.getBondedDevices().stream().filter(d->d.getAddress().equals(address)).findFirst()
                 .orElseThrow(()->new IllegalStateException("bluetooth_bond_required"));
             phase="connecting";
-            bearer.connect(device).whenComplete((connected,failure)->{if(failure!=null){phase="failed";error="bluetooth_connect_failed";}});
+            bearer.connect(device).whenComplete((connected,failure)->{if(failure!=null){phase="failed";error="bluetooth_connect_failed";
+                android.util.Log.w("YueJieNetwork","bluetooth_connect_failed "+failure.getClass().getSimpleName());}});
         }else{
             if(!"listen".equals(command.optString("mode")))throw new IllegalArgumentException("invalid_mode");
             phase="listening";
-            bearer.listen().whenComplete((info,failure)->{if(failure!=null){phase="failed";error="bluetooth_listen_failed";}});
+            bearer.listen().whenComplete((info,failure)->{if(failure!=null){phase="failed";error="bluetooth_listen_failed";listeningReady.completeExceptionally(failure);}
+                else listeningReady.complete(null);});
         }
         return status();
     }
     JSONObject status()throws org.json.JSONException {return new JSONObject().put("status","ok").put("phase",phase).put("error",error);}
     boolean pending(){return "connecting".equals(phase)||"listening".equals(phase);}
+    void awaitListening() throws Exception { listeningReady.get(5,java.util.concurrent.TimeUnit.SECONDS); }
     @Override public void close(){phase="stopped";bearer.close();}
 }

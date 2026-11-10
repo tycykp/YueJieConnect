@@ -85,8 +85,7 @@ final class VendorProcessProof implements AutoCloseable {
             if(code!=IBinder.FIRST_CALL_TRANSACTION)return super.onTransact(code,data,reply,flags);
             data.enforceInterface(DESCRIPTOR);Context context=host.get();
             if(!allowed.getAsBoolean()||context==null)throw new SecurityException("proof_not_ready");
-            try{if(Binder.getCallingUid()!=context.getPackageManager().getApplicationInfo("io.github.yuejie.connect",0).uid)throw new SecurityException("proof_caller_rejected");}
-            catch(android.content.pm.PackageManager.NameNotFoundException absent){throw new SecurityException("proof_caller_rejected");}
+            if(!NativeBridgeHost.hostCaller(context.getPackageManager(),Binder.getCallingUid()))throw new SecurityException("proof_caller_rejected");
             String nonce=data.readString();IBinder callback=data.readStrongBinder();
             if(nonce==null||!nonce.matches("[0-9a-f]{64}")||callback==null||data.dataAvail()!=0||reply==null)throw new SecurityException("invalid_proof");
             Parcel request=Parcel.obtain(),response=Parcel.obtain();long identity=Binder.clearCallingIdentity();

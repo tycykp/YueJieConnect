@@ -5,6 +5,7 @@ New-Item -ItemType Directory -Force $output | Out-Null
 $source = Join-Path $root 'transport\src\telephony.rs'
 $manifest = Join-Path $output 'Cargo.toml'
 $portable = $source.Replace([char]92,[char]47)
+$corePath = (Join-Path $root 'core').Replace([char]92,[char]47)
 $content = @"
 [package]
 name = "yj-telephony-wire-validation"
@@ -16,6 +17,7 @@ path = "$portable"
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
+yj-core = { path = "$corePath" }
 "@
 [IO.File]::WriteAllText($manifest, $content, [Text.UTF8Encoding]::new($false))
 $lockPath = Join-Path $root 'build\coordination-locks\build.lock'

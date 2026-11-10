@@ -4,7 +4,7 @@ import java.util.Map;
 import java.util.Set;
 import static io.github.yuejie.connect.TelephonySyncController.*;
 
-/** Exact, content-free call/state and local-reference SMS schemas shared by both native adapters. */
+/** Exact call/state and local-reference SMS schemas. An allowed caller address is display-only. */
 final class TelephonySyncWire {
     static final String CALL_STATE = "telephony_call_state", CALL_CONTROL = "telephony_call_control", SMS_STATUS = "telephony_sms_status";
     static final Set<String> OPERATIONS = Set.of(CALL_STATE, CALL_CONTROL, SMS_STATUS);
@@ -20,14 +20,18 @@ final class TelephonySyncWire {
         Failure(String code) { super(code != null && ERRORS.contains(code) ? code : "remote_error"); this.code = getMessage(); }
     }
     static Snapshot state(Map<String, Object> raw) {
-        fields(raw, Set.of("call_id", "revision", "state"));
-        return new Snapshot(id(raw, "call_id", false), positive(raw, "revision"), state(text(raw, "state")));
+        fields(raw, raw != null && raw.containsKey("address") ? Set.of("call_id", "revision", "state", "address") : Set.of("call_id", "revision", "state"));
+        String address = raw.containsKey("address") ? text(raw, "address") : "";
+        if (!address.matches("\\+?[0-9]{1,32}|")) throw new Failure("invalid_payload");
+        return new Snapshot(id(raw, "call_id", false), positive(raw, "revision"), state(text(raw, "state")), address);
     }
     static Map<String, Object> state(Snapshot state) {
         if (state == null || state.call() == null || !state.call().matches("[A-Za-z0-9_-]{1,96}") || state.revision() < 1)
             throw new Failure("invalid_snapshot");
         String value = state.state() == null ? "" : state.state().name().toLowerCase(java.util.Locale.ROOT);
-        state(value); return Map.of("call_id", state.call(), "revision", state.revision(), "state", value);
+        state(value);
+        return state.address().isEmpty() ? Map.of("call_id", state.call(), "revision", state.revision(), "state", value)
+                : Map.of("call_id", state.call(), "revision", state.revision(), "state", value, "address", state.address());
     }
     static Command control(Session session, String request, Map<String, Object> raw) {
         fields(raw, Set.of("call_id", "revision", "action"));

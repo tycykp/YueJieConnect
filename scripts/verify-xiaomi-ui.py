@@ -18,6 +18,8 @@ E=L('com.miui.circulate.api.bean.ExtraBundle')
 B=L('com.miui.circulate.api.bean.ExtraBundle$b')
 base='com.miui.circulate.world.sticker.blecard.'
 required={
+ L("dg.d"):{"T("+S+")V","f0("+S+")V"},
+ L("com.miui.circulate.api.protocol.synergy.SynergyController"):{"connectCellularTether("+S+")V","disconnectCellularTether("+S+")V"},
  L('com.miui.circulate.api.protocol.miuiplus.MiuiPlusClient'):{
  'startDiscovery(Ldd/a;Ljava/util/concurrent/Executor;)V','stopDiscovery(Ldd/a;Z)V','release()V','unRegisterListener()V',
  'circulateService(Ljava/util/List;Ljava/util/List;Lcom/miui/circulate/api/bean/CirculateParam;)V'},
@@ -29,7 +31,13 @@ required={
  B:{'<init>()V',f'g({S}{S}){B}',f'c({S}Z){B}',f'e({S}I){B}',f'a(){E}'},
  L(base+'PhoneCard'):{name+'()V' for name in ('H2','J2','J3','M3','O3','P3')},
  L('com.miui.circulate.world.sticker.MainCardView'):{'p(Z)V',f'k({D}{S}{S}Lpf/a;Lcom/miui/circulate/world/base/h;Lgf/g;)V'},
- L(base+'BleView'):{f'getMInfo(){D}'}|{name+'()V' for name in ('I3','K3','L3','N3','w1')}
+ L(base+'BleView'):{f'getMInfo(){D}','getCardH()I','setCardH(I)V'}|{name+'()V' for name in ('I3','K3','L3','N3','w1')},
+ L('com.miui.circulate.world.view.BaseAudioVolumeBarView'):{
+ '<init>(Landroid/content/Context;)V','getVolumeRowSlider()Lcom/miui/circulate/world/view/MiPlayVolumeBar;',
+ 'getVolumeNum()Landroid/widget/TextView;','getVolumeBarTitleContainer()Landroid/widget/LinearLayout;'},
+ L('miuix.appcompat.app.u$a'):{'<init>(Landroid/content/Context;)V',
+ 'm([Ljava/lang/CharSequence;Landroid/content/DialogInterface$OnClickListener;)Lmiuix/appcompat/app/u$a;',
+ 'a()Lmiuix/appcompat/app/u;'}
 }
 required[L('com.miui.circulate.world.R$id')]=set()
 fields={
@@ -42,7 +50,7 @@ fields={
 }
 evidence=[]
 with zipfile.ZipFile(apk) as archive:
- for entry in ('classes2.dex','classes3.dex'):
+ for entry in (name for name in archive.namelist() if name.endswith('.dex')):
   data=archive.read(entry)
   for cls in DEX(data).get_classes():
    name=cls.get_name()

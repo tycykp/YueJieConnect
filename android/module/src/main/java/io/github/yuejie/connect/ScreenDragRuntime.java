@@ -84,12 +84,14 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
     private ScreenDragProvider provider;
     private volatile RemoteGesture remote;
     private PhoneGesture phoneGesture;
-    private Object sysDragManager,sysDragListener;
+    private Object nativeDragCompanion;
+    private Method nativeDragGet;
+    private final List<io.github.libxposed.api.XposedInterface.HookHandle> phoneDragHooks=new ArrayList<>();
 
     ScreenDragRuntime(XposedModule module,Context context,ClassLoader loader,BridgeClient client,FileTransferBridge files,
             int brand,Supplier<ScreenCastSinkRuntime> sink)throws Exception{
         this.context=context;this.loader=loader;this.client=client;this.files=files;this.brand=brand;this.sink=sink;
-        if(brand==1)installPad(module);else installPhone();
+        if(brand==1)installPad(module);else installPhone(module);
         files.registerReceiver(FileTransferNegotiation.Purpose.DRAG,new FileTransferBridge.NativeReceiver(){
             public void prepared(FileTransferNegotiation.Prepared p,FileTransferEndpoint endpoint,FileTransferNegotiation negotiation){
                 var scope=scope();if(scope==null||!scope.sessionId().equals(p.key().session())){negotiation.revoke(p.key());return;}
@@ -117,6 +119,9 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
         if(brand==2){
             long stream=0;if(session!=null)stream=client.nativeScreenRequest(new JSONObject().put("op","screen_request_active").put("session_id",session)).optLong("stream_id");
             phoneScope=stream>0?new ScreenCastSession.Scope(session,stream):null;
+            // The OEM destroys its singleton on disconnect. Recreate it only while
+            // an approved native cast is active, using its own registration path.
+            if(phoneScope!=null)nativeDragGet.invoke(nativeDragCompanion);
         }
         if(!Objects.equals(tableSession,session)){tableSession=session;used.clear();}
         for(Source source:outgoing.values())if(!current(source))cancel(source);
@@ -179,32 +184,45 @@ final class ScreenDragRuntime implements BridgeClient.VendorExecutor {
             log("pad_drop_captured count="+captured.getItemCount());return true;
         }catch(Exception failed){if(permission!=null)permission.release();log("pad_drop_rejected "+failed.getClass().getSimpleName());return false;}
     }
-    private void installPhone()throws Exception{
-        // Register a separate real framework listener. The OEM business dispatcher
-        // resets during DataBus initialization; our file route does not use DataBus.
-        Class<?> manager=type("com.oplus.globaldrag.DragAndDropDispatcherManager");
-        Class<?> callback=type("com.oplus.globaldrag.DragAndDropDispatcherManager$IDragAndDropListenerCallback");
-        sysDragManager=manager.getMethod("getInstance").invoke(null);
+    private void installPhone(XposedModule module)throws Exception{
+        // ColorOS keeps only ONE observer per package, even though the client API
+        // accepts several callback objects. Observe the original listener instead
+        // of racing its registration or allowing its release to remove ours.
+        Class<?> manager=type("com.oplus.linker.drag.ability.sys_drag.SysDragTaskManager");
+        Class<?> companion=type(manager.getName()+"$Companion");
+        for(Field field:manager.getDeclaredFields())if(Modifier.isStatic(field.getModifiers())&&field.getType()==companion){
+            field.setAccessible(true);nativeDragCompanion=field.get(null);break;
+        }
+        if(nativeDragCompanion==null)throw new NoSuchFieldException("native_drag_companion");
+        nativeDragGet=companion.getMethod("getInstance");
+        Class<?> listener=type("com.oplus.linker.drag.ability.sys_drag.receiver.SystemDragListener");
         java.util.concurrent.atomic.AtomicReference<String> nativeTask=new java.util.concurrent.atomic.AtomicReference<>();
-        sysDragListener=Proxy.newProxyInstance(loader,new Class<?>[]{callback},(proxy,method,args)->{
-            if(method.getName().equals("prePerformDrag")){
-                ClipData clip=(ClipData)args[3];var owned=scope();
-                String source=(String)args[0];String task=UUID.randomUUID().toString();nativeTask.set(task);
+        try{
+            Method start=listener.getMethod("prePerformDrag",String.class,SurfaceControl.class,Bundle.class,ClipData.class);
+            phoneDragHooks.add(module.hook(start).setId("yj.drag.phone.native.start").intercept(chain->{
+                Object result=chain.proceed();
+                ClipData clip=(ClipData)chain.getArg(3);var owned=scope();
+                String source=(String)chain.getArg(0);String task=UUID.randomUUID().toString();nativeTask.set(task);
                 log("phone_drag_callback current="+current(owned)+" files="+(clip==null?0:clip.getItemCount()));
                 if(clip!=null&&current(owned)&&(source==null||!source.contains("com.oplus.linker"))){
                     ClipData captured=new ClipData(clip);
                     main.post(()->startPhoneGesture(task,owned,captured));
                 }
-            }else if(method.getName().equals("postEndDrag")||method.getName().equals("postCancelDragAndDrop")){
-                String task=nativeTask.getAndSet(null);main.post(()->{
-                    PhoneGesture gesture=phoneGesture;
-                    if(task!=null&&gesture!=null&&gesture.task.equals(task)&&!gesture.handoffRequested)endPhoneGesture(gesture);
-                });
+                return result;
+            }));
+            for(String name:List.of("postEndDrag","postCancelDragAndDrop")){
+                phoneDragHooks.add(module.hook(listener.getMethod(name)).setId("yj.drag.phone.native."+name).intercept(chain->{
+                    try{return chain.proceed();}finally{
+                        String task=nativeTask.getAndSet(null);main.post(()->{
+                            PhoneGesture gesture=phoneGesture;
+                            if(task!=null&&gesture!=null&&gesture.task.equals(task)&&!gesture.handoffRequested)endPhoneGesture(gesture);
+                        });
+                    }
+                }));
             }
-            return ScreenCastLinkerRuntime.objectMethod(proxy,method.getName(),args);
-        });
-        manager.getMethod("registerDragAndDropListener",String.class,callback).invoke(sysDragManager,context.getPackageName(),sysDragListener);
-        log("phone_framework_drag_listener_registered");
+            nativeDragGet.invoke(nativeDragCompanion);
+        }catch(Exception failure){for(var hook:phoneDragHooks)hook.unhook();phoneDragHooks.clear();throw failure;}
+        log("phone_native_drag_listener_attached");
     }
     private void startPhoneGesture(String task,ScreenCastSession.Scope owned,ClipData clip){
         if(!current(owned))return;

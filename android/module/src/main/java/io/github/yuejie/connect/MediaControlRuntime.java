@@ -5,9 +5,8 @@ import android.content.pm.PackageManager;
 import android.os.Looper;
 import org.json.JSONObject;
 
-/** Verified OEM process lifecycle. No executor/capability exists until an actual cast grant does.
- * Shared owner constructs the brand endpoint only AFTER its existing kernel caller proof succeeds.
- * This class does not install a synthetic UI, grant screen permission, or manufacture a consumer. */
+/** Verified OEM process lifecycle. Device volume uses bilateral media consent; playback controls
+ * additionally require an actual cast grant. The shared owner first verifies the kernel caller. */
 final class MediaControlRuntime implements AutoCloseable {
     private final BridgeClient client;
     private final MediaControlEndpoint endpoint;
@@ -23,7 +22,7 @@ final class MediaControlRuntime implements AutoCloseable {
         endpoint = java.util.Objects.requireNonNull(verifiedEndpoint);
         tasks = new MediaControlTasks(client, endpoint, (id, sid, stream, screen, request) ->
                 client.hasLocalGrant(MediaControlTasks.OPERATION) && permitted(request)
-                        && casts.allowed(id, sid, stream, screen, request));
+                        && (deviceVolume(stream, screen, request) || casts.allowed(id, sid, stream, screen, request)));
         projectionListener = client.addProjectionListener(this::projectionChanged);
     }
     /** Original native state is narrowed by actual OS permission/service readiness on EVERY read.
@@ -53,6 +52,11 @@ final class MediaControlRuntime implements AutoCloseable {
         return endpoint.available(request)
                 && endpoint.context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
     }
+    private boolean deviceVolume(long stream, int screen, MediaControlSession.Request request) {
+        return stream == 0 && screen == 0 && CallerPolicy.OPLUS.equals(endpoint.context.getPackageName())
+                && (request.action() == MediaControlSession.Action.VOLUME_QUERY
+                    || request.action() == MediaControlSession.Action.SET_VOLUME);
+    }
     private void projectionChanged(JSONObject value) {
         requireMain(); if (closed) return;
         String sid = value == null ? null : value.optString("session_id", null);
@@ -79,7 +83,11 @@ final class MediaControlRuntime implements AutoCloseable {
             casts.revokeAll(); unregister(); return;
         }
         boolean ready = casts.hasActive(this::permitted);
-        if (!ready) { casts.revokeAll(); unregister(); return; }
+        if (!ready) {
+            casts.revokeAll();
+            var query = new MediaControlSession.Request(MediaControlSession.Action.VOLUME_QUERY, "", "", 0, -1);
+            if (!deviceVolume(0, 0, query) || !permitted(query)) { unregister(); return; }
+        }
         if (executor == null) executor = client.registerExecutor(MediaControlTasks.OPERATION, tasks);
     }
     private void unregister() {

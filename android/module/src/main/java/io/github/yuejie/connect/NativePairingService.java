@@ -44,6 +44,16 @@ final class NativePairingService implements AutoCloseable {
     synchronized void resume(){paused=false;nextRetry=0;preferences.edit().putBoolean("paused",false).apply();}
     synchronized void pause(){paused=true;selectedKey="";automaticSelection=false;stopDiscovery();preferences.edit().putBoolean("paused",true).apply();}
     synchronized boolean reconnecting(){return !paused&&!paired.isEmpty();}
+    synchronized void handover(JSONObject state)throws JSONException {
+        JSONObject remote=state.getJSONObject("remote");
+        String key=key(remote);
+        // Save only the existing bilateral grant; Bluetooth never creates new permission.
+        paired.remember(key,granted(state));
+        if(!preferences.edit().putStringSet("peers",paired.encode()).commit())throw new IllegalStateException("pairing_store_unavailable");
+        knownPeers.put(key,new Peer(key,remote,"",SystemClock.elapsedRealtime()));
+        selectedKey=key;automaticSelection=true;confirmedSession="";resume();
+        nextRetry=SystemClock.elapsedRealtime()+30_000;
+    }
     synchronized JSONObject command(JSONObject request)throws JSONException{
         String action=request.optString("action");
         JSONObject state=host.dispatch(new JSONObject().put("op","bridge_status")).getJSONObject("bridge");

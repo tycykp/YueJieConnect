@@ -21,6 +21,14 @@ public class PairedPeersTest {
         peers.remember(A,Set.of("device_profile"));
         assertTrue(peers.grants(A).isEmpty());
     }
+    @Test public void networkGrantSurvivesHandoverButIsNotAddedToExistingPairs(){
+        PairedPeers peers=new PairedPeers(Set.of());
+        peers.remember(A,Set.of("device_profile","network_share"));
+        peers.remember(B,Set.of("device_profile","clipboard_write"));
+        PairedPeers restored=new PairedPeers(peers.encode());
+        assertTrue(restored.grants(A).contains("network_share"));
+        assertFalse(restored.grants(B).contains("network_share"));
+    }
     @Test public void corruptOrUnknownRecordsCannotBecomeTrusted(){
         PairedPeers peers=new PairedPeers(Set.of("bad|device_profile",A+"|device_profile,unknown",B+"|battery_status"));
         assertTrue(peers.isEmpty());

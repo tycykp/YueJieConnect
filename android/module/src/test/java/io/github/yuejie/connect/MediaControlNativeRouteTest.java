@@ -34,6 +34,18 @@ public class MediaControlNativeRouteTest {
         assertEquals("cast_inactive", h.route.volume(new Object(), 50).join().code());
         assertTrue(h.calls.isEmpty());
     }
+    @Test public void deviceVolumeNeedsLiveConsentAndCannotBindPlayback() {
+        Harness h = new Harness();
+        var device = new MediaControlNativeRoute.Scope("projection1", SESSION, "native-peer", 0, 0);
+        assertThrows(IllegalArgumentException.class, () -> h.route.bind(device, h.peer, PKG, h.active::get));
+        h.route.bind(device, h.peer, "", h.active::get);
+        var set = h.route.volumeAbsolute(h.peer, 6);
+        h.reply(0, 4, "", false); h.reply(1, 6, "", true);
+        assertTrue(set.join().confirmed());
+        h.active.set(false);
+        assertEquals("cast_inactive", h.route.volumeQuery(h.peer).join().code());
+        assertEquals(2, h.calls.size());
+    }
     @Test public void volumeQueriesRemoteRangeThenUsesConditionalAbsoluteLevel() {
         Harness h = new Harness(); h.bind("");
         var future = h.route.volume(h.peer, 50);

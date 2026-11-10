@@ -597,7 +597,8 @@ impl Bridge {
             .projection
             .as_ref()
             .is_some_and(|p| p.operations.contains(&task.operation)
-                || task.operation == Operation::ScreenRequest && p.operations.contains(&Operation::ScreenControl))
+                || task.operation == Operation::ScreenRequest && p.operations.contains(&Operation::ScreenControl)
+                || crate::telephony::counterpart(task.operation).is_some_and(|op| p.operations.contains(&op)))
         {
             return Err("permission_denied");
         }
@@ -1149,6 +1150,9 @@ impl Bridge {
                     if let Some(device) = self.snapshot().remote {
                         let mut implemented = profile_sent.as_ref().unwrap().operations.clone();
                         implemented.insert(Operation::BatteryStatus);
+                        // A local call receiver also implements the opposite sending direction.
+                        let call_senders: Vec<_> = implemented.iter().copied().filter_map(crate::telephony::counterpart).collect();
+                        implemented.extend(call_senders);
                         if implemented.contains(&Operation::ScreenControl) {
                             implemented.insert(Operation::ScreenRequest);
                         }
@@ -1253,6 +1257,9 @@ impl Bridge {
                         }
                         let mut implemented = self.advertised_profile().operations;
                         implemented.insert(Operation::BatteryStatus);
+                        // A local call receiver also implements the opposite sending direction.
+                        let call_senders: Vec<_> = implemented.iter().copied().filter_map(crate::telephony::counterpart).collect();
+                        implemented.extend(call_senders);
                         if implemented.contains(&Operation::ScreenControl) {
                             implemented.insert(Operation::ScreenRequest);
                         }
@@ -1699,6 +1706,48 @@ mod tests {
         }
         a.stop();
         b.stop();
+    }
+    #[test]
+    fn telephony_directional_executors_route_both_ways_without_fake_capabilities() {
+        use serde_json::json;
+        let pad = Bridge::new(Identity::generate().unwrap(), profile(Source::HyperOs4)).unwrap();
+        let phone = Bridge::new(Identity::generate().unwrap(), profile(Source::ColorOs17)).unwrap();
+        let owner = ExecutorOwner { uid: 123, pid: 456, token: "call-test".into() };
+        pad.register_executor(owner.clone(), BTreeSet::from([Operation::TelephonyCallState])).unwrap();
+        phone.register_executor(owner.clone(), BTreeSet::from([Operation::TelephonyCallControl])).unwrap();
+        let port = pad.listen("127.0.0.1:0".parse().unwrap()).unwrap();
+        phone.connect(format!("127.0.0.1:{port}").parse().unwrap()).unwrap();
+        for bridge in [&pad, &phone] { wait(bridge, "awaiting_confirmation"); }
+        for bridge in [&pad, &phone] {
+            bridge.confirm_operations(&bridge.snapshot().session, Some(BTreeSet::from([
+                Operation::TelephonyCallState, Operation::TelephonyCallControl,
+            ]))).unwrap();
+        }
+        for bridge in [&pad, &phone] { wait(bridge, "active"); }
+        assert!(!pad.snapshot().local.operations.contains(&Operation::TelephonyCallControl));
+        assert!(!phone.snapshot().local.operations.contains(&Operation::TelephonyCallState));
+        for (sender, receiver, source, operation, payload) in [
+            (&pad, &phone, Source::HyperOs4, Operation::TelephonyCallControl,
+                json!({"call_id":"missing", "revision":1, "action":"end"})),
+            (&phone, &pad, Source::ColorOs17, Operation::TelephonyCallState,
+                json!({"call_id":"missing", "revision":1, "state":"ended"})),
+        ] {
+            let p = sender.snapshot().projection.unwrap();
+            assert!(p.operations.contains(&operation));
+            let (_, result) = sender.submit_operation(source, &p.id, &p.session_id, operation, payload).unwrap();
+            let until = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let (Some(task), _) = receiver.poll_executor(&owner) {
+                    assert_eq!(task.operation, operation);
+                    receiver.complete_executor(&owner, &task.session_id, &task.request_id, Err("call_missing")).unwrap();
+                    break;
+                }
+                assert!(Instant::now() < until, "directional call request was not delivered");
+                thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(result.recv_timeout(Duration::from_secs(2)).unwrap(), Err("call_missing"));
+        }
+        pad.stop(); phone.stop();
     }
     #[test]
     fn finder_terminal_errors_cross_authenticated_wire_without_exposing_arbitrary_text() {

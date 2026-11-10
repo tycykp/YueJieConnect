@@ -17,9 +17,14 @@ final class MediaControlWire {
         if (raw.length() != 3) throw new IllegalArgumentException("invalid_payload");
         long stream = integer(raw, "cast_stream_id");
         int screen = Math.toIntExact(integer(raw, "cast_screen_id"));
-        if (stream <= 0 || screen < 0) throw new IllegalArgumentException("invalid_media_scope");
         JSONObject control = raw.getJSONObject("control");
-        return new Payload(stream, screen, control, MediaControlEndpoint.decode(control));
+        var request = MediaControlEndpoint.decode(control);
+        // Zero identifies explicitly granted device volume, never a fabricated cast lease.
+        if (stream < 0 || screen < 0 || stream == 0 && (screen != 0
+                || request.action() != MediaControlSession.Action.VOLUME_QUERY
+                && request.action() != MediaControlSession.Action.SET_VOLUME))
+            throw new IllegalArgumentException("invalid_media_scope");
+        return new Payload(stream, screen, control, request);
     }
     static JSONObject request(MediaControlSession.Request request) throws Exception {
         JSONObject out = new JSONObject().put("action", request.action().name());

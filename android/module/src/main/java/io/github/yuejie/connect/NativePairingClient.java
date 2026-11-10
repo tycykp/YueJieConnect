@@ -54,12 +54,7 @@ final class NativePairingClient implements Application.ActivityLifecycleCallback
         Activity activity=entry;
         if(activity==null||activity.isFinishing()||now<bootstrapAfter||now<nextBootstrap)return;
         nextBootstrap=now+15_000;
-        try{
-            BridgeBootstrapActivity.launch(activity);
-            main.postDelayed(bridge::retryBinding,500);
-        }catch(android.content.ActivityNotFoundException|SecurityException unavailable){
-            android.util.Log.w("YueJiePairing","bridge_bootstrap_unavailable");
-        }
+        bridge.retryBinding();
     }
     private void publish(JSONObject value){
         if(!"ok".equals(value.optString("status"))||!value.has("pairing"))return;

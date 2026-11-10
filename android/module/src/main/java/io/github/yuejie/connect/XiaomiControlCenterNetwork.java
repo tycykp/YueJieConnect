@@ -66,6 +66,7 @@ final class XiaomiControlCenterNetwork {
         }catch(Exception failure){for(var hook:hooks)hook.unhook();throw failure;}
         context.registerReceiver(new BroadcastReceiver(){
             @Override public void onReceive(Context c,Intent intent){
+                if(!NativeBridgeHost.hostCaller(c.getPackageManager(),getSentFromUid()))return;
                 try{
                     JSONObject data=new JSONObject(intent.getStringExtra("state"));
                     NetworkShareSurface.Snapshot next=null;
@@ -80,7 +81,7 @@ final class XiaomiControlCenterNetwork {
                         ||!previous.id().equals(next.id())||!previous.name().equals(next.name()))refresh();
                 }catch(Exception invalid){snapshot=null;refresh();}
             }
-        },new IntentFilter(NetworkShareSurface.STATE),NetworkShareSurface.MODULE_PERMISSION,main,Context.RECEIVER_EXPORTED);
+        },new IntentFilter(NetworkShareSurface.STATE),null,main,Context.RECEIVER_EXPORTED);
         main.post(new Runnable(){public void run(){
             var value=snapshot;if(value!=null&&!value.live(SystemClock.elapsedRealtime())){snapshot=null;refresh();}
             main.postDelayed(this,2000);

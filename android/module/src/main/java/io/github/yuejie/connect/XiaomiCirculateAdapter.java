@@ -36,6 +36,7 @@ final class XiaomiCirculateAdapter {
     private XiaomiFinderUiSupport finderUi;
     private XiaomiScreenCardState screenCard;
     private XiaomiNetworkCardState networkCard;
+    private XiaomiPhoneVolumeCard volumeCard;
     private BridgeClient.Subscription pairingSubscription;
     private static final class Discovery {
         final WeakReference<Object> owner;
@@ -94,6 +95,7 @@ final class XiaomiCirculateAdapter {
             screenCard=new XiaomiScreenCardState(module,client,loader,allowed);
             finderUi=new XiaomiFinderUiSupport(module,client,loader,allowed);
             networkCard=new XiaomiNetworkCardState(module,client,loader,allowed);
+            volumeCard=new XiaomiPhoneVolumeCard(module,client,loader,allowed);
             client.onProjection(this::update);log("xiaomi_ui_adapter_installed");
             pairingSubscription=client.nativePairing().listen(value->{if(projection==null){for(Discovery d:discoveries)withdraw(d);for(Discovery d:discoveries)publish(d);}});
         }catch(ReflectiveOperationException|RuntimeException error){close();throw error;}
@@ -137,13 +139,20 @@ final class XiaomiCirculateAdapter {
         for(var iterator=discoveries.iterator();iterator.hasNext();){Discovery d=iterator.next();if(d.owner.get()==null||d.owner.get()==owner){withdraw(d);iterator.remove();}}
     }
     private void update(JSONObject value){
+        JSONObject previous=projection;
         boolean hadFinder=finderAllowed();
-        String prior=projection==null?null:projection.optString("session_id");
-        String next=value==null?null:value.optString("session_id");
-        if(!java.util.Objects.equals(prior,next))closeCards();
-        for(Discovery d:discoveries)withdraw(d);
         projection=!closed&&allowed.getAsBoolean()?value:null;
+        boolean samePeer=previous!=null&&projection!=null
+            &&previous.optString("id").equals(projection.optString("id"))
+            &&previous.optString("session_id").equals(projection.optString("session_id"));
+        if(!samePeer){closeCards();for(Discovery d:discoveries)withdraw(d);}
         if(hadFinder&&!finderAllowed())closeCards();
+        if(samePeer){
+            JSONObject before=previous.optJSONObject("real"),after=projection.optJSONObject("real");
+            if(before!=null&&after!=null&&java.util.Objects.equals(before.optString("name"),after.optString("name"))
+                &&java.util.Objects.equals(before.optString("model"),after.optString("model"))
+                &&java.util.Objects.equals(before.optString("os_build"),after.optString("os_build")))return;
+        }
         for(Discovery d:discoveries)publish(d);
     }
     private void publish(Discovery d){
@@ -202,6 +211,7 @@ final class XiaomiCirculateAdapter {
         if(finderUi!=null)finderUi.close();
         if(screenCard!=null)screenCard.close();
         if(networkCard!=null)networkCard.close();
+        if(volumeCard!=null)volumeCard.close();
         main.post(()->{closeCards();for(Discovery d:discoveries)withdraw(d);discoveries.clear();projection=null;});
         for(HookHandle hook:hooks)hook.unhook();hooks.clear();
     }

@@ -137,7 +137,17 @@ public class NetworkShareRecoveryTest {
         var anotherAp = new NetworkShareRecoveryPlan.ProviderSnapshot(true, false, false, true);
         assertTrue(NetworkShareRecoveryPlan.provider(progress, anotherAp).restored());
         assertFalse(NetworkShareRecoveryPlan.provider(progress, anotherAp).stop());
-        assertFalse(NetworkShareRecoveryPlan.provider(progress, new NetworkShareRecoveryPlan.ProviderSnapshot(true, false, true, false)).restored());
+        assertTrue(NetworkShareRecoveryPlan.provider(progress, new NetworkShareRecoveryPlan.ProviderSnapshot(true, false, true, false)).restored());
+    }
+    @Test public void userDisablingWifiDoesNotPreventVerifiedApCleanup() {
+        var stopped = new NetworkShareRecoveryPlan.ProviderProgress(true, false, false, true, false, true, true, true);
+        assertTrue(NetworkShareRecoveryPlan.provider(stopped,
+                new NetworkShareRecoveryPlan.ProviderSnapshot(true, false, true, false)).restored());
+        assertFalse(NetworkShareRecoveryPlan.provider(stopped,
+                new NetworkShareRecoveryPlan.ProviderSnapshot(true, true, true, false)).restored());
+        var unobserved = new NetworkShareRecoveryPlan.ProviderProgress(true, false, false, true, false, true, true, false);
+        assertFalse(NetworkShareRecoveryPlan.provider(unobserved,
+                new NetworkShareRecoveryPlan.ProviderSnapshot(true, false, true, false)).restored());
     }
     @Test public void redactedTetherConfigurationCannotBeMistakenForOwnApAbsence() {
         var progress = new NetworkShareRecoveryPlan.ProviderProgress(true, true, true, false, false, false, false, false);

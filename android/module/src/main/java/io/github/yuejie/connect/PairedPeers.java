@@ -7,7 +7,7 @@ final class PairedPeers {
     private static final Set<String> INPUT_GRANTS=Set.of("device_profile","battery_status","clipboard_write",
             "clipboard_rich_write","device_finder","notification_post","notification_remove","notification_action",
             "app_relay","file_transfer","clipboard_uri_write","media_control","screen_input","screen_video",
-            "camera_video","telephony_call_state","telephony_call_control","telephony_sms_status");
+            "camera_video","telephony_call_state","telephony_call_control","telephony_sms_status","network_share");
     private final Map<String,Set<String>> entries=new TreeMap<>();
     PairedPeers(Set<String> stored){
         for(String row:stored){
@@ -26,7 +26,8 @@ final class PairedPeers {
         return !Set.copyOf(inputs).equals(entries.put(key,Set.copyOf(inputs)));
     }
     static boolean reconnectable(Collection<String> grants){
-        return grants.contains("device_profile")&&(grants.contains("file_transfer")||grants.stream().anyMatch(NativeLogicalSessions.BUSINESS::contains));
+        return grants.contains("device_profile")&&(grants.contains("file_transfer")||grants.contains("network_share")
+                ||grants.stream().anyMatch(NativeLogicalSessions.BUSINESS::contains));
     }
     String keyForAlias(int source,String id){
         return entries.keySet().stream().filter(key->NativePairingPolicy.alias(source,key).equals(id)).findFirst().orElse("");

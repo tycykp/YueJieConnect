@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.NFC" />
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <queries>
+        <package android:name="com.android.phone" />
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <package android:name="com.milink.service" />
         <package android:name="com.oplus.linker" />
@@ -59,14 +60,13 @@
             </intent-filter>
         </activity>
         <service android:name=".NfcTapService" android:exported="false" android:foregroundServiceType="connectedDevice" />
-        <activity android:name=".BridgeBootstrapActivity" android:exported="true" android:process=":bridge"
+        <activity android:name=".BridgeBootstrapActivity" android:exported="false" android:process=":bridge"
             android:theme="@android:style/Theme.NoDisplay" />
-        <!-- Each transaction validates UID, PID, package, version, certificate and Rust session.
-             Network starts from the module or verified OEM pairing UI, with bilateral confirmation. -->
-        <service android:name=".BridgeService" android:stopWithTask="false" android:exported="true" android:process=":bridge" android:foregroundServiceType="connectedDevice" />
+        <!-- Optional diagnostics only. The injected OEM runtime owns all connection state. -->
+        <service android:name=".BridgeService" android:stopWithTask="false" android:exported="false" android:process=":bridge" android:foregroundServiceType="connectedDevice" />
         <activity android:name=".CameraShareConsentActivity" android:exported="false" android:process=":bridge" />
         <service android:name=".CameraShareSourceService" android:exported="false" android:process=":bridge" android:foregroundServiceType="camera" />
-        <service android:name=".NotificationSyncListener" android:exported="true" android:process=":bridge"
+        <service android:name=".NotificationSyncListener" android:enabled="false" android:exported="true" android:process=":bridge"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>

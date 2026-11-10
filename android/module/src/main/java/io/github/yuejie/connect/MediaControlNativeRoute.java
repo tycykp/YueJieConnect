@@ -15,7 +15,7 @@ final class MediaControlNativeRoute implements AutoCloseable {
             if (projectionId == null || projectionId.isBlank() || projectionId.length() > 256
                     || sessionId == null || !sessionId.matches("[0-9a-f]{64}")
                     || nativePeerId == null || nativePeerId.isBlank() || nativePeerId.length() > 256
-                    || streamId <= 0 || screenId < 0) throw new IllegalArgumentException("invalid_media_scope");
+                    || streamId < 0 || screenId < 0 || streamId == 0 && screenId != 0) throw new IllegalArgumentException("invalid_media_scope");
         }
     }
     interface Transport {
@@ -50,12 +50,13 @@ final class MediaControlNativeRoute implements AutoCloseable {
     MediaControlNativeRoute(Transport transport, LongSupplier elapsed) {
         this.transport = Objects.requireNonNull(transport); this.elapsed = Objects.requireNonNull(elapsed);
     }
-    /** Called only after ScreenCastSession.onStreaming for the original peer/request.
-     * active must recheck grant, exact native owner, session/stream and streaming state on EVERY call.
-     * Empty targetPackage permits only cast volume. */
+    /** Bind a rendered cast, or device volume (stream/screen zero) after explicit media consent.
+     * active rechecks the current native owner and authorization on every request.
+     * Empty targetPackage permits only volume. */
     synchronized void bind(Scope scope, Object originalPeer, String targetPackage, BooleanSupplier active) {
         Objects.requireNonNull(scope); Objects.requireNonNull(originalPeer); Objects.requireNonNull(active);
         String pkg = targetPackage == null ? "" : targetPackage;
+        if (scope.streamId() == 0 && !pkg.isEmpty()) throw new IllegalArgumentException("invalid_media_scope");
         if (!pkg.isEmpty()) new MediaControlSession.Request(MediaControlSession.Action.QUERY, pkg, "", 0, -1);
         if (closed || !active.getAsBoolean()) throw new IllegalStateException("cast_inactive");
         // A revoked native cast may not lend its wire identity to a replacement lease. The shared

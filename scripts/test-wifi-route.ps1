@@ -54,7 +54,13 @@ public final class WifiRouteCheck {
         cm.rejectBind=true;check(route.acquire()&&cm.bound==null,"OEM binding rejection uses system route");
         route.release();cm.rejectBind=false;cm.unavailable=true;
         check(route.acquire()&&cm.bound==null,"unavailable request uses existing system Wi-Fi");route.release();
-        System.out.println("WifiRoute: 12 lifecycle and route regression checks passed");
+        ConnectivityManager host=new ConnectivityManager();Network original=new Network();host.bound=original;
+        WifiRoute nativeRoute=new WifiRoute(host,false);
+        check(nativeRoute.acquire()&&host.bound==original,"OEM route must not be overwritten");
+        host.callback.onAvailable(new Network());check(host.bound==original,"replacement must preserve OEM route");
+        host.callback.onLost(host.first);check(host.bound==original,"loss must preserve OEM route");
+        nativeRoute.release();check(host.bound==original&&host.unregisters==1,"release must preserve OEM route");
+        System.out.println("WifiRoute: lifecycle and OEM route preservation checks passed");
     }
 }
 '@

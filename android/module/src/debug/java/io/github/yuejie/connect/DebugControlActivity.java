@@ -43,7 +43,7 @@ public final class DebugControlActivity extends Activity {
                 logResponse(MediaControlFixture.command(getApplicationContext(),inputCommand.getString("action")));
                 finish();return;
             }
-            if(!Set.of("bridge_bluetooth_start","bridge_bluetooth_status","bridge_status","bridge_runtime_status","bridge_listen","bridge_connect","bridge_confirm","bridge_query_peer","bridge_stop","notification_fixture","notification_packages").contains(op))throw new IllegalArgumentException();
+            if(!Set.of("bridge_bluetooth_start","bridge_bluetooth_status","bridge_status","bridge_runtime_status","bridge_listen","bridge_connect","bridge_confirm","bridge_query_peer","bridge_stop","notification_fixture","notification_packages","notification_settings","native_pairing").contains(op))throw new IllegalArgumentException();
             TextView message=new TextView(this);message.setText("越界互联：正在执行已授权的调试操作");setContentView(message);
             bound=bindService(new Intent(this,BridgeService.class),connection,Context.BIND_AUTO_CREATE);
         }catch(Exception e){finish();}

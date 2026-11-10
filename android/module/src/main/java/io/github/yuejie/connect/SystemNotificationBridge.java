@@ -12,7 +12,7 @@ import org.json.JSONObject;
 
 /** Android system notification path; OEM source hooks have their own separately verified lifecycle. */
 final class SystemNotificationBridge implements AutoCloseable {
-    private final BridgeClient client=new BridgeClient();
+    private final BridgeClient client;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final SharedPreferences settings;
     private final NotificationSyncRuntime runtime;
@@ -21,30 +21,30 @@ final class SystemNotificationBridge implements AutoCloseable {
     private final BridgeClient.Subscription projectionListener;
     private volatile Set<String> packages;
     private volatile boolean nativeEnabled;
-    private volatile String nativeSession="";
     private boolean postingGranted;
     private volatile boolean closed;
     private final NotificationSyncRuntime.Grants grants=new NotificationSyncRuntime.Grants(){
         @Override public boolean allows(String peer,String session,String operation){
             JSONObject projection=client.projection();
-            return !closed&&(!session.equals(nativeSession)||nativeEnabled)
+            return !closed&&nativeEnabled
                     &&NotificationSyncBridgeTransport.supports(projection,operation)
                     &&peer.equals(projection.optString("id"))&&session.equals(projection.optString("session_id"));
         }
         @Override public boolean allowsPackage(String pkg){return !closed&&packages.contains(pkg);}
     };
     private final Runnable monitor=new Runnable(){@Override public void run(){if(!closed){refresh();main.postDelayed(this,1000);}}};
-    SystemNotificationBridge(Context context){
+    SystemNotificationBridge(Context context,BridgeClient client){
+        this.client=client;
         settings=context.getSharedPreferences("notification_policy",Context.MODE_PRIVATE);
         packages=Set.copyOf(settings.getStringSet("packages",Set.of()));
         nativeEnabled=settings.getBoolean("native_enabled",false);
         runtime=new NotificationSyncRuntime(context,new NotificationSyncBridgeTransport(client,()->!closed),grants);
         endpoint=new NotificationSyncEndpoint(runtime,grants);
-        client.attach(context);
+
         // Capabilities are negotiated symmetrically. A device can send without posting permission
         // or receive without listener access. The runtime checks the permission for each effect.
         registrations=List.of(client.registerExecutor("notification_post",endpoint),
-                client.registerExecutor("notification_remove",endpoint),client.registerExecutor("notification_action",endpoint));
+                client.registerExecutor("notification_remove",endpoint));
         projectionListener=client.addProjectionListener(value->{
             endpoint.onProjection(value==null?"":value.optString("id"),value==null?"":value.optString("session_id"));
         });
@@ -61,7 +61,6 @@ final class SystemNotificationBridge implements AutoCloseable {
     }
     void addNativeGrants(JSONObject confirmation) throws org.json.JSONException {
         if(!nativeEnabled)return;
-        nativeSession=confirmation.getString("session");
         confirmation.getJSONArray("operations").put("notification_post").put("notification_remove").put("notification_action");
     }
     synchronized JSONObject configure(JSONArray selected, Object nativeSetting) throws org.json.JSONException {
@@ -86,6 +85,6 @@ final class SystemNotificationBridge implements AutoCloseable {
         if(closed)return;closed=true;main.removeCallbacks(monitor);
         projectionListener.close();
         for(var subscription:registrations)subscription.close();
-        endpoint.close();runtime.close();client.close();
+        endpoint.close();runtime.close();
     }
 }

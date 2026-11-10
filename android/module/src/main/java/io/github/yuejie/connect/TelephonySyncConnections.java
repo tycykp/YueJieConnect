@@ -53,7 +53,7 @@ final class TelephonySyncConnections implements AutoCloseable {
     }
     void attach(ConnectionService source) { main.post(() -> {
         if (closed || ending) return;
-        if (service != null && service != source) { closeOnMain(); return; }
+        if (service != null && service != source) detachOnMain();
         service = source; for (Connection connection : source.getAllConnections()) add(connection);
     }); }
     void added(ConnectionService source, Connection connection) { main.post(() -> {
@@ -66,7 +66,11 @@ final class TelephonySyncConnections implements AutoCloseable {
         String id = connections.remove(connection); if (id == null) return;
         activeAudio.remove(id); emitted.remove(id); controller.observe(id, State.ENDED); emit(controller.snapshot(id)); controller.remove(id);
     }
-    void destroyed(ConnectionService source) { main.post(() -> { if (source == service) closeOnMain(); }); }
+    void destroyed(ConnectionService source) { main.post(() -> { if (source == service) detachOnMain(); }); }
+    private void detachOnMain() {
+        for (Connection connection : connections.keySet().toArray(Connection[]::new)) removeOnMain(connection);
+        service = null;
+    }
     CompletableFuture<Result> execute(Command command, long deadlineElapsedMs) {
         CompletableFuture<Result> result = new CompletableFuture<>();
         main.post(() -> controller.execute(command, deadlineElapsedMs - SystemClock.elapsedRealtime()).whenComplete((value, error) -> {
@@ -85,7 +89,7 @@ final class TelephonySyncConnections implements AutoCloseable {
     private void add(Connection connection) {
         if (closed || ending || connection == null || !nativeConnectionType.isInstance(connection) || connections.containsKey(connection)) return;
         State initial = state(connection.getState()); if (initial == null) return;
-        try { connections.put(connection, controller.add(action -> invoke(connection, action), initial)); update(connection); }
+        try { connections.put(connection, controller.add(action -> invoke(connection, action), initial, callerAddress(connection))); update(connection); }
         catch (IllegalStateException capacity) { /* Bounded call table; never substitute a different call. */ }
     }
     private void update(Connection connection) {
@@ -93,11 +97,18 @@ final class TelephonySyncConnections implements AutoCloseable {
         State state = state(connection.getState());
         if (state == null || closed || ending) { activeAudio.remove(id); return; }
         if (state == State.ACTIVE && connection.getVideoState() == VideoProfile.STATE_AUDIO_ONLY) activeAudio.add(id); else activeAudio.remove(id);
-        Snapshot before = controller.snapshot(id); controller.observe(id, state); Snapshot after = controller.snapshot(id);
+        Snapshot before = controller.snapshot(id); controller.observe(id, state, callerAddress(connection)); Snapshot after = controller.snapshot(id);
         if (!emitted.contains(id) || !java.util.Objects.equals(before, after)) emit(after);
         emitted.add(id);
     }
     private final Set<String> emitted = new java.util.HashSet<>();
+    private static String callerAddress(Connection connection) {
+        android.net.Uri address = connection.getAddress();
+        // Telecom PRESENTATION_ALLOWED=1. Never export restricted/private numbers.
+        if (connection.getAddressPresentation() != 1 || address == null || !"tel".equals(address.getScheme())) return "";
+        String value = address.getSchemeSpecificPart();
+        return value != null && value.matches("\\+?[0-9]{1,32}") ? value : "";
+    }
     private void emit(Snapshot snapshot) {
         if (snapshot != null && policy.observes(session)) try { events.accept(snapshot); } catch (RuntimeException ignored) { }
     }

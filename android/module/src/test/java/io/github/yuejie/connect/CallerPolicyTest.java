@@ -2,6 +2,29 @@ package io.github.yuejie.connect;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 public class CallerPolicyTest {
+    @Test public void notificationSourceAndSinkPrivilegesStaySeparate() {
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.SYSTEM_UI,"notification_action"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.SYSTEM_UI,"notification_post"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.SYSTEM_UI,"screen_control"));
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.XIAOMI,"notification_post"));
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.OPLUS,"notification_remove"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.OPLUS,"notification_action"));
+        assertEquals(0,CallerPolicy.source(CallerPolicy.SYSTEM_UI,179902,"17.99.02","fake",1));
+    }
+
+    @Test public void phoneIdentityIsPinnedButSharedUidStillRequiresProcessProof() {
+        String mi = "c9009d01ebf9f5d0302bc71b2fe9aa9a47a432bba17308a3111b75d7b2149025";
+        String op = "e49802409584ce53152a9000820a51e4fa8a723b7bcc263e335240acf100bf9e";
+        assertEquals(1, CallerPolicy.phonePackage(37, "17", mi));
+        assertEquals(2, CallerPolicy.phonePackage(17007005, "17.7.5", op));
+        assertEquals(0, CallerPolicy.phonePackage(37, "17", op));
+        assertEquals(0, CallerPolicy.phonePackage(17007006, "17.7.5", op));
+        assertEquals(0, CallerPolicy.source(CallerPolicy.PHONE, 37, "17", mi, 1));
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.PHONE, "telephony_call_control"));
+        org.junit.Assert.assertTrue(CallerPolicy.executorAllowed(CallerPolicy.PHONE, "telephony_call_state"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.PHONE, "telephony_sms_status"));
+        org.junit.Assert.assertFalse(CallerPolicy.executorAllowed(CallerPolicy.PHONE, "screen_control"));
+    }
     @Test public void nativePairingHostIsPinnedAndCannotExecuteBusinessOperations(){
         String signer="e49802409584ce53152a9000820a51e4fa8a723b7bcc263e335240acf100bf9e";
         assertEquals(2,CallerPolicy.source(CallerPolicy.OPLUS_PAIRING,170060016,"17.6.16",signer,1));

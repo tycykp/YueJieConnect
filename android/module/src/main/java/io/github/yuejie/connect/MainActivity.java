@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
             android.widget.CheckBox uriConsent=new android.widget.CheckBox(this);uriConsent.setText("文件剪贴板（在对端粘贴时传输）");consent.addView(uriConsent);
             android.widget.CheckBox relayConsent=new android.widget.CheckBox(this);relayConsent.setText("应用接力");consent.addView(relayConsent);
             android.widget.CheckBox screenConsent=new android.widget.CheckBox(this);screenConsent.setText("投屏与远程触控（每次仍需原厂录屏许可）");consent.addView(screenConsent);
+            android.widget.CheckBox callConsent=new android.widget.CheckBox(this);callConsent.setText("通话状态、来电号码与接听、挂断控制（声音仍在手机）");consent.addView(callConsent);
             android.widget.CheckBox mediaConsent=new android.widget.CheckBox(this);mediaConsent.setText("投屏期间的媒体与音量控制");consent.addView(mediaConsent);
             android.widget.CheckBox cameraConsent=new android.widget.CheckBox(this);cameraConsent.setText("相机共享（每次单独确认）");consent.addView(cameraConsent);
             android.widget.CheckBox networkConsent=new android.widget.CheckBox(this);networkConsent.setText("网络共享（允许 Wi-Fi 和移动数据，可能消耗套餐流量）");consent.addView(networkConsent);
@@ -79,7 +80,7 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle(R.string.compare_title)
                 .setView(consentScroll)
                 .setNegativeButton(android.R.string.cancel,null)
-                .setPositiveButton(R.string.confirm_yes,(d,w)->{try{org.json.JSONArray operations=new org.json.JSONArray().put("device_profile");if(batteryConsent.isChecked())operations.put("battery_status");if(clipboardConsent.isChecked())operations.put("clipboard_write");if(richClipboardConsent.isChecked())operations.put("clipboard_rich_write");if(finderConsent.isChecked())operations.put("device_finder");if(notificationConsent.isChecked())operations.put("notification_post").put("notification_remove");if(notificationActionConsent.isChecked())operations.put("notification_action");if(fileConsent.isChecked()||uriConsent.isChecked())operations.put("file_transfer");if(uriConsent.isChecked())operations.put("clipboard_uri_write");if(relayConsent.isChecked())operations.put("app_relay");if(screenConsent.isChecked())operations.put("screen_video").put("screen_input");if(mediaConsent.isChecked())operations.put("media_control");if(cameraConsent.isChecked())operations.put("camera_video");if(networkConsent.isChecked())operations.put("network_share");request(new JSONObject().put("op","bridge_confirm").put("session",selectedSession).put("operations",operations).toString(),false);}catch(org.json.JSONException ignored){}}).show();
+                .setPositiveButton(R.string.confirm_yes,(d,w)->{try{org.json.JSONArray operations=new org.json.JSONArray().put("device_profile");if(batteryConsent.isChecked())operations.put("battery_status");if(clipboardConsent.isChecked())operations.put("clipboard_write");if(richClipboardConsent.isChecked())operations.put("clipboard_rich_write");if(finderConsent.isChecked())operations.put("device_finder");if(notificationConsent.isChecked())operations.put("notification_post").put("notification_remove");if(notificationActionConsent.isChecked())operations.put("notification_action");if(fileConsent.isChecked()||uriConsent.isChecked())operations.put("file_transfer");if(uriConsent.isChecked())operations.put("clipboard_uri_write");if(relayConsent.isChecked())operations.put("app_relay");if(screenConsent.isChecked())operations.put("screen_video").put("screen_input");if(mediaConsent.isChecked())operations.put("media_control");if(cameraConsent.isChecked())operations.put("camera_video");if(callConsent.isChecked())operations.put("telephony_call_state").put("telephony_call_control");if(networkConsent.isChecked())operations.put("network_share");request(new JSONObject().put("op","bridge_confirm").put("session",selectedSession).put("operations",operations).toString(),false);}catch(org.json.JSONException ignored){}}).show();
         });confirm.setEnabled(false);
         query=button(layout,R.string.query_peer,()->request("{\"op\":\"bridge_query_peer\"}",false));query.setEnabled(false);
         shareStart=new Button(this);shareStart.setEnabled(false);shareStart.setText("开始共享手机当前网络（Wi-Fi / 移动数据）");
@@ -89,9 +90,13 @@ public final class MainActivity extends Activity {
         button(layout,R.string.disconnect,()->request("{\"op\":\"bridge_stop\"}",false));
         button(layout,R.string.status,()->request("{\"op\":\"bridge_status\"}",true));
         Button notificationApps=new Button(this);notificationApps.setText("选择同步通知的应用");notificationApps.setOnClickListener(v->chooseNotificationApps());layout.addView(notificationApps);
-        Button notificationAccess=new Button(this);notificationAccess.setText("授予通知访问权限");notificationAccess.setOnClickListener(v->startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                .putExtra(android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,new ComponentName(this,NotificationSyncListener.class).flattenToString())));layout.addView(notificationAccess);
-        Button notificationPosting=new Button(this);notificationPosting.setText("允许显示同步通知");notificationPosting.setOnClickListener(v->requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},2));layout.addView(notificationPosting);
+        Button notificationPosting=new Button(this);notificationPosting.setText("原厂互联通知设置");notificationPosting.setOnClickListener(v->{
+            for(String pkg:new String[]{CallerPolicy.XIAOMI,CallerPolicy.OPLUS})try{
+                int uid=getPackageManager().getApplicationInfo(pkg,0).uid;
+                if(CallerVerifier.verify(getPackageManager(),uid)==0)continue;
+                startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,pkg));break;
+            }catch(PackageManager.NameNotFoundException ignored){}
+        });layout.addView(notificationPosting);
         output=new TextView(this);output.setTextIsSelectable(true);output.setText(R.string.connecting);layout.addView(output);
         operationResult=new TextView(this);operationResult.setTextIsSelectable(true);layout.addView(operationResult);
         ScrollView scroll=new ScrollView(this);scroll.addView(layout);setContentView(scroll);

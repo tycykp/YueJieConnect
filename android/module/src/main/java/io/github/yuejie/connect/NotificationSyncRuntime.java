@@ -61,6 +61,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
     private final Transport transport;
     private final Grants grants;
     private final SourceAccess nativeSource;
+    private android.content.BroadcastReceiver actionReceiver;
     private final ScheduledThreadPoolExecutor worker = new ScheduledThreadPoolExecutor(1);
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, Source> sources = new HashMap<>();
@@ -95,13 +96,27 @@ final class NotificationSyncRuntime implements AutoCloseable {
         this(context, transport, grants, null);
     }
     NotificationSyncRuntime(Context context, Transport transport, Grants grants, SourceAccess nativeSource) {
-        this.context = context.getApplicationContext(); this.transport = transport; this.grants = grants;
+        Context application=context.getApplicationContext();
+        this.context = application==null?context:application; this.transport = transport; this.grants = grants;
         this.nativeSource = nativeSource;
         manager = this.context.getSystemService(NotificationManager.class);
         if (manager == null || transport == null || grants == null) throw new IllegalArgumentException("notification_unavailable");
         if (nativeSource == null && active != null) throw new IllegalStateException("notification_already_started");
         worker.setRemoveOnCancelPolicy(true);
-        if (nativeSource == null) active = this;
+        if (nativeSource == null) {
+            active = this;
+            if (!"io.github.yuejie.connect".equals(this.context.getPackageName())) {
+                actionReceiver = new android.content.BroadcastReceiver() {
+                    @Override public void onReceive(Context host, Intent intent) {
+                        var pending = goAsync();
+                        tapped(intent).whenComplete((ignored, error) -> pending.finish());
+                    }
+                };
+                android.content.IntentFilter actions=new android.content.IntentFilter("io.github.yuejie.connect.NOTIFICATION_ACTION");
+                actions.addDataScheme("yj-notification");
+                this.context.registerReceiver(actionReceiver, actions, Context.RECEIVER_NOT_EXPORTED);
+            }
+        }
         // Only remove mirrors owned by this endpoint, including leftovers after process death.
         if (nativeSource == null) worker.execute(() -> {
             for (StatusBarNotification n : manager.getActiveNotifications())
@@ -325,7 +340,8 @@ final class NotificationSyncRuntime implements AutoCloseable {
     private PendingIntent tapIntent(NotificationSyncCodec.Frame f, String button, boolean reply) {
         String token = UUID.randomUUID().toString();
         taps.put(token, new Tap(f.key(), f.revision(), button, reply, generation));
-        Intent intent = new Intent(context, NotificationSyncActionReceiver.class).setAction("io.github.yuejie.connect.NOTIFICATION_ACTION")
+        Intent intent = (actionReceiver == null ? new Intent(context, NotificationSyncActionReceiver.class)
+                : new Intent().setPackage(context.getPackageName())).setAction("io.github.yuejie.connect.NOTIFICATION_ACTION")
                 .setData(Uri.parse("yj-notification://action/" + token));
         PendingIntent pi = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT
                 | (reply ? PendingIntent.FLAG_MUTABLE : PendingIntent.FLAG_IMMUTABLE));
@@ -587,6 +603,7 @@ final class NotificationSyncRuntime implements AutoCloseable {
     private static IllegalStateException failure(String code) { return new IllegalStateException("notification_" + code); }
     @Override public void close() {
         if (closed) return; closed = true; if (active == this) active = null;
+        if(actionReceiver!=null){context.unregisterReceiver(actionReceiver);actionReceiver=null;}
         worker.execute(() -> { reset(); peer = ""; session = ""; worker.shutdown(); });
     }
 }

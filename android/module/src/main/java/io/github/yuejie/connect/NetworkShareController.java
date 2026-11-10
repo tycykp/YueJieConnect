@@ -127,11 +127,14 @@ final class NetworkShareController {
     CompletableFuture<Status> stop() {
         if (worker.isShutdown()) return CompletableFuture.completedFuture(status);
         CompletableFuture<Status> result = new CompletableFuture<>();
-        enqueue(result, () -> {
+        try { worker.execute(() -> {
             if (status.phase() == Phase.STOPPED || status.phase() == Phase.FAILED) { result.complete(status); return; }
             if (pendingStop != null && !pendingStop.isDone()) { pipe(pendingStop, result); return; }
             pendingStop = result; stopNow(null);
-        });
+        }); } catch (java.util.concurrent.RejectedExecutionException closedDuringSubmit) {
+            // close() may finish restoration between the shutdown check and submission.
+            result.complete(status);
+        }
         return result;
     }
     void sessionLost() { dispatch(() -> {
@@ -158,7 +161,14 @@ final class NetworkShareController {
                 } else if (passive) publish(new Status(target, view.ticket().request(), view.phase(), view.upstream(), view.error()));
                 return;
             }
-            if (!ended || view.phase() == Phase.STOPPED || view.phase() == Phase.FAILED) return;
+            if (view.phase() == Phase.STOPPED || view.phase() == Phase.FAILED) return;
+            if (!ended) {
+                // A native resource in the newly authenticated session supersedes an old
+                // coordinator's recovery view, never a late callback from the old session.
+                if (Objects.equals(status.target(),target) || !ready(target)) return;
+                if(pendingStart!=null&&!pendingStart.isDone())pendingStart.completeExceptionally(new IllegalStateException("session_replaced"));
+                if(pendingStop!=null&&!pendingStop.isDone())pendingStop.completeExceptionally(new IllegalStateException("session_replaced"));
+            }
             passive = true; localProvider = view.role() == Role.PROVIDER;
             localJoinRequested = true; remoteStartRequested = true; stopping = false; renewing = false;
             publish(new Status(target, view.ticket().request(), view.phase(), view.upstream(), view.error()));
@@ -221,6 +231,7 @@ final class NetworkShareController {
         return matches(v, target, request, role, Phase.STOPPED) || matches(v, target, request, role, Phase.FAILED);
     }
     private void publish(Status value) {
+        if(Objects.equals(status,value))return;
         status = value;
         try { listener.accept(value); } catch (RuntimeException ignored) { /* UI listener cannot abandon cleanup. */ }
     }

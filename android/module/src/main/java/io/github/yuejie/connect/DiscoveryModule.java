@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONObject;
 
-/** API 102 no-arg entry. No legacy Xposed APIs and no native loading in host processes. */
+/** API 102 no-arg entry. No legacy Xposed APIs; the pinned OEM host owns the native core. */
 public final class DiscoveryModule extends XposedModule {
     private static final String TAG="YueJie";
     private BridgeClient client;
@@ -26,11 +26,15 @@ public final class DiscoveryModule extends XposedModule {
     private DeviceFinderBinding finderBinding;
     private NetworkShareRuntime networkRuntime;
     private XiaomiControlCenterNetwork controlCenterNetwork;
+    private NativeNotificationSource notificationSource;
+    private NativeHostLease nativeHostLease;
     private AppRelayRuntime relayRuntime;
     private ScreenCastLinkerRuntime screenLinker;
     private ScreenCastSourceRuntime screenSource;
     private ScreenCastSinkRuntime screenSink;
+    private TelephonySyncRuntime telephonyRuntime;
     @Override public void onModuleLoaded(ModuleLoadedParam param) {
+        NativeLibrary.configure(getModuleApplicationInfo().sourceDir);
         ScreenCastLog.module=this;
         client=new BridgeClient();
         processName=param.getProcessName();
@@ -38,10 +42,54 @@ public final class DiscoveryModule extends XposedModule {
     }
     @Override public void onPackageReady(PackageReadyParam param) {
         String pkg=param.getPackageName();
+        if (CallerPolicy.PHONE.equals(pkg) && pkg.equals(processName)) {
+            if (installed || getApiVersion() < 102 || !param.isFirstPackage()) return;
+            installed = true;
+            try {
+                ClassLoader loader = param.getClassLoader();
+                handles.add(hook(Application.class.getDeclaredMethod("attach", Context.class)).setId("yj.phone.context").intercept(chain -> {
+                    Object result = chain.proceed(); Context context = (Context) chain.getArg(0);
+                    int source = CallerVerifier.phoneSource(context.getPackageManager());
+                    if (source == 0 || !pkg.equals(context.getPackageName()) || CallerVerifier.phoneUid(context.getPackageManager()) != Process.myUid()) return result;
+                    client.attach(context);
+                    try {
+                        if (source == 1) handles.add(XiaomiTelephonyProcessAdapter.install(this, loader,
+                                host -> VendorProcessProof.endpoint(() -> host, () -> true)));
+                        else handles.add(OplusTelephonyProcessAdapter.install(this, loader,
+                                host -> VendorProcessProof.endpoint(() -> host, () -> true)));
+                        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                            try { telephonyRuntime = new TelephonySyncRuntime(this, client, loader, source); }
+                            catch (Exception failure) { android.util.Log.e("YueJieCall", "runtime_install_failed", failure); }
+                        });
+                    } catch (Exception failure) { android.util.Log.e("YueJieCall", "proof_install_failed", failure); }
+                    return result;
+                }));
+            } catch (Exception failure) { log(Log.ERROR, TAG, "phone_context_unavailable"); }
+            return;
+        }
+        if(CallerPolicy.XIAOMI.equals(pkg)&&pkg.equals(processName)){
+            if(installed||getApiVersion()<102||!param.isFirstPackage())return;installed=true;
+            try{handles.add(hook(Application.class.getDeclaredMethod("attach",Context.class)).setId("yj.native.core.context").intercept(chain->{
+                Object result=chain.proceed();Context context=(Context)chain.getArg(0);
+                if(!NativeBridgeHost.hostCaller(context.getPackageManager(),Process.myUid()))return result;
+                client.attach(context);
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                    try{NativeBridgeHost.start(context,client);}
+                    catch(RuntimeException|LinkageError failure){log(Log.ERROR,TAG,"native_core_start_failed",failure);}
+                });
+                return result;
+            }));}catch(ReflectiveOperationException failure){log(Log.ERROR,TAG,"native_core_context_unavailable");}
+            return;
+        }
         if(NetworkShareSurface.SYSTEM_UI.equals(pkg)&&pkg.equals(processName)){
             if(installed||getApiVersion()<102||!param.isFirstPackage())return;installed=true;
             try{handles.add(hook(Application.class.getDeclaredMethod("attach",Context.class)).setId("yj.systemui.context").intercept(chain->{
                 Object result=chain.proceed();Context context=(Context)chain.getArg(0);
+                if(CallerVerifier.systemUiUid(context.getPackageManager())!=Process.myUid())return result;
+                client.attach(context);
+                nativeHostLease=new NativeHostLease(context);
+                try{notificationSource=new NativeNotificationSource(this,context,param.getClassLoader(),client);}
+                catch(Exception failure){android.util.Log.e("YueJieNotification","native_source_install_failed",failure);}
                 try{controlCenterNetwork=new XiaomiControlCenterNetwork(this,context,param.getClassLoader());}
                 catch(Exception failure){android.util.Log.e("YueJieNetworkUi","control_center_install_failed",failure);}
                 return result;
@@ -79,6 +127,10 @@ public final class DiscoveryModule extends XposedModule {
                     if(pkg.equals(context.getPackageName())) {
                         allowed=mirror?CallerVerifier.mirrorUid(context.getPackageManager())==Process.myUid():CallerVerifier.verify(context.getPackageManager(),Process.myUid())==expected;
                         if(allowed) {
+                            new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+                                try{NativeBridgeHost.start(context,client);}
+                                catch(RuntimeException|LinkageError failure){log(Log.ERROR,TAG,"native_core_start_failed",failure);}
+                            });
                             client.attach(context);
                             if("com.oplus.linker:service".equals(processName))
                                 new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{

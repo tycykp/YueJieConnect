@@ -38,10 +38,8 @@ final class OplusNfcTap {
                             .putExtra("target", target), null, new BroadcastReceiver() {
                         @Override public void onReceive(Context ignored, Intent result) {
                             if (getResultCode() == ActivityResult.HANDLED) return;
-                            tagIntent.setClassName(HANDLER_PACKAGE, NfcTapActivity.class.getName())
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            try { context.startActivity(tagIntent); }
-                            catch (RuntimeException unavailable) { Log.w(NfcTapActivity.LOG, "tap_dispatch_unavailable"); }
+                            context.sendBroadcast(new Intent(NativeNfcCast.ACTION).setPackage(CallerPolicy.OPLUS)
+                                    .putExtra("target", target));
                         }
                     }, null, 0, null, null);
                     Log.i(NfcTapActivity.LOG, "coloros_direct_dispatch");
@@ -63,10 +61,7 @@ final class OplusNfcTap {
     }
 
     private static boolean matches(List<?> handlers, Intent intent) {
-        if (handlers == null || handlers.size() != 1 || !(handlers.get(0) instanceof ResolveInfo handler)
-                || handler.activityInfo == null || !HANDLER_PACKAGE.equals(handler.activityInfo.packageName)
-                || !NfcTapActivity.class.getName().equals(handler.activityInfo.name)
-                || intent == null || !NfcAdapter.ACTION_NDEF_DISCOVERED.equals(intent.getAction())) return false;
+        if (intent == null || !NfcAdapter.ACTION_NDEF_DISCOVERED.equals(intent.getAction())) return false;
         try { return XiaomiPadNfcTag.target(intent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag.class)) != null; }
         catch (RuntimeException invalid) { return false; }
     }

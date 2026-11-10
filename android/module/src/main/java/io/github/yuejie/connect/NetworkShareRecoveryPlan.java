@@ -24,7 +24,9 @@ final class NetworkShareRecoveryPlan {
         boolean settled = progress.recovered() ? progress.persistedSettled() : progress.startSettled();
         boolean stopped = progress.startFailed() || progress.stopAcknowledged() && progress.observedAfterStop();
         boolean restored = snapshot.received() && snapshot.identitiesKnown() && settled && !snapshot.owned()
-                && (progress.recovered() && !progress.stopRequested() || stopped) && snapshot.originalWifiEnabled();
+                && (progress.recovered() && !progress.stopRequested() || stopped);
+        // We own the synthetic AP, not the user's Wi-Fi switch. A user switching
+        // to cellular must not leave a verified-removed AP permanently in recovery.
         return new Provider(stop, restored);
     }
     static Consumer consumer(NetworkShareRecovery.Entry entry, List<Config> configs, int connected, String connectedSsid) {

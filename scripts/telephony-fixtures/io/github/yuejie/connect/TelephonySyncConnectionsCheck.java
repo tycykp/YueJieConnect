@@ -67,6 +67,20 @@ public final class TelephonySyncConnectionsCheck {
         f=new Fixture(); for(int i=0;i<20;i++)f.service.live.add(new TelephonyConnection()); Handler.advance(100);
         check(f.events.size()==16,"bounded native call collection does not substitute a selected call");
 
-        System.out.println("PASS: 8 production ConnectionService wrapper scenarios; isolated host native/Looper doubles only; no device/radio/audio");
+        f = new Fixture(); id = f.latest().call();
+        f.source.destroyed(f.service); Handler.runReady();
+        check(f.latest().state() == State.ENDED, "service destruction publishes terminal state");
+        ConnectionService replacement = new ConnectionService();
+        replacement.live.add(new TelephonyConnection());
+        f.source.attach(replacement); Handler.runReady();
+        check(f.latest().state() == State.RINGING && !id.equals(f.latest().call()), "next call service works in the same session with a fresh call id");
+
+        f = new Fixture();
+        f.nativeCall.address = android.net.Uri.fromParts("tel", "+12025550123", null);
+        Handler.advance(100);
+        check("+12025550123".equals(f.latest().address()), "late allowed caller address is exported");
+        long revision = f.latest().revision(); f.nativeCall.presentation = 2; Handler.advance(100);
+        check(f.latest().address().isEmpty() && f.latest().revision() > revision, "restricted caller clears display address");
+        System.out.println("PASS: 10 production ConnectionService wrapper scenarios; isolated host native/Looper doubles only; no device/radio/audio");
     }
 }

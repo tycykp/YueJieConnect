@@ -179,29 +179,50 @@ final class XiaomiTelephonyRelayAdapter {
         void cancelPending(Session source, String call, long revision) { main.post(() -> relay.cancelPending(source, call, revision)); }
         @Override public void incoming(String token) throws Exception {
             requireMain();
+            try {
             if (closed || current != this) throw new IllegalStateException("session_invalid");
             if (!Boolean.TRUE.equals(relayType.getDeclaredMethod("isRelaySide").invoke(null)))
                 throw new IllegalStateException("not_native_tablet");
             if (!"".equals(gate.invoke(null, context))) throw new IllegalStateException("native_relay_not_ready");
             Object host = manager.invoke(null);
+            if (host == null) {
+                Object controller = padInstance.invoke(null);
+                controller.getClass().getMethod("init").invoke(controller);
+                host = manager.invoke(null);
+            }
             if (host == null) throw new IllegalStateException("native_manager_missing");
             PhoneAccountHandle account = (PhoneAccountHandle) registryType.getDeclaredField("PHONE_ACCOUNT_HANDLE").get(null);
             TelecomManager telecom = context.getSystemService(TelecomManager.class);
             PhoneAccount previous = telecom.getPhoneAccount(account);
             boolean enableHere = previous == null || !previous.isEnabled();
             Lease lease = new Lease(token, this, host, account, enableHere); pending.put(token, lease);
-            if (enableHere) enable.invoke(host, true);
+            if (enableHere) {
+                // After a phone-process restart Telecom may retain the account while the
+                // OEM registry has not constructed its local PhoneAccount yet. Its enable
+                // method silently returns in that state. Initialize through the OEM API.
+                host.getClass().getMethod("createRelayPhoneAccount").invoke(host);
+                enable.invoke(host, true);
+            }
             PhoneAccount ready = telecom.getPhoneAccount(account);
             if (ready == null || !ready.isEnabled()) throw new IllegalStateException("native_account_disabled");
             Bundle extras = new Bundle(); extras.putString(TOKEN, token);
             extras.putBoolean("telecomm.EXTRA_RELAY_CALL", true);
-            // No synthetic telephone number and no Apple relay extras.
+            Snapshot snapshot = relay.incomingSnapshot(token);
+            if (snapshot != null && !snapshot.address().isEmpty()) extras.putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS,
+                    android.net.Uri.fromParts("tel", snapshot.address(), null));
+            // Unknown/restricted callers remain unknown and retain the user's blocking policy.
             telecom.addNewIncomingCall(account, extras);
+            } catch (Exception failure) {
+                android.util.Log.e("YueJieCall", "native_incoming_failed", failure);
+                throw failure;
+            }
         }
         @Override public void state(String token, Snapshot snapshot) {
             requireMain();
             Lease lease = pending.get(token);
             if (lease == null || lease.binding != this || lease.connection == null) throw new IllegalStateException("native_call_missing");
+            lease.connection.setAddress(snapshot.address().isEmpty() ? null : android.net.Uri.fromParts("tel", snapshot.address(), null),
+                    snapshot.address().isEmpty() ? TelecomManager.PRESENTATION_RESTRICTED : TelecomManager.PRESENTATION_ALLOWED);
             audioConnections.remove(snapshot.call());
             switch (snapshot.state()) {
                 case RINGING -> lease.connection.setRinging();

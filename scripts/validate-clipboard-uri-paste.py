@@ -12,6 +12,10 @@ OUT = ROOT / 'build/clipboard-validation/uri-paste-host'
 rich.OUT = OUT
 PKG = rich.PKG
 stubs = dict(rich.stubs)
+stubs['android/os/Bundle.java'] = 'package android.os;public class Bundle{}'
+stubs['android/content/res/AssetFileDescriptor.java'] = '''package android.content.res;public record AssetFileDescriptor(android.os.ParcelFileDescriptor descriptor,long offset,long length){}'''
+stubs['android/content/ClipDescription.java'] = stubs['android/content/ClipDescription.java'].replace(
+    'public long getTimestamp()', 'public static boolean compareMimeTypes(String actual,String filter){return filter.equals("*/*")||filter.equals(actual)||filter.endsWith("/*")&&actual.startsWith(filter.substring(0,filter.length()-1));}public long getTimestamp()')
 stubs['android/net/Uri.java'] = '''package android.net;public record Uri(String value){public static Uri parse(String s){return new Uri(s);}
  public String getScheme(){return value.split(":")[0];}public String getAuthority(){return value.split("://")[1].split("/")[0];}
  public java.util.List<String> getPathSegments(){String s=value.split("://")[1];int slash=s.indexOf('/');return slash<0?java.util.List.of():java.util.Arrays.asList(s.substring(slash+1).split("[?]")[0].split("/"));}
@@ -42,6 +46,10 @@ stubs['android/content/Context.java'] = '''package android.content;public class 
  public String getPackageName(){return pkg;}public <T>T getSystemService(Class<T> t){return t.cast(cm);}public android.content.pm.PackageManager getPackageManager(){return pm;}
  public ContentResolver getContentResolver(){return resolver;}public int checkUriPermission(android.net.Uri u,int pid,int uid,int flags){lastGrantUid=uid;lastGrantPid=pid;return grant&&cm.clip!=null&&u.equals(cm.clip.getItemAt(0).getUri())?0:-1;}}'''
 stubs['android/content/ContentProvider.java'] = '''package android.content;public class ContentProvider{public static String callingPackage="com.android.fileexplorer";public int originals;
+ public android.content.res.AssetFileDescriptor openAssetFile(android.net.Uri u,String m){originals++;return null;}
+ public android.content.res.AssetFileDescriptor openAssetFile(android.net.Uri u,String m,android.os.CancellationSignal c){originals++;return null;}
+ public android.content.res.AssetFileDescriptor openTypedAssetFile(android.net.Uri u,String m,android.os.Bundle b){originals++;return null;}
+ public android.content.res.AssetFileDescriptor openTypedAssetFile(android.net.Uri u,String m,android.os.Bundle b,android.os.CancellationSignal c){originals++;return null;}
  public String getCallingPackage(){return callingPackage;}public android.os.ParcelFileDescriptor openFile(android.net.Uri u,String m){originals++;return null;}
  public android.os.ParcelFileDescriptor openFile(android.net.Uri u,String m,android.os.CancellationSignal c){originals++;return null;}
  public String getType(android.net.Uri u){originals++;return "native-unrelated";}
@@ -124,7 +132,17 @@ public class ClipboardUriPasteHarness{
     check(f.context.resolver.cleared&&!Binder.cleared.get(),"private destination read clears and restores caller identity");
     var repeat=open(f.provider,u,"r",null);waitFor(repeat::isDone);check(Arrays.equals(repeat.join().bytes,BYTES)&&f.receives==1,"same native target repeated open reuses one decision");
     Binder.uid=30002;var other=open(f.provider,u,"r",null);waitFor(other::isDone);check(Arrays.equals(other.join().bytes,BYTES)&&f.receives==1,"another granted app can paste the same verified bytes");Binder.uid=30001;
-    f.context.resolver.data.put(f.local,new byte[]{9});denied(open(f.provider,u,"r",null));check(f.context.resolver.opens==3,"post-commit mutation never leaks corrupted PFD");
+    for(boolean cancellation:new boolean[]{false,true})for(boolean typed:new boolean[]{false,true}){
+     Class<?>[] types=typed?(cancellation?new Class<?>[]{Uri.class,String.class,Bundle.class,CancellationSignal.class}:new Class<?>[]{Uri.class,String.class,Bundle.class}):
+       (cancellation?new Class<?>[]{Uri.class,String.class,CancellationSignal.class}:new Class<?>[]{Uri.class,String.class});
+     Object[] values=typed?(cancellation?new Object[]{u,"application/*",null,null}:new Object[]{u,"*/*",null}):
+       (cancellation?new Object[]{u,"r",null}:new Object[]{u,"r"});
+     var asset=CompletableFuture.supplyAsync(()->{try{return (android.content.res.AssetFileDescriptor)call(f.provider,typed?"openTypedAssetFile":"openAssetFile",types,values);}catch(Throwable t){throw new CompletionException(t);}});
+     waitFor(asset::isDone);check(Arrays.equals(asset.join().descriptor().bytes,BYTES)&&asset.join().length()==BYTES.length,"asset read serves verified bytes even without OEM openFile delegation");
+    }
+    var wrongType=CompletableFuture.supplyAsync(()->{try{return call(f.provider,"openTypedAssetFile",new Class<?>[]{Uri.class,String.class,Bundle.class},u,"image/*",null);}catch(Throwable t){throw new CompletionException(t);}});
+    denied(wrongType);check(f.receives==1,"asset reads retain one receive decision");
+    f.context.resolver.data.put(f.local,new byte[]{9});denied(open(f.provider,u,"r",null));check(f.context.resolver.opens==7,"post-commit mutation never leaks corrupted PFD");
     if(brand==1)com.xiaomi.mirror.provider.RemoteProvider.allow=true;
    }
    try(var f=new Fixture(brand)){

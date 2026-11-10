@@ -42,6 +42,9 @@ final class NetworkShareBinding implements AutoCloseable {
     }
     NetworkShareEndpoint endpoint() { return endpoint; }
     NetworkShareController controller() { return controller; }
+    void refreshNativeStatus() {
+        if(!closed)endpoint.status().thenAccept(this::observeLocal);
+    }
 
     /** Call from projection/session/grant callbacks, including removal. New pairing does not adopt an old share. */
     synchronized void sessionChanged() {

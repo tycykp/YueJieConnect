@@ -101,6 +101,7 @@ final class TelephonySyncRelay implements AutoCloseable {
         if (clock.getAsLong() >= e.deadline) { terminate(e, "creation_timeout"); return false; }
         return true;
     }
+    synchronized Snapshot incomingSnapshot(String token) { Entry e = find(token); return e == null ? null : e.snapshot; }
     synchronized boolean nativeCreated(String token) {
         Entry e = find(token);
         if (!canCreate(token)) return false;
@@ -132,9 +133,10 @@ final class TelephonySyncRelay implements AutoCloseable {
         if (clock.getAsLong() >= e.commandDeadline || !policy.allows(session, command.action())) return;
         if (failure != null || result == null || !command.request().equals(result.request())
                 || !command.call().equals(result.call()) || !"observed".equals(result.code())) return;
-        Snapshot observed = result.observed();
-        if (!valid(observed) || !command.call().equals(observed.call()) || observed.revision() <= command.revision()
-                || !reached(command.action(), observed.state())) return;
+        Snapshot returned = result.observed();
+        if (!valid(returned) || !command.call().equals(returned.call()) || returned.revision() <= command.revision()
+                || !reached(command.action(), returned.state())) return;
+        Snapshot observed = new Snapshot(returned.call(), returned.revision(), returned.state(), e.snapshot.address());
         accept(session, observed, COMMAND_TIMEOUT).thenAccept(receipt -> {
             if (("native_applied".equals(receipt.code()) || "native_created".equals(receipt.code()))
                     && receipt.call().equals(command.call()) && receipt.revision() == observed.revision())

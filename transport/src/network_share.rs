@@ -15,7 +15,7 @@ fn credentials(v: &Value) -> bool {
 }
 pub fn valid(v: &Value) -> bool {
     match text(v,"action") {
-        "availability" => exact(v,&["action"]),
+        "availability" | "prepare_control" => exact(v,&["action"]),
         "start" | "join" => {
             let keys: &[&str] = if v["action"] == "start" { &["action","share_id","upstream","allow_metered"] }
                 else { &["action","share_id","upstream","allow_metered","ssid","passphrase"] };
@@ -28,6 +28,7 @@ pub fn valid(v: &Value) -> bool {
     }
 }
 pub fn receipt(v: &Value) -> bool {
+    if exact(v,&["ticket"]) { return hex(text(v,"ticket"),64); }
     if exact(v,&["provider","consumer","upstream","metered","error"]) {
         return v["provider"].is_boolean() && v["consumer"].is_boolean() && v["metered"].is_boolean()
             && matches!(text(v,"upstream"),"none"|"wifi"|"cellular") && error(v);
@@ -41,6 +42,7 @@ fn error(v: &Value) -> bool { v["error"].as_str().is_some_and(|s| s.len()<=256 &
 pub fn matches(p: &Value, r: &Value) -> bool {
     if !valid(p) || !receipt(r) { return false; }
     match text(p,"action") {
+        "prepare_control" => r.get("ticket").is_some(),
         "availability" => r.get("provider").is_some(),
         "start" => r.get("ssid").is_some() && p["share_id"]==r["share_id"] && p["upstream"]==r["upstream"],
         "join" | "confirm" | "renew" => p["share_id"]==r["share_id"] && r["phase"]=="active" && r["error"]==""
@@ -53,6 +55,14 @@ pub fn matches(p: &Value, r: &Value) -> bool {
 
 #[cfg(test)] mod tests {
     use super::*; use serde_json::json;
+    #[test] fn control_handover_is_bounded_and_cannot_replace_share_receipts() {
+        let p=json!({"action":"prepare_control"});
+        let r=json!({"ticket":"ab".repeat(32)});
+        assert!(matches(&p,&r));
+        assert!(!matches(&json!({"action":"availability"}),&r));
+        assert!(!matches(&p,&json!({"ticket":"ab".repeat(31)})));
+        assert!(!valid(&json!({"action":"prepare_control","address":"untrusted"})));
+    }
     #[test] fn rejects_unconsented_cellular_and_extra_fields() {
         let mut p=json!({"action":"start","share_id":"network:1","upstream":"cellular","allow_metered":false});
         assert!(!valid(&p)); p["allow_metered"]=true.into(); assert!(valid(&p));

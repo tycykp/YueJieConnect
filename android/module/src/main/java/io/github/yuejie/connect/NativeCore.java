@@ -1,8 +1,9 @@
 package io.github.yuejie.connect;
 
 public final class NativeCore {
-    static { System.loadLibrary("yj_jni"); }
+    static { NativeLibrary.load(); }
     private NativeCore() {}
+    static void ensureLoaded() {}
     private static volatile java.util.function.Supplier<String> batteryReader;
     static void setBatteryReader(java.util.function.Supplier<String> reader) { batteryReader=reader; }
     // Called from a JNI-attached bridge worker. No vendor object crosses this boundary.
